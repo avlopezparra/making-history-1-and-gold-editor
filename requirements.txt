@@ -1,0 +1,6 @@
+# Making History 1 & Gold Editor
+pywebview>=6.0
+pyinstaller>=6.10
+shapely>=2.0
+numpy>=1.26
+Pillow>=10.0

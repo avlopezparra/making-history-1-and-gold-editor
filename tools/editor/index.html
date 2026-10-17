@@ -1,0 +1,1882 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Editor de regiones · Making History</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+  :root { --bg:#f6f5f2; --panel:#ffffff; --ink:#1d1d1f; --muted:#6b6b70; --line:#e2e0da; --accent:#c2410c; --ok:#15803d; --err:#b91c1c; --bar:#111214; --barink:#f1f1f3; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#151517; --panel:#1f1f22; --ink:#ececee; --muted:#9a9aa1; --line:#333338; --accent:#fb923c; --ok:#4ade80; --err:#f87171; } }
+  * { box-sizing: border-box; }
+  html, body { margin:0; height:100%; background:var(--bg); color:var(--ink); font:14px/1.4 system-ui, "Segoe UI", sans-serif; }
+  #app { display:grid; grid-template-columns: 1fr 330px; grid-template-rows: auto 1fr; height:100%; }
+  #bar { grid-column: 1 / 3; background:var(--bar); color:var(--barink); display:flex; flex-wrap:wrap; row-gap:4px; gap:2px; padding:4px 8px; align-items:stretch; }
+  .grp { display:flex; flex-direction:column; padding:0 6px; border-right:1px solid #2a2b30; }
+  .grp:last-child { border-right:0; }
+  .grp > span { font-size:10px; letter-spacing:.06em; text-transform:uppercase; color:#8b8c94; padding:1px 2px 3px; white-space:nowrap; }
+  .grp > div { display:flex; gap:2px; align-items:center; }
+  .tool { background:none; border:0; color:var(--barink); padding:4px 6px; border-radius:6px; cursor:pointer; font:12px system-ui, sans-serif; display:flex; flex-direction:column; align-items:center; gap:2px; min-width:48px; }
+  .tool svg { width:18px; height:18px; }
+  .tool:hover { background:#24252a; }
+  .tool.on { background:#2f6feb; }
+  .tool:disabled { opacity:.35; cursor:default; background:none; }
+  .tool.primary { background:#c2410c; }
+  .barfield { display:flex; flex-direction:column; gap:3px; font-size:12px; color:#c9cad0; padding:2px 4px; }
+  .barfield select { font:12px system-ui; max-width:150px; } .barfield input[type=range] { width:80px; }
+  select { background:#24252a; color:var(--barink); border:1px solid #3a3b42; border-radius:5px; padding:2px 4px; }
+  #map { background:#0b2a6b; }
+  #panel { background:var(--panel); border-left:1px solid var(--line); display:flex; flex-direction:column; overflow:hidden; }
+  #panel header { padding:10px 12px; border-bottom:1px solid var(--line); }
+  .scroll { overflow:auto; padding:8px 12px; flex:1; }
+  label { display:flex; gap:6px; align-items:center; cursor:pointer; margin:4px 0; }
+  input[type=search] { width:100%; font:inherit; padding:6px 8px; border:1px solid var(--line); border-radius:6px; background:var(--bg); color:var(--ink); }
+  .muted { color:var(--muted); font-size:12.5px; }
+  .card { border:1px solid var(--line); border-radius:8px; padding:8px 10px; margin:8px 0; }
+  .card h2 { font-size:13.5px; margin:0 0 4px; }
+  .tag { display:inline-block; font-size:11px; padding:0 6px; border-radius:10px; border:1px solid var(--line); margin-left:4px; color:var(--muted); font-weight:normal; }
+  .ok { color:var(--ok); } .err { color:var(--err); }
+  #report { white-space:pre-wrap; font:12px/1.4 ui-monospace, Consolas, monospace; }
+  #status { padding:6px 12px; border-top:1px solid var(--line); font-size:12px; color:var(--muted); }
+  .vx { width:9px; height:9px; margin:-4.5px 0 0 -4.5px; border:1.5px solid #111; background:#fff; border-radius:2px; }
+  .vx.junction { background:#22d3ee; width:11px; height:11px; margin:-5.5px 0 0 -5.5px; }
+  .ctr { width:16px; height:16px; margin:-8px 0 0 -8px; border-radius:50%; background:#facc15; border:2px solid #111; }
+  .mode-insertar .leaflet-container, .mode-asignar .leaflet-container, .mode-nueva .leaflet-container, .mode-recortar .leaflet-container, .mode-rellenar .leaflet-container { cursor:crosshair; }
+  .mode-pintar .leaflet-container { cursor:cell; }
+  .leaflet-tooltip.rt { background:#111214; color:#f1f1f3; border:0; border-radius:14px; padding:3px 10px; font-weight:600; box-shadow:0 2px 8px rgba(0,0,0,.35); }
+  .leaflet-tooltip.rt::before { display:none; }
+  @media (max-width: 760px) { #app { grid-template-columns: 1fr; grid-template-rows: auto 1fr 40%; } #panel { border-left:0; border-top:1px solid var(--line); } }
+  #app[data-view="view"] .grp.shape, #app[data-view="view"] .card.shape-only { display:none; }
+  #app[data-view="shape"] .grp.own { display:none; }
+  #drawBar { position:fixed; top:84px; left:50%; transform:translateX(-50%); z-index:1000; background:var(--panel); color:var(--ink);
+    border:1px solid var(--line); border-radius:10px; padding:6px 10px; display:flex; flex-wrap:wrap; gap:6px 8px; align-items:center;
+    max-width:min(560px,94vw); box-shadow:0 4px 18px rgba(0,0,0,.35); font-size:13px; }
+  #drawBar button { padding:2px 9px; border:1px solid var(--line); border-radius:6px; background:var(--bg); color:var(--ink); cursor:pointer; }
+  #drawBar #dbHelp { flex-basis:100%; }
+  html.embedded #bar { display:none; }
+  html.embedded #app { grid-template-columns: 1fr; grid-template-rows: 1fr; }
+  html.embedded #panel { display:none; }
+  html.embedded #ptBar { display:none; }
+  #ptBar { position:fixed; left:12px; bottom:30px; z-index:1100; display:flex; flex-direction:column; gap:3px; padding:6px 10px; border-radius:8px;
+    background:rgba(18,18,22,.78); border:1px solid rgba(255,255,255,.12); font-size:12.5px; color:#e8e8ec; opacity:.45; transition:opacity .15s; }
+  #ptBar:hover, #ptBar:focus-within { opacity:1; }
+  #ptBar > span { font-size:10px; letter-spacing:.06em; text-transform:uppercase; color:#8b8c94; }
+  #ptBar label { display:flex; align-items:center; gap:5px; cursor:pointer; white-space:nowrap; }
+  .owner-edit { display:grid; grid-template-columns:auto 1fr; gap:4px 8px; align-items:center; margin-top:6px; }
+  .owner-edit select { width:100%; }
+  table.mini { border-collapse:collapse; font-size:12.5px; width:100%; } table.mini th, table.mini td { padding:2px 6px; border-bottom:1px solid var(--line); text-align:left; }
+</style>
+<script src="/i18n.js"></script>
+<script src="/busy.js"></script>
+</head>
+<body>
+<div id="app" data-view="view">
+  <div id="bar">
+    <div class="grp"><span>Modo</span><div>
+      <button class="tool on" id="viewBtn" title="Ver el mapa y editar la propiedad de las regiones (no cambia su forma)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8S1 12 1 12z"/><circle cx="12" cy="12" r="3"/></svg>Ver / propiedad</button>
+      <button class="tool" id="shapeBtn" title="Activar la edición de la forma de las regiones (nodos, dibujar, recortar, nueva región)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4z"/></svg>Editar forma</button>
+    </div></div>
+    <div class="grp own"><span>Propiedad</span><div>
+      <button class="tool on" data-mode="ver" title="Clic en una región para ver y cambiar su dueño y controlador"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 3l7 17 2-7 7-2z"/></svg>Seleccionar</button>
+      <button class="tool" id="multiBtn" title="Selección múltiple (como Pax Historia): elige varias regiones (incorporarlas a un país, unificarlas, tipo, cultura), varios elementos del mapa (ciudades, unidades militares, minerales: editar en lote o eliminar) o varios países (alianza, guerra, comercio, ayuda, embargo y relaciones). Se abre en el editor de escenarios, en su mapa."><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M10 3l6.5 14.5 2-5.8 5.5-1.7z" opacity=".55"/><path d="M3 5l6.5 14.5 2-5.8 5.5-1.7z"/></svg>Múltiple</button>
+      <button class="tool" data-mode="propiedad" title="Elige un país y haz clic en regiones para asignárselas"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 21V4h12l-2 4 2 4H4"/></svg>Pintar propiedad</button>
+      <label class="barfield">País <select id="paintCountry"><option value="">(elige escenario)</option></select></label>
+      <label class="barfield" title="Además del propietario, cambiar también el controlador"><span>Controlador</span><input type="checkbox" id="paintCtrl" checked></label>
+      <button class="tool primary" id="saveScen" disabled title="Escribir los cambios de propiedad en los archivos del escenario"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 3h11l3 3v15H5z"/><path d="M8 3v5h7V3M8 21v-7h8v7"/></svg>Guardar escenario</button>
+    </div></div>
+    <div class="grp shape"><span>Edición</span><div>
+      <button class="tool on" data-mode="mover" title="Modificar: arrastra los nodos de cualquier región (sin seleccionar); arrastra un borde para crear un nodo; Alt+clic o clic derecho en un nodo lo borra"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 3l7 17 2-7 7-2z"/></svg>Modificar</button>
+      <button class="tool" data-mode="insertar" title="Clic junto a un lado de la región seleccionada"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 2v5M12 17v5M2 12h5M17 12h5"/></svg>Insertar</button>
+      <button class="tool" data-mode="borrar" title="Clic en un nodo para borrarlo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M5 5l14 14"/></svg>Borrar</button>
+      <button class="tool" data-mode="centro" title="Arrastrar el centro (punto amarillo)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="2" fill="currentColor"/></svg>Centro</button>
+    </div></div>
+    <div class="grp shape"><span>Área</span><div>
+      <button class="tool" data-mode="asignar" title="Dibuja un polígono (doble clic para terminar): pasa a la región seleccionada"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 20l3-12 9-4 4 9-8 7z"/></svg>Dibujar</button>
+      <button class="tool" data-mode="recortar" title="Recortar: dibuja un polígono sobre una región; al terminar eliges de qué región recortar y si esa parte pasa a una región vecina (de tierra o de mar), queda vacía o es una región nueva"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M20 4L8.1 15.9M14.5 14.5L20 20M8.1 8.1L12 12"/></svg>Recortar</button>
+      <button class="tool" data-mode="nueva" title="Crear región nueva (Dibujar/Cortar): dibuja su contorno —clic en un borde y mueve el cursor para seguirlo; clic dentro añade nodos; Enter o el primer punto termina— y luego le pones nombre, tipo y país"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 20l3-12 9-4 4 9-8 7z"/><path d="M9 7l5 12"/><path d="M18 2v6M15 5h6"/></svg>Crear región</button>
+      <button class="tool" id="nuevaImport" title="Importar uno o varios contornos de un GeoJSON como regiones nuevas, sin dibujarlos: luego se pide el nombre, el país, el tipo y la población de cada una"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12M7 10l5 5 5-5M4 20h16"/></svg>Importar GeoJSON</button><input type="file" id="nuevaFile" accept=".geojson,.json" hidden>
+      <button class="tool" data-mode="rellenar" title="Clic dentro de un hueco o lago: pasa a la región seleccionada"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 11l-8-8-8 8 8 8zM20 14s2 2.5 2 4a2 2 0 01-4 0c0-1.5 2-4 2-4z"/></svg>Rellenar</button>
+      <label class="barfield" title="Al dibujar, distancia (px) a la que un clic se pega a un nodo existente; dos clics sobre la misma frontera la siguen">Ajuste <input type="range" id="snap" min="0" max="25" value="10"></label>
+    </div></div>
+    <div class="grp shape"><span>Historial</span><div>
+      <button class="tool" id="undo" disabled title="Deshacer la última edición (Ctrl+Z)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 14L4 9l5-5"/><path d="M4 9h11a5 5 0 010 10h-3"/></svg>Deshacer</button>
+      <button class="tool" id="redo" disabled title="Rehacer (Ctrl+Y)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 14l5-5-5-5"/><path d="M20 9H9a5 5 0 000 10h3"/></svg>Rehacer</button>
+      <button class="tool" id="topoBtn" title="Sin huecos: un nodo compartido se mueve en todas sus regiones"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="5" cy="12" r="2"/><circle cx="19" cy="5" r="2"/><circle cx="19" cy="19" r="2"/><path d="M7 11l10-5M7 13l10 5"/></svg>Topología</button>
+    </div></div>
+    <div class="grp"><span>Ver</span><div>
+      <label class="barfield" title="Carpeta del juego con la que trabajan los editores (MH1 o Gold); cada juego tiene su propio proyecto">Juego <select id="gameSel"></select></label>
+      <label class="barfield" title="Regionpack: carpeta DisplayLibraries/Maps/&lt;nombre&gt; con la geometría y las texturas">Regionpack <select id="pack"></select></label>
+      <label class="barfield">Escenario <select id="scenario"><option value="">(ninguno)</option></select></label>
+      <span id="scenSync" class="muted" style="font-size:12px;max-width:230px"></span>
+      <button type="button" id="refreshAll"title="Vuelve a leer del disco el escenario y el regionpack del juego (por ejemplo, si los has cambiado fuera del editor)">⟳ Refrescar</button>
+      <label class="barfield">Colorear <select id="colormode"><option value="region">por región</option><option value="pais">por país</option></select></label>
+    </div></div>
+    <div class="grp"><span>Fondo</span><div>
+      <button class="tool" id="bgBtn" title="Exportar o importar la imagen de fondo (terreno) como PNG/JPG"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 16l5-5 4 4 3-3 6 6"/><circle cx="16" cy="9" r="1.5"/></svg>Imagen de fondo</button>
+    </div></div>
+    <div class="grp"><span>Archivo</span><div>
+      <button class="tool" id="gjBtn" title="Exportar a un .zip (regiones de tierra y mar, ciudades, unidades, minerales, changelog comparado con World y naciones) o importar regiones y puntos desde GeoJSON"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7l8-4 8 4v10l-8 4-8-4z"/><path d="M4 7l8 4 8-4M12 11v10"/></svg>GeoJSON</button>
+      <button class="tool primary" id="save" disabled title="Aplicar los cambios al proyecto"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 3h11l3 3v15H5z"/><path d="M8 3v5h7V3M8 21v-7h8v7"/></svg>Guardar</button>
+      <button class="tool" id="discard" disabled title="Descartar lo no guardado"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg>Descartar</button>
+      <button class="tool" id="undoSave" title="Volver al estado anterior al último guardado"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 109-9 9 9 0 00-6.4 2.6L3 8"/><path d="M3 3v5h5"/></svg>Volver</button>
+      <button class="tool" id="redoSave" disabled title="Rehacer el guardado deshecho con «Volver»"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 11-9-9 9 9 0 016.4 2.6L21 8"/><path d="M21 3v5h-5"/></svg>Rehacer</button>
+      <a class="tool" href="/escenario" target="_blank" title="Editor de escenarios (como ed.exe)" style="text-decoration:none"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16v16H4zM4 9h16M9 9v11"/></svg>Escenarios</a>
+      <button class="tool" id="packCopy" title="Guardar una copia de seguridad del regionpack con otro nombre y, si quieres, hacer que los escenarios la usen"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="8" y="8" width="13" height="13" rx="2"/><path d="M16 8V5a2 2 0 00-2-2H5a2 2 0 00-2 2v9a2 2 0 002 2h3"/></svg>Copia</button>
+      <button class="tool" id="install" title="Copiar el proyecto al juego"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12M7 10l5 5 5-5M4 21h16"/></svg>Instalar</button>
+    </div></div>
+  </div>
+  <div id="map"></div>
+  <div id="ptBar" title="Muestra en el mapa las ciudades, los minerales y las unidades militares del escenario elegido (se leen del escenario)">
+    <span>Capas</span><label><input type="checkbox" data-ptk="city" disabled> <span style="color:#f8fafc">●</span> Ciudades</label><label><input type="checkbox" data-ptk="producer" disabled> <span style="color:#facc15">●</span> Minerales</label><label><input type="checkbox" data-ptk="units" disabled> <span style="color:#ef4444">●</span> Unidades militares</label></div>
+  <div id="panel">
+    <header><input id="search" type="search" list="names" placeholder="Buscar región…"><datalist id="names"></datalist></header>
+    <div class="scroll">
+      <iframe id="multiFrame" style="display:none;width:100%;height:calc(100vh - 150px);min-height:420px;border:1px solid var(--line);border-radius:10px;background:var(--panel)"></iframe>
+      <div id="info" class="card"><span class="muted">Acerca el mapa y haz clic en una región.</span></div>
+      <div class="card"><h2>Opciones</h2>
+        <label title="Al dibujar o pintar, lo que no es de nadie (lagos, huecos) también pasa a la región"><input type="checkbox" id="fill"> Rellenar huecos al dibujar/pintar</label>
+        <label title="Al dibujar o pintar sobre una región de tierra, no tomar zonas de mar"><input type="checkbox" id="landonly" checked> Solo tierra (no quitar mar)</label>
+        <label><input type="checkbox" id="paint" checked> Repintar fronteras en la textura al guardar</label>
+        <label title="Al guardar una región nueva se crea su objeto Region en cada escenario que usa este regionpack"><input type="checkbox" id="register" checked> Registrar regiones nuevas en los escenarios del regionpack</label>
+        <label title="Muestra y deja arrastrar los nodos de todas las regiones a la vista, sin seleccionar. Arrastrar desde un borde crea un nodo; Alt+clic lo borra."><input type="checkbox" id="allv"> Todos los vértices (modificar sin seleccionar)</label>
+      </div>
+      <div class="card"><h2>Cambios sin guardar</h2><div id="pending" class="muted">ninguno</div></div>
+      <div class="card"><h2>Informe</h2><div id="report" class="muted">—</div></div>
+      <div class="card"><h2>Changelog del regionpack</h2>
+        <div id="clog" class="muted">—</div>
+        <div style="display:flex;gap:6px;margin-top:6px;align-items:center"><select id="clogScen" style="flex:1;min-width:0"></select><button id="clogApply" title="Crea en ese escenario las regiones nuevas del changelog, con el dueño de su región madre">Aplicar</button></div>
+        <div class="muted" style="margin-top:4px">Aplica las regiones nuevas del changelog a un escenario (las que ya tenga se saltan).</div>
+        <button id="clogReview" style="margin-top:6px" title="Compara el mapa con World y el changelog: elige qué regiones nuevas mantener, añadir o quitar">Revisar changelog…</button>
+      </div>
+      <p class="muted">Topología activada: un nodo compartido se mueve en todas las regiones que lo usan, sin huecos ni solapes. Desactivada: solo cambia la región seleccionada y el área que suelta queda como hueco. Nodos cian: uniones de tres o más regiones. Nada cambia en el juego hasta pulsar «Instalar».</p>
+    </div>
+    <div id="status">Cargando…</div>
+  </div>
+</div>
+<div id="drawBar" style="display:none">
+  <b id="dbTitle">Dibujar / Cortar</b>
+  <button type="button" id="dbUndo" title="Quitar el último punto (Ctrl+Z / Retroceso)">↶</button>
+  <button type="button" id="dbRedo" title="Volver a poner el punto quitado (Ctrl+Y / Ctrl+Shift+Z)">↷</button>
+  <label title="Recortar: el área se quita a las regiones que toca y pasa a la región nueva. Sin recortar: solo toma mar y huecos"><input type="checkbox" id="dbCut" checked> Recortar</label>
+  <button type="button" id="dbDone" title="Terminar (Enter)">Terminar</button>
+  <button type="button" id="dbCancel" title="Cancelar (Esc)">✕</button>
+  <div class="muted" id="dbHelp">Clic en un borde y mueve el cursor: la línea sigue el borde hasta el nodo más cercano. Clic dentro añade un nodo. Enter o clic en el primer punto termina.</div>
+</div>
+<dialog id="ucDlg" style="border:1px solid var(--line);border-radius:10px;background:var(--panel);color:var(--ink);width:min(760px,94vw)">
+  <h3 style="margin-top:0">Unidades de otro país en la región nueva</h3>
+  <p class="muted">Estas unidades militares quedaron dentro de la región nueva pero son de un país distinto del dueño de la región. Elige qué hacer con cada una
+  (los escenarios ya están guardados; esto se guarda aparte).</p>
+  <div style="display:flex;gap:6px;margin-bottom:6px">Todas: <button type="button" data-all="owner">Pasar al país de la región</button><button type="button" data-all="move">Trasladar a su país</button><button type="button" data-all="keep">Dejar</button></div>
+  <div id="ucList" style="max-height:50vh;overflow:auto"></div>
+  <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:10px"><button type="button" onclick="ucDlg.close()">Cancelar</button>
+    <button type="button" id="ucGo" style="background:#c2410c;color:#fff;border:0;border-radius:6px;padding:5px 12px">Aplicar</button></div>
+</dialog>
+<dialog id="pcDlg" style="border:1px solid var(--line);border-radius:10px;background:var(--panel);color:var(--ink);max-width:520px">
+  <form method="dialog">
+    <h3 style="margin-top:0">Copia del regionpack «<span id="pcFrom"></span>»</h3>
+    <p class="muted">Se copia la carpeta del regionpack <b>tal como está instalada en el juego</b> (geometría, texturas, map.xml y changelog)
+    con otro nombre, como respaldo. Los cambios del proyecto que aún no instalaste no van en ella (salvo que copies también el proyecto).</p>
+    <label style="display:block">Nombre de la copia <input id="pcName" style="width:100%;padding:4px 7px" autocomplete="off"></label>
+    <div style="margin-top:8px">Escenarios que pasan a usar la copia <span class="muted">(se cambia su scenario.xml; sin marcar, la copia queda solo como respaldo)</span>:</div>
+    <div id="pcScen" style="margin:4px 0 8px 8px;max-height:160px;overflow:auto"></div>
+    <label style="display:block"><input type="checkbox" id="pcProj"> Copiar también el proyecto del editor (para seguir editando la copia)</label>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px"><button value="cancel">Cancelar</button>
+      <button value="ok" style="background:#0ea5e9;color:#fff;border:0;border-radius:6px;padding:5px 12px">Crear copia</button></div>
+  </form>
+</dialog>
+<dialog id="regDlg" style="border:1px solid var(--line);border-radius:10px;background:var(--panel);color:var(--ink);max-width:480px">
+  <form method="dialog">
+    <h3 id="regTitle" style="margin-top:0">Registrar en el escenario</h3>
+    <p class="muted">La región existe en el mapa pero no en el escenario (por ejemplo, si falló su registro). Se crea con los datos de
+    la región de la que salió; las ciudades, recursos y unidades que quedan dentro pasan a ella.</p>
+    <label style="display:block">Sale de <select id="regMother"></select></label>
+    <label style="display:block">Propietario <select id="regOwner"></select> Controlador <select id="regCtl"></select></label>
+    <label style="display:block">Tipo de región <select id="regType"></select></label>
+    <label style="display:block">Población: <input id="regPct" type="number" min="0" max="100" step="0.1" style="width:70px"> % de los habitantes de la región de origen</label>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px"><button value="cancel">Cancelar</button>
+      <button value="ok" style="background:#0ea5e9;color:#fff;border:0;border-radius:6px;padding:5px 12px">Registrar</button></div>
+  </form>
+</dialog>
+<dialog id="cutDlg" style="border:1px solid var(--line);border-radius:10px;background:var(--panel);color:var(--ink);max-width:460px">
+  <form method="dialog">
+    <h3 id="cutTitle" style="margin-top:0">¿Qué hacer con lo recortado?</h3>
+    <label style="display:block;margin-bottom:8px">Recortar de <select id="cutFrom" style="max-width:300px"></select></label>
+    <label style="display:block"><input type="radio" name="cutMode" value="land" checked> Unirlo a una región vecina de tierra:</label>
+    <select id="cutLand" style="margin:2px 0 8px 24px;max-width:300px"></select>
+    <label style="display:block"><input type="radio" name="cutMode" value="sea"> Unirlo al mar vecino:</label>
+    <select id="cutSea" style="margin:2px 0 8px 24px;max-width:300px"></select>
+    <label style="display:block"><input type="radio" name="cutMode" value="none"> Dejarlo vacío (hueco)</label>
+    <label style="display:block"><input type="radio" name="cutMode" value="new"> Crear una región nueva con esa parte (pide nombre, tipo, dueño y población)</label>
+    <div class="muted" style="margin-top:6px">Solo cambia lo que se recorta de la región seleccionada; se aplica al «Guardar».</div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px"><button value="cancel">Cancelar</button>
+      <button value="ok" style="background:#0ea5e9;color:#fff;border:0;border-radius:6px;padding:5px 12px">Aceptar</button></div>
+  </form>
+</dialog>
+<dialog id="delDlg" style="border:1px solid var(--line);border-radius:10px;background:var(--panel);color:var(--ink);max-width:480px">
+  <form method="dialog">
+    <h3 id="delTitle" style="margin-top:0">Eliminar región</h3>
+    <p class="muted">Su área pasa a otra región (o queda vacía) y la región desaparece del regionpack, del changelog y de los escenarios
+    que lo usan. Se puede deshacer con «Volver» después de guardar.</p>
+    <label style="display:block"><input type="radio" name="delMode" value="land" checked> Incorporarla a la región vecina:</label>
+    <select id="delLand" style="margin:2px 0 8px 24px;max-width:300px"></select>
+    <label style="display:block"><input type="radio" name="delMode" value="sea"> Incorporarla al mar vecino:</label>
+    <select id="delSea" style="margin:2px 0 8px 24px;max-width:300px"></select>
+    <label style="display:block"><input type="radio" name="delMode" value="none"> Dejarla vacía (hueco)</label>
+    <div class="muted" style="margin-top:6px">Si va a una región de tierra, sus ciudades, recursos, población y unidades pasan a ella.
+      Si no, las unidades se trasladan a la región más cercana de su país y las ciudades y recursos se pierden.</div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px"><button value="cancel">Cancelar</button>
+      <button value="ok" style="background:#b91c1c;color:#fff;border:0;border-radius:6px;padding:5px 12px">Eliminar</button></div>
+  </form>
+</dialog>
+<dialog id="nrDlg" style="border:1px solid var(--line);border-radius:10px;background:var(--panel);color:var(--ink);max-width:460px">
+  <form method="dialog">
+    <h3 id="nrTitle" style="margin-top:0">Nueva región</h3>
+    <div id="nrKindRow" style="margin-bottom:8px"><b>La región nueva es:</b>
+      <label><input type="radio" name="nrKind" value="land" checked> Terrestre</label>
+      <label><input type="radio" name="nrKind" value="sea"> Marítima</label></div>
+    <div id="nrSeaChoice">
+      <label><input type="radio" name="nrMode" value="existing"> Añadir el área a una región existente:</label>
+      <select id="nrExisting" style="margin:0 0 8px 24px;max-width:300px"></select>
+      <label><input type="radio" name="nrMode" value="new" checked> Crear una región nueva</label>
+    </div>
+    <div id="nrNewFields" style="margin-left:4px">
+      <label style="display:block">Nombre <input id="nrName" placeholder="p. ej. Aysén" style="width:100%;padding:4px 7px" autocomplete="off"></label>
+      <div class="muted">Se guarda sin acentos como nombre interno (p. ej. Aysen); el texto con acentos se usa como nombre visible.</div>
+      <label id="nrCountryRow" style="display:block">Propietario <select id="nrCountry" style="max-width:240px"></select> <span id="nrCountryNote" class="muted"></span></label>
+      <label id="nrCtrlRow" style="display:block">Controlador <select id="nrCtrl" style="max-width:240px"></select></label>
+      <label id="nrTypeRow" style="display:block">Tipo de región <select id="nrType"></select></label>
+      <div id="nrCityRow" style="margin-top:8px"><label><input type="checkbox" id="nrCityOn"> <b>Crear una ciudad en la región nueva</b></label>
+        <div id="nrCityBox" style="display:none;margin:4px 0 0 22px">
+          <label style="display:block">Nombre <input id="nrCityName" style="width:60%" autocomplete="off"></label>
+          <label>IPUs <input id="nrCityIpus" type="number" min="0" value="1" style="width:60px"></label>
+          <label>Población <input id="nrCityPop" type="number" min="0" value="10000" style="width:90px"></label>
+          <div class="muted" style="margin-top:2px">Posición (vacío = al azar dentro de la región):
+            <input id="nrCityX" placeholder="longitud" style="width:90px"> <input id="nrCityY" placeholder="latitud" style="width:90px"></div>
+        </div>
+        <div id="nrSurrNote" class="muted"></div></div>
+      <div id="nrHistRow" style="margin-top:8px"><b>Países históricos</b> <span class="muted">(la región será histórica de los marcados; por defecto, los de la región de origen)</span>
+        <input id="nrHistFilter" placeholder="Filtrar países…" style="display:block;margin:4px 0;padding:3px 6px;width:100%" autocomplete="off">
+        <div id="nrHist" style="max-height:120px;overflow:auto;border:1px solid var(--line);border-radius:6px;padding:4px 6px;font-size:12.5px;columns:2"></div></div>
+      <div id="nrPopRow" style="margin-top:8px"><b>Población</b> <span class="muted">(por defecto, el mismo % que el área que se recorta de cada región; puedes cambiarlo)</span>
+        <div id="nrPopSrcRow" style="display:none;margin:4px 0;font-size:12.5px"><label><input type="radio" name="nrPopSrc" value="area" checked> Calcular por el % de área tomada de las regiones anteriores</label><br>
+          <label><input type="radio" name="nrPopSrc" value="geojson"> Usar la población del GeoJSON: <b id="nrPopGeoVal"></b></label></div>
+        <table id="nrPop" style="width:100%;border-collapse:collapse;font-size:12.5px;margin-top:4px"></table></div>
+      <div class="muted" id="nrMoveNote" style="margin-top:6px">Al guardar se crea en el regionpack y se registra en los escenarios que lo usan:
+        las ciudades, recursos y unidades que quedan dentro pasan a la región nueva.</div>
+    </div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px"><button value="cancel">Cancelar</button><button value="ok" style="background:#0ea5e9;color:#fff;border:0;border-radius:6px;padding:5px 12px">Aceptar</button></div>
+  </form>
+</dialog>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+"use strict";
+const $ = s => document.querySelector(s);
+const MIN_EDIT_ZOOM = 4, MAX_HANDLES = 2500;
+const map = L.map('map', { crs: L.CRS.Simple, minZoom: 0, maxZoom: 14, zoomSnap: 0.5, preferCanvas: true, doubleClickZoom: false });
+map.setView([-35, -68], 4);
+const renderer = L.canvas({ padding: 0.3, tolerance: 4 });
+
+const S = {
+  meta: [], byName: {}, regions: new Map(), selected: null, mode: 'ver', view: 'view', nations: [], topo: true,
+  handles: L.layerGroup().addTo(map), center: null, centers: {}, ops: [], opLayers: L.layerGroup().addTo(map),
+  drawing: null, version: 0, nodeIndex: null, undo: [], redo: [], scen: null, colorMode: 'region',
+};
+
+// ------------------------------------------------------------------ texturas del terreno
+const tiles = new Map();
+function tileLevel() { return Math.max(0, Math.min(4, Math.round(Math.log2(1024 / (15 * Math.pow(2, map.getZoom())))))); }
+function updateTiles() {
+  const b = map.getBounds(), lv = tileLevel();
+  const c0 = Math.max(0, Math.floor((b.getWest() + 180) / 15)), c1 = Math.min(23, Math.floor((b.getEast() + 180) / 15));
+  const r0 = Math.max(0, Math.floor((105 - b.getNorth()) / 15)), r1 = Math.min(12, Math.floor((105 - b.getSouth()) / 15));
+  const want = new Set();
+  for (let c = c0; c <= c1; c++) for (let r = r0; r <= r1; r++) {
+    const k = c + ',' + r; want.add(k);
+    const url = `/tile/${c}/${r}/${lv}.jpg?v=${S.version}`, lon0 = -180 + 15 * c, lat0 = 105 - 15 * r;
+    if (!tiles.has(k)) { const o = L.imageOverlay(url, [[lat0 - 15, lon0], [lat0, lon0 + 15]], { interactive: false }).addTo(map); o.bringToBack(); tiles.set(k, o); }
+    else if (tiles.get(k)._url !== url) tiles.get(k).setUrl(url);
+  }
+  for (const [k, o] of tiles) if (!want.has(k)) { map.removeLayer(o); tiles.delete(k); }
+}
+
+// ------------------------------------------------------------------ regiones
+const toLL = ring => ring.map(p => [p[1], p[0]]);
+const openRing = r => { const a = r[0], b = r[r.length - 1]; return (a[0] === b[0] && a[1] === b[1]) ? r.slice(0, -1) : r; };
+const latlngsOf = R => R.polys.map(poly => poly.map(toLL));
+function ownerOf(R) { return S.scen && S.scen.regions[R.props.name]; }
+function fillFor(R) {
+  if (S.overlay) {   // capa del editor de escenarios: color por region y resto oscurecido
+    const c = S.overlay.colors[R.props.name];
+    if (c) return [c, (S.overlay.alphas && S.overlay.alphas[R.props.name]) ?? S.overlay.alpha ?? 0.5];
+    return R.props.sea ? ['#000', 0] : [S.overlay.dim || '#000', S.overlay.dimAlpha ?? 0.4];
+  }
+  if (S.colorMode === 'pais' && S.scen) { const o = ownerOf(R); return o && S.scen.colors[o.owner] ? [S.scen.colors[o.owner], 0.45] : ['#888', R.props.sea ? 0 : 0.15]; }
+  return [`hsl(${(R.props.index * 137.508) % 360},55%,55%)`, R.props.sea ? 0 : 0.12];
+}
+function styleFor(R) {
+  if (S.selected === R.props.index) return { color: '#facc15', weight: 2.5, opacity: 1, fillColor: '#facc15', fillOpacity: 0.2, dashArray: null };
+  const [fc, fo] = fillFor(R);
+  if (R.modified) return { color: '#fb923c', weight: 2, opacity: 1, dashArray: '5 4', fillColor: fc, fillOpacity: Math.max(fo, 0.15) };
+  if (R.props.sea) return { color: '#93c5fd', weight: 0.8, opacity: 0.7, fillColor: fc, fillOpacity: 0, dashArray: null };
+  return { color: '#111', weight: 1, opacity: 0.85, fillColor: fc, fillOpacity: fo, dashArray: null };
+}
+function tipFor(R) {
+  const o = ownerOf(R), p = R.props;
+  if (S.overlay && S.overlay.tips && S.overlay.tips[p.name]) return `${p.name} | ${S.overlay.tips[p.name]}`;
+  return `${p.name} |${o ? (o.owner || 'Sin propietario') + (o.terrain ? ' · ' + o.terrain : '') : (p.sea ? 'Mar' : 'Sin propietario')}`;
+}
+function drawRegion(R) {
+  if (R.layer) { R.layer.setLatLngs(latlngsOf(R)); R.layer.setStyle(styleFor(R)); return; }
+  R.layer = L.polygon(latlngsOf(R), Object.assign({ renderer, interactive: true }, styleFor(R))).addTo(map);
+  R.layer.bindTooltip(() => tipFor(R), { sticky: true, className: 'rt', direction: 'top', offset: [0, -8] });
+  R.layer.on('click', e => { L.DomEvent.stopPropagation(e); onMapClick(e, R.props.index); });
+  R.layer.on('dblclick', e => {    // doble clic: abrir la ficha de la región en el editor de escenarios
+    if (S.drawing || S.mode !== 'ver' && S.mode !== 'mover') return;
+    if (parent !== window || S.multiOpen) { L.DomEvent.stop(e); toHost({ ev: 'regionDblClick', region: R.props.name, sea: !!R.props.sea }); }
+  });
+}
+function restyleAll() { for (const R of S.regions.values()) if (R.layer) R.layer.setStyle(styleFor(R)); }
+let loadTimer = null, loadSeq = 0;
+function scheduleLoad() { clearTimeout(loadTimer); loadTimer = setTimeout(loadRegions, 250); }
+async function loadRegions() {
+  updateTiles();
+  if (map.getZoom() < MIN_EDIT_ZOOM) {
+    for (const [i, R] of S.regions) if (!R.modified && i !== S.selected) { if (R.layer) map.removeLayer(R.layer); S.regions.delete(i); }
+    S.nodeIndex = null; return status(`Acerca más (zoom ${map.getZoom()} < ${MIN_EDIT_ZOOM}) para ver y editar regiones`);
+  }
+  const b = map.getBounds().pad(0.3), seq = ++loadSeq; status('Cargando regiones…');
+  const fc = await (await fetch(`/api/regions?bbox=${b.getWest()},${b.getSouth()},${b.getEast()},${b.getNorth()}`)).json();
+  if (seq !== loadSeq) return;
+  const keep = new Set();
+  for (const f of fc.features) {
+    const i = f.properties.index; keep.add(i);
+    if (S.regions.has(i) && S.regions.get(i).modified) continue;
+    const old = S.regions.get(i);
+    const R = { props: f.properties, polys: f.geometry.coordinates.map(poly => poly.map(openRing)), layer: old ? old.layer : null, modified: false };
+    S.regions.set(i, R); drawRegion(R);
+  }
+  for (const [i, R] of S.regions) if (!keep.has(i) && !R.modified && i !== S.selected) { if (R.layer) map.removeLayer(R.layer); S.regions.delete(i); }
+  S.nodeIndex = null; refreshHandles(); status(`${S.regions.size} regiones · zoom ${map.getZoom()}`);
+}
+
+// ------------------------------------------------------------------ topologia
+const key = p => p[0] + ',' + p[1];
+function nodeIndex() {
+  if (S.nodeIndex) return S.nodeIndex;
+  const idx = new Map();
+  for (const [i, R] of S.regions) R.polys.forEach((poly, pi) => poly.forEach((ring, ri) => ring.forEach((p, vi) => {
+    const k = key(p); if (!idx.has(k)) idx.set(k, []); idx.get(k).push({ i, pi, ri, vi });
+  })));
+  return (S.nodeIndex = idx);
+}
+const refsFor = p => nodeIndex().get(key(p)) || [];
+
+// ------------------------------------------------------------------ deshacer / rehacer (ediciones sin guardar)
+function capture(regIdxs) {
+  const regs = {};
+  for (const i of regIdxs) { const R = S.regions.get(i); if (R) regs[i] = { polys: JSON.parse(JSON.stringify(R.polys)), modified: R.modified }; }
+  return { regs, ops: S.ops.slice(), centers: Object.assign({}, S.centers) };
+}
+function restore(st) {
+  for (const [i, v] of Object.entries(st.regs)) { const R = S.regions.get(+i); if (!R) continue; R.polys = v.polys; R.modified = v.modified; drawRegion(R); }
+  S.ops = st.ops; S.centers = st.centers; redrawOps(); S.nodeIndex = null; refreshHandles(); updatePending();
+}
+function pushUndo(regIdxs) { S.undo.push(capture(regIdxs)); S.redo = []; if (S.undo.length > 200) S.undo.shift(); updateHistoryButtons(); }
+function doUndo() { const st = S.undo.pop(); if (!st) return; S.redo.push(capture(Object.keys(st.regs).map(Number))); restore(st); updateHistoryButtons(); }
+function doRedo() { const st = S.redo.pop(); if (!st) return; S.undo.push(capture(Object.keys(st.regs).map(Number))); restore(st); updateHistoryButtons(); }
+function updateHistoryButtons() { $('#undo').disabled = !S.undo.length; $('#redo').disabled = !S.redo.length; }
+
+// ------------------------------------------------------------------ nodos (de la seleccion o de todas las regiones)
+const allVertices = () => $('#allv').checked;
+function handleRegions() { return allVertices() ? [...S.regions.keys()] : (S.selected != null ? [S.selected] : []); }
+function refreshHandles() {
+  if (S.view !== 'shape') { S.handles.clearLayers(); if (S.center) { map.removeLayer(S.center); S.center = null; } return; }
+  S.handles.clearLayers(); if (S.center) { map.removeLayer(S.center); S.center = null; }
+  const R = S.regions.get(S.selected);
+  if (R && !R.props.editable) status(`«${R.props.name}» no se puede editar: ${R.props.invalid}`);
+  if (['mover', 'insertar', 'borrar', 'centro'].includes(S.mode)) {
+    const b = map.getBounds().pad(0.05), idx = nodeIndex(), seen = new Set(); let n = 0;
+    outer: for (const i of handleRegions()) {
+      const Q = S.regions.get(i); if (!Q || !Q.props.editable) continue;
+      for (const poly of Q.polys) for (const ring of poly) for (const p of ring) {
+        const k = key(p); if (seen.has(k)) continue; seen.add(k);
+        if (!b.contains([p[1], p[0]])) continue;
+        if (++n > MAX_HANDLES) { status(`Demasiados nodos a la vista (>${MAX_HANDLES}): acerca más`); break outer; }
+        const regs = new Set((idx.get(k) || []).map(r => r.i));
+        const m = L.marker([p[1], p[0]], { draggable: S.mode === 'mover', keyboard: false,
+          icon: L.divIcon({ className: 'vx' + (regs.size >= 3 ? ' junction' : ''), iconSize: null }) });
+        m._p = p;
+        m.on('dragstart', onDragStart).on('drag', onDrag).on('dragend', onDragEnd).on('click', onHandleClick)
+          .on('contextmenu', ev => { L.DomEvent.preventDefault(ev.originalEvent); onHandleClick(Object.assign(ev, { originalEvent: { altKey: true } })); });
+        S.handles.addLayer(m);
+      }
+    }
+  }
+  if (R) {
+    const c = S.centers[S.selected] || R.props.center;
+    S.center = L.marker([c[1], c[0]], { draggable: S.mode === 'centro', icon: L.divIcon({ className: 'ctr', iconSize: null }), zIndexOffset: 1000 }).addTo(map);
+    S.center.on('dragstart', () => pushUndo([])).on('dragend', e => { const ll = e.target.getLatLng(); S.centers[S.selected] = [ll.lng, ll.lat]; updatePending(); });
+  }
+}
+// referencias que se mueven/borran juntas: todas (topologia) o solo la de una region
+function refsToEdit(p) {
+  let refs = refsFor(p);
+  if (!S.topo && refs.length) { const reg = refs.some(r => r.i === S.selected) ? S.selected : refs[0].i; refs = refs.filter(r => r.i === reg).slice(0, 1); }
+  return refs.filter(r => S.regions.get(r.i).props.editable);
+}
+let drag = null;
+function beginDrag(refs) { pushUndo([...new Set(refs.map(x => x.i))]); drag = { refs, raf: 0 }; }
+function moveDrag(np) {
+  for (const x of drag.refs) S.regions.get(x.i).polys[x.pi][x.ri][x.vi] = np;
+  if (!drag.raf) drag.raf = requestAnimationFrame(() => { if (!drag) return; drag.raf = 0; for (const i of new Set(drag.refs.map(x => x.i))) S.regions.get(i).layer.setLatLngs(latlngsOf(S.regions.get(i))); });
+}
+function onDragStart(e) { const refs = refsToEdit(e.target._p); if (refs.length) beginDrag(refs); }
+function onDrag(e) { if (drag) { const ll = e.target.getLatLng(); moveDrag([ll.lng, ll.lat]); } }
+function onDragEnd() {
+  if (!drag) return;
+  const regs = new Set(drag.refs.map(x => x.i)); drag = null; S.nodeIndex = null;
+  for (const i of regs) { const R = S.regions.get(i); R.modified = true; drawRegion(R); }
+  refreshHandles(); updatePending();
+}
+function onHandleClick(e) {
+  if (!(S.mode === 'borrar' || (e.originalEvent && e.originalEvent.altKey))) return;
+  L.DomEvent.stopPropagation(e);
+  const refs = refsToEdit(e.target._p); if (!refs.length) return;
+  for (const x of refs) if (S.regions.get(x.i).polys[x.pi][x.ri].length <= 3) return status('No se puede: el anillo quedaría con menos de 3 nodos');
+  pushUndo([...new Set(refs.map(x => x.i))]);
+  refs.slice().sort((a, b) => b.vi - a.vi).forEach(x => S.regions.get(x.i).polys[x.pi][x.ri].splice(x.vi, 1));
+  S.nodeIndex = null; for (const i of new Set(refs.map(x => x.i))) { S.regions.get(i).modified = true; drawRegion(S.regions.get(i)); }
+  refreshHandles(); updatePending();
+}
+
+// ------------------------------------------------------------------ insertar nodos en un lado
+function nearestEdgeIn(regIdxs, ll) {
+  const pt = map.latLngToLayerPoint(ll), vb = map.getBounds().pad(0.05); let best = null;
+  for (const i of regIdxs) {
+    const R = S.regions.get(i); if (!R || !R.props.editable) continue;
+    R.polys.forEach((poly, pi) => poly.forEach((ring, ri) => { for (let vi = 0; vi < ring.length; vi++) {
+      const a = ring[vi], b = ring[(vi + 1) % ring.length];
+      if (!vb.contains([a[1], a[0]]) && !vb.contains([b[1], b[0]])) continue;
+      const pa = map.latLngToLayerPoint([a[1], a[0]]), pb = map.latLngToLayerPoint([b[1], b[0]]);
+      const d = L.LineUtil.pointToSegmentDistance(pt, pa, pb);
+      if (!best || d < best.d) best = { d, i, pi, ri, vi, a, b, pa, pb };
+    } }));
+  }
+  return best;
+}
+// inserta np en el lado (a,b): en todos los anillos que lo comparten (topologia) o solo en el del lado tocado
+function insertOnEdge(ed, np) {
+  const targets = [];
+  if (S.topo) { for (const [i, Q] of S.regions) Q.polys.forEach((poly, pi) => poly.forEach((ring, ri) => { for (let vi = 0; vi < ring.length; vi++) {
+    const a = ring[vi], b = ring[(vi + 1) % ring.length];
+    if ((key(a) === key(ed.a) && key(b) === key(ed.b)) || (key(a) === key(ed.b) && key(b) === key(ed.a))) targets.push({ i, pi, ri, at: vi + 1 });
+  } })); } else targets.push({ i: ed.i, pi: ed.pi, ri: ed.ri, at: ed.vi + 1 });
+  pushUndo([...new Set(targets.map(t => t.i))]);
+  const shared = np.slice();
+  targets.sort((a, b) => b.at - a.at).forEach(t => S.regions.get(t.i).polys[t.pi][t.ri].splice(t.at, 0, shared));
+  S.nodeIndex = null; for (const i of new Set(targets.map(t => t.i))) { S.regions.get(i).modified = true; drawRegion(S.regions.get(i)); }
+  return shared;
+}
+function edgePoint(ed, ll) { const q = map.layerPointToLatLng(L.LineUtil.closestPointOnSegment(map.latLngToLayerPoint(ll), ed.pa, ed.pb)); return [q.lng, q.lat]; }
+// Mover: arrastrar desde un punto de un borde crea un nodo nuevo y lo arrastra
+let edgeDrag = false;
+map.on('mousedown', e => {
+  if (S.mode === 'pintar') return startStroke(e);
+  if (S.mode !== 'mover' || e.originalEvent.button !== 0) return;
+  const regs = handleRegions(); if (!regs.length) return;
+  const ed = nearestEdgeIn(regs, e.latlng); if (!ed || ed.d > 5) return;
+  const pt = map.latLngToLayerPoint(e.latlng);
+  if (pt.distanceTo(ed.pa) < 7 || pt.distanceTo(ed.pb) < 7) return;   // eso es un nodo: lo maneja su marcador
+  map.dragging.disable(); L.DomEvent.stop(e);
+  const np = insertOnEdge(ed, edgePoint(ed, e.latlng));
+  drag = { refs: refsToEdit(np), raf: 0 }; edgeDrag = true;   // el deshacer ya lo guardo insertOnEdge
+});
+map.on('mousemove', e => { if (edgeDrag && drag) moveDrag([e.latlng.lng, e.latlng.lat]); });
+document.addEventListener('mouseup', () => { if (edgeDrag) { edgeDrag = false; map.dragging.enable(); onDragEnd(); } });
+
+// ------------------------------------------------------------------ clics
+function needSel() { if (S.selected == null) { status('Primero selecciona una región (herramienta Mover)'); return true; } return false; }
+function onMapClick(e, regionIdx) {
+  if (S.pick && parent !== window) {   // el editor de escenarios pide un punto (ciudad / recurso nuevo)
+    S.pick = false; document.body.style.cursor = '';
+    toHost({ ev: 'mapPick', x: e.latlng.lng, y: e.latlng.lat }); return;
+  }
+  const m = S.mode;
+  // incrustado en el editor de escenarios con una capa activa: el clic lo procesa la ventana padre
+  if (S.overlay && S.overlay.capture && S.view !== 'shape' && regionIdx != null && S.regions.has(regionIdx)) {
+    toHost({ ev: 'regionClick', region: S.regions.get(regionIdx).props.name, sea: !!S.regions.get(regionIdx).props.sea }); return;
+  }
+  if (m === 'ver') { if (regionIdx != null) select(regionIdx); return; }
+  if (m === 'propiedad') { if (regionIdx != null) paintOwner(regionIdx); return; }
+  if (m === 'asignar') { addDrawPoint(e.latlng); return; }   // sin selección: solo vale sobre el mar (pregunta)
+  if (m === 'nueva') { addDrawPoint(e.latlng); return; }
+  if (m === 'recortar') { addDrawPoint(e.latlng); return; }   // sin seleccionar antes: al terminar se elige de qué región recortar
+  if (m === 'rellenar') {
+    const pt = [e.latlng.lng, e.latlng.lat];
+    const inside = [...S.regions.values()].find(R => inRegion(pt, R));
+    if (inside) return status(`No hay hueco aquí: este punto ya está dentro de ${inside.props.name}`);
+    if (needSel()) return; return addOp({ kind: 'fill_point', point: [e.latlng.lng, e.latlng.lat], region: S.selected }); }
+  if (m === 'pintar') return;
+  if (m === 'insertar') {
+    const regs = handleRegions(); if (!regs.length) return needSel();
+    const ed = nearestEdgeIn(regs, e.latlng); if (!ed || ed.d > 12) return status('Haz clic más cerca de un lado');
+    insertOnEdge(ed, edgePoint(ed, e.latlng)); refreshHandles(); updatePending(); return;
+  }
+  if (regionIdx != null) select(regionIdx);
+}
+map.on('click', e => onMapClick(e, null));
+map.on('dblclick', () => { if (S.drawing) finishDraw(); });
+
+// ------------------------------------------------------------------ operaciones de area
+function opColor(op) { return op.kind === 'delete_region' ? '#64748b' : op.kind === 'cut' ? '#ef4444' : op.kind === 'fill_point' ? '#22c55e' : op.kind === 'new_region' ? '#0ea5e9' : '#a855f7'; }
+function addOp(op) {
+  const nm = i => (S.regions.get(i) || { props: S.meta.find(m => m.index === i) || { name: '#' + i } }).props.name;   // aunque no esté cargada
+  pushUndo([]); op.name = op.kind === 'delete_region' ? `eliminar ${nm(op.region)}` : op.kind === 'new_region' ? `«${op.newName}»${op.from != null ? ' de ' + nm(op.from) : ' (' + (op.owner || 'sin país') + ')'}`
+    : op.kind === 'cut' ? `recorte de ${nm(op.from)} → ${op.into != null ? nm(op.into) : 'hueco'}`
+    : op.region != null ? nm(op.region) : (op.from != null ? nm(op.from) : '');
+  S.ops.push(op); redrawOps(); updatePending();
+}
+function redrawOps() {
+  S.opLayers.clearLayers();
+  for (const op of S.ops) {
+    const col = opColor(op);
+    if (op.kind === 'fill_point') L.circleMarker([op.point[1], op.point[0]], { radius: 7, color: col, weight: 3, interactive: false }).addTo(S.opLayers);
+    else if (op.kind === 'stroke') L.polyline(op.polygon.coordinates.map(p => [p[1], p[0]]), { color: col, weight: Math.max(2, op.radius * Math.pow(2, map.getZoom()) * 2), opacity: 0.45, lineCap: 'round', lineJoin: 'round', interactive: false }).addTo(S.opLayers);
+    else if (op.polygon.type === 'MultiPolygon') L.polygon(op.polygon.coordinates.map(poly => poly.map(r => r.map(p => [p[1], p[0]]))), { color: col, weight: 2, dashArray: '2 6', fillColor: '#000', fillOpacity: 0.45, interactive: false }).addTo(S.opLayers);
+    else L.polygon(op.polygon.coordinates[0].map(p => [p[1], p[0]]), { color: col, weight: 2, dashArray: '4 4', fillOpacity: 0.2, interactive: false }).addTo(S.opLayers);
+  }
+}
+map.on('zoomend', redrawOps);
+function snapPoint(ll) {
+  const tol = +$('#snap').value; if (!tol) return null;
+  const pt = map.latLngToLayerPoint(ll); let best = null;
+  for (const [i, R] of S.regions) {
+    if (!R.layer || !R.layer.getBounds().pad(0.05).contains(ll)) continue;
+    R.polys.forEach((poly, pi) => poly.forEach((ring, ri) => ring.forEach((p, vi) => {
+      const q = map.latLngToLayerPoint([p[1], p[0]]), d = pt.distanceTo(q);
+      if (d <= tol && (!best || d < best.d)) best = { d, p };
+    })));
+  }
+  return best ? { p: best.p, refs: refsFor(best.p) } : null;
+}
+function tracePath(a, b) {
+  // si los dos puntos estan en el mismo anillo, devuelve los nodos intermedios por el camino mas corto
+  for (const x of a.refs) for (const y of b.refs) {
+    if (x.i !== y.i || x.pi !== y.pi || x.ri !== y.ri || x.vi === y.vi) continue;
+    const ring = S.regions.get(x.i).polys[x.pi][x.ri], n = ring.length;
+    const fwd = (y.vi - x.vi + n) % n, bwd = (x.vi - y.vi + n) % n, out = [];
+    if (fwd <= bwd) for (let k = 1; k < fwd; k++) out.push(ring[(x.vi + k) % n]);
+    else for (let k = 1; k < bwd; k++) out.push(ring[(x.vi - k + n) % n]);
+    return out;
+  }
+  return [];
+}
+function startDrawing() {
+  const col = S.mode === 'recortar' ? '#ef4444' : S.mode === 'nueva' ? '#e11d48' : '#a855f7';
+  S.drawing = { pts: [], snaps: [], groups: [], redo: [], cand: null,
+    layer: L.polygon([], { color: col, weight: 2, fillOpacity: 0.2, interactive: false }).addTo(map),
+    dots: L.layerGroup().addTo(map), col };
+  showDrawBar(true);
+}
+function addDrawPoint(ll) {
+  if (!S.drawing) startDrawing();
+  const d = S.drawing;
+  // clic sobre el primer punto: cerrar
+  if (d.pts.length >= 3 && map.latLngToLayerPoint(ll).distanceTo(map.latLngToLayerPoint(d.pts[0])) <= Math.max(8, +$('#snap').value)) return finishDraw();
+  // el nodo al que lleva el rastro del borde (calculado al mover el cursor) o el nodo cercano al clic
+  const sn = (d.cand && map.latLngToLayerPoint(ll).distanceTo(map.latLngToLayerPoint([d.cand.p[1], d.cand.p[0]])) < TRACE_PX) ? d.cand : snapPoint(ll);
+  const prev = d.snaps[d.snaps.length - 1];
+  let n = 0;
+  if (sn && prev) for (const p of tracePath(prev, sn)) { d.pts.push(L.latLng(p[1], p[0])); d.snaps.push(null); n++; }
+  d.pts.push(sn ? L.latLng(sn.p[1], sn.p[0]) : ll); d.snaps.push(sn); n++;
+  d.groups.push(n); d.redo = []; d.cand = null;
+  drawDrawing();
+}
+const TRACE_PX = 40;   // distancia del cursor al borde a la que la línea lo sigue
+function drawDrawing(extra) {
+  const d = S.drawing; if (!d) return;
+  d.layer.setLatLngs(extra ? d.pts.concat(extra) : d.pts);
+  d.dots.clearLayers();
+  d.pts.forEach((p, i) => L.circleMarker(p, { radius: i === 0 ? 6 : 4, color: '#fff', weight: 1.5, fillColor: d.col, fillOpacity: 1, interactive: false }).addTo(d.dots));
+  $('#dbUndo').disabled = !d.groups.length; $('#dbRedo').disabled = !d.redo.length;
+}
+function traceCandidate(ll) {
+  // nodo del anillo del último punto anclado que queda más cerca del cursor (si el cursor está junto a ese borde)
+  const d = S.drawing, prev = d && d.snaps[d.snaps.length - 1];
+  if (!prev || !prev.refs || !prev.refs.length) return null;
+  const pt = map.latLngToLayerPoint(ll); let best = null;
+  for (const x of prev.refs) {
+    const R = S.regions.get(x.i); if (!R) continue;
+    const ring = R.polys[x.pi][x.ri];
+    for (let vi = 0; vi < ring.length; vi++) {
+      const q = map.latLngToLayerPoint([ring[vi][1], ring[vi][0]]), dd = pt.distanceTo(q);
+      if (!best || dd < best.d) best = { d: dd, p: ring[vi] };
+    }
+  }
+  if (!best || best.d > TRACE_PX) return null;
+  return { p: best.p, refs: refsFor(best.p) };
+}
+map.on('mousemove', e => {
+  const d = S.drawing; if (!d || !d.pts.length) return;
+  const c = traceCandidate(e.latlng);
+  const prev = d.snaps[d.snaps.length - 1];
+  if (c && prev && key(c.p) !== key(prev.p)) {
+    d.cand = c;
+    drawDrawing(tracePath(prev, c).map(p => L.latLng(p[1], p[0])).concat([L.latLng(c.p[1], c.p[0])]));
+  } else { d.cand = null; drawDrawing([e.latlng]); }
+});
+function undoDrawPoint() {
+  const d = S.drawing; if (!d || !d.groups.length) return;
+  const n = d.groups.pop();
+  d.redo.push({ pts: d.pts.splice(-n), snaps: d.snaps.splice(-n) });
+  if (!d.pts.length) { d.redo = d.redo; }
+  drawDrawing();
+}
+function redoDrawPoint() {
+  const d = S.drawing; if (!d || !d.redo.length) return;
+  const g = d.redo.pop(); d.pts.push(...g.pts); d.snaps.push(...g.snaps); d.groups.push(g.pts.length); drawDrawing();
+}
+function cancelDraw() { const d = S.drawing; S.drawing = null; if (d) { map.removeLayer(d.layer); map.removeLayer(d.dots); } showDrawBar(false); }
+function showDrawBar(on) {
+  $('#drawBar').style.display = on ? 'flex' : 'none';
+  $('#dbCut').parentElement.style.display = S.mode === 'nueva' ? '' : 'none';
+  $('#dbTitle').textContent = S.mode === 'nueva' ? 'Crear región nueva (Dibujar / Cortar)' : S.mode === 'recortar' ? 'Recortar parte de una región' : 'Dibujar área';
+}
+function finishDraw() {
+  const d = S.drawing; if (!d) return;
+  if (d.pts.length < 3) return status('Hacen falta al menos 3 puntos');
+  cancelDraw();
+  const ring = d.pts.map(ll => [ll.lng, ll.lat]); ring.push(ring[0]);
+  const polygon = { type: 'Polygon', coordinates: [ring] };
+  if (S.mode === 'recortar') return regionsUnderServer(ring).then(under => askCutTarget(polygon, S.selected, under));
+  if (S.mode === 'nueva') {
+    // como Pax Historia: no hace falta seleccionar; recorta de las regiones de tierra que toca (la madre es la de más área)
+    return regionsUnderServer(ring).then(under => {
+      const land = under.filter(x => !x.sea), water = under.filter(x => x.sea);
+      return askNewRegion(polygon, land.length ? land[0].index : null, { nueva: true, cut: $('#dbCut').checked,
+        motherName: land.length ? land[0].name : null, land: land.map(x => x.name), sea: water.map(x => x.name) });
+    });
+  }
+  const under = regionsUnder(ring);
+  if (!under.some(i => !S.regions.get(i).props.sea)) return askNewRegion(polygon, null);   // dibujado sobre el mar
+  if (needSel()) return;
+  addOp({ kind: 'assign', polygon: { type: 'Polygon', coordinates: [ring] }, region: S.selected, fill: $('#fill').checked, land_only: $('#landonly').checked && !S.regions.get(S.selected).props.sea });
+}
+// ------------------------------------------------------------------ regiones nuevas
+function inRing(p, ring) {
+  let c = false;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const a = ring[i], b = ring[j];
+    if ((a[1] > p[1]) !== (b[1] > p[1]) && p[0] < (b[0] - a[0]) * (p[1] - a[1]) / (b[1] - a[1]) + a[0]) c = !c;
+  }
+  return c;
+}
+const inRegion = (p, R) => R.polys.some(poly => inRing(p, poly[0]) && !poly.slice(1).some(h => inRing(p, h)));
+function regionsUnder(ring) {
+  // regiones bajo los vértices y bajo una rejilla de puntos interiores del polígono dibujado
+  const xs = ring.map(p => p[0]), ys = ring.map(p => p[1]), pts = ring.slice(0, -1);
+  const x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys);
+  for (let i = 1; i < 8; i++) for (let j = 1; j < 8; j++) { const q = [x0 + (x1 - x0) * i / 8, y0 + (y1 - y0) * j / 8]; if (inRing(q, ring)) pts.push(q); }
+  const out = new Set();
+  for (const [i, R] of S.regions) if (pts.some(q => inRegion(q, R))) out.add(i);
+  return [...out];
+}
+// regiones bajo el poligono (aunque no esten cargadas en pantalla), de mayor a menor superficie cubierta
+async function regionsUnderServer(ring) {
+  const xs = ring.map(p => p[0]), ys = ring.map(p => p[1]);
+  const fc = await (await fetch(`/api/regions?bbox=${Math.min(...xs)},${Math.min(...ys)},${Math.max(...xs)},${Math.max(...ys)}`)).json();
+  const regs = fc.features.map(f => ({ props: f.properties, polys: f.geometry.coordinates.map(poly => poly.map(openRing)) }));
+  const x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys), pts = ring.slice(0, -1);
+  for (let i = 1; i < 24; i++) for (let j = 1; j < 24; j++) { const q = [x0 + (x1 - x0) * i / 24, y0 + (y1 - y0) * j / 24]; if (inRing(q, ring)) pts.push(q); }
+  return regs.map(R => ({ index: R.props.index, name: R.props.name, sea: R.props.sea, neighbors: R.props.neighbors || [], n: pts.filter(q => inRegion(q, R)).length }))
+    .filter(x => x.n).sort((a, b) => b.n - a.n);
+}
+function regionsUnderCounts(ring) {
+  const xs = ring.map(p => p[0]), ys = ring.map(p => p[1]), pts = [];
+  const x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys);
+  for (let i = 1; i < 24; i++) for (let j = 1; j < 24; j++) { const q = [x0 + (x1 - x0) * i / 24, y0 + (y1 - y0) * j / 24]; if (inRing(q, ring)) pts.push(q); }
+  const out = {};
+  for (const [i, R] of S.regions) { const n = pts.filter(q => inRegion(q, R)).length; if (n) out[i] = n; }
+  return out;
+}
+const TERRAIN = { 1: 'llanura / bosque', 2: 'colinas', 3: 'montaña', 4: 'desierto / estepa' };
+// tipo de region del escenario (strTerrain) -> tipo de la malla del mapa (regions.bin)
+const SCEN_TERRAIN = { Plains: 1, Forest: 1, Jungle: 1, Tundra: 1, Hills: 2, Mountains: 3, Desert: 4 };
+const TERRAIN_ES = { Plains: 'llanura', Forest: 'bosque', Jungle: 'selva', Tundra: 'tundra', Hills: 'colinas', Mountains: 'montañas', Desert: 'desierto' };
+async function countriesFor() {
+  const sc = S.scenName || ($('#scenario').options[1] || {}).value;
+  if (!sc) return { sc: null, list: [] };
+  return { sc, list: await (await fetch('/api/countries?scenario=' + encodeURIComponent(sc))).json() };
+}
+async function askNewRegion(polygon, from, opt = {}) {
+  const dlg = $('#nrDlg'), M = from != null ? (S.regions.get(from) || { props: { name: opt.motherName } }) : null;
+  const overSea = !opt.nueva && from == null;          // «Dibujar» sobre el mar: añadir a una existente o crear
+  const mo = M && S.scen && S.scen.regions[M.props.name] ? S.scen.regions[M.props.name] : null;
+  $('#nrTitle').textContent = opt.nueva ? 'Nueva región' + (opt.land.length && opt.cut ? ` (recorta: ${opt.land.join(', ')})` : opt.sea.length ? ` (sobre ${opt.sea.slice(0, 3).join(', ')})` : '')
+    : overSea ? 'Has dibujado sobre el mar' : `Nueva región sacada de ${M.props.name}`;
+  $('#nrKindRow').style.display = opt.nueva ? '' : 'none';
+  document.querySelector(`input[name=nrKind][value=${opt.nueva && !opt.land.length && opt.sea.length ? 'sea' : 'land'}]`).checked = true;
+  $('#nrSeaChoice').style.display = overSea ? '' : 'none';
+  $('#nrName').value = '';
+  const curT = (mo && mo.terrain) || 'Plains';
+  $('#nrType').innerHTML = Object.keys(SCEN_TERRAIN).map(t => `<option value="${t}" ${t === curT ? 'selected' : ''}>${t} · ${TERRAIN_ES[t]}</option>`).join('');
+  const { sc, list } = await countriesFor();
+  const defOwner = mo ? mo.owner : '', defCtl = mo ? mo.controller : '';
+  const blank = '<option value="">(elige país)</option>';
+  $('#nrCountry').innerHTML = blank + list.map(c => `<option ${c === defOwner ? 'selected' : ''}>${c}</option>`).join('');
+  $('#nrCtrl').innerHTML = blank + list.map(c => `<option ${c === defCtl ? 'selected' : ''}>${c}</option>`).join('');
+  $('#nrCountryNote').textContent = sc ? `(países de ${sc})` : '(elige un escenario en «Ver» para ver sus países)';
+  // ciudad: ofrecer crear una; obligatoria si el dueño está rendido y no tendría ciudad (su capital sale de aquí)
+  const pre = opt.preset || {};
+  const owners = S.scen ? new Set(Object.values(S.scen.regions || {}).map(r => r.owner)) : new Set();
+  const isSurr = c => !!c && !!S.scen && !owners.has(c);
+  $('#nrCityRow').style.display = S.scen ? '' : 'none';
+  const cityNote = () => {
+    const c = $('#nrCountry').value, sur = isSurr(c);
+    $('#nrSurrNote').innerHTML = sur ? `<span style="color:#d97706">«${c}» está rendido (sin regiones): al recibir esta región dejará de estarlo y su capital será una ciudad de ella. ` +
+      `Si no hay ninguna ciudad dentro, crea una aquí.</span>` : '';
+    if (sur && !$('#nrCityOn').dataset.touched) { $('#nrCityOn').checked = true; $('#nrCityOn').onchange(); }
+  };
+  $('#nrCityOn').dataset.touched = ''; $('#nrCityOn').checked = false;
+  $('#nrCityOn').onchange = () => { $('#nrCityBox').style.display = $('#nrCityOn').checked ? '' : 'none'; };
+  $('#nrCityOn').onclick = () => { $('#nrCityOn').dataset.touched = '1'; };
+  ['nrCityName', 'nrCityX', 'nrCityY'].forEach(id => { $('#' + id).value = ''; });
+  $('#nrCityOn').onchange();
+  if (pre.owner && [...$('#nrCountry').options].some(o => o.value === pre.owner)) { $('#nrCountry').value = pre.owner; $('#nrCtrl').value = pre.owner; }
+  if (pre.controller && [...$('#nrCtrl').options].some(o => o.value === pre.controller)) $('#nrCtrl').value = pre.controller;
+  if (pre.name) { $('#nrName').value = pre.name; $('#nrCityName').value = pre.name; }
+  if (pre.sea) document.querySelector('input[name=nrKind][value=sea]').checked = true;
+  cityNote();
+  // el dueño queda marcado como país histórico (si no lo tocas a mano); al cambiar de dueño, se cambia la marca
+  let autoHist = null;
+  const tickOwnerHist = () => {
+    const box = c => c && [...$('#nrHist').querySelectorAll('input[data-hist]')].find(i => i.value === c);
+    const prev = box(autoHist); if (prev && prev.dataset.auto === '1') { prev.checked = false; prev.dataset.auto = ''; }
+    const b = box($('#nrCountry').value); autoHist = null;
+    if (b && !b.checked) { b.checked = true; b.dataset.auto = '1'; autoHist = b.value; }
+  };
+  $('#nrCountry').onchange = () => { $('#nrCtrl').value = $('#nrCountry').value; tickOwnerHist(); cityNote(); };
+  if (overSea) {
+    const landR = [...S.regions.values()].filter(R => !R.props.sea).map(R => R.props).sort((a, b) => a.name.localeCompare(b.name));
+    const cur = S.selected != null && !S.regions.get(S.selected).props.sea ? S.selected : null;
+    $('#nrExisting').innerHTML = landR.map(p => `<option value="${p.index}" ${p.index === cur ? 'selected' : ''}>${p.name}</option>`).join('');
+    document.querySelector('input[name=nrMode][value=' + (cur != null ? 'existing' : 'new') + ']').checked = true;
+  }
+  // países históricos: los que ya tienen la(s) región(es) de origen salen marcados; se pueden marcar varios
+  const srcRegions = opt.nueva ? (opt.land || []) : M ? [M.props.name] : [];
+  S.nrHist = null; $('#nrHist').innerHTML = ''; $('#nrHistRow').style.display = sc ? '' : 'none';
+  if (sc) {
+    const h = await (await fetch(`/api/scen/historic_of?name=${encodeURIComponent(sc)}&regions=${encodeURIComponent(srcRegions.join('|'))}`)).json().catch(() => null);
+    if (h && h.all) {
+      S.nrHist = h; const on = new Set(h.with);
+      const order = [...h.with, ...h.all.filter(c => !on.has(c))];
+      $('#nrHist').innerHTML = order.map(c => `<label style="display:block;break-inside:avoid"><input type="checkbox" data-hist value="${c.replace(/"/g, '&quot;')}" ${on.has(c) ? 'checked' : ''}> ${c}</label>`).join('');
+      $('#nrHistFilter').value = '';
+      $('#nrHist').onchange = e => { if (e.target.dataset) e.target.dataset.auto = ''; };   // tocado a mano: ya no es automático
+      tickOwnerHist();
+      $('#nrHistFilter').oninput = () => { const f = $('#nrHistFilter').value.toLowerCase(); $('#nrHist').querySelectorAll('label').forEach(l => { l.style.display = !f || l.textContent.toLowerCase().includes(f) ? 'block' : 'none'; }); };
+    }
+  }
+  nrSync();
+  S.nrPolygon = polygon; S.nrPopAllowed = !overSea || true;
+  const geoPop = pre.population != null && isFinite(+pre.population) ? Math.round(+pre.population) : null;
+  $('#nrPopSrcRow').style.display = geoPop != null && !pre.sea ? '' : 'none';
+  document.querySelector(`input[name=nrPopSrc][value=${pre.popMode === 'geojson' && geoPop != null ? 'geojson' : 'area'}]`).checked = true;      // por defecto: por % de área
+  if (geoPop != null) $('#nrPopGeoVal').textContent = geoPop.toLocaleString('es');
+  const popSrc = () => { const m = $('#nrPopManual'); if (!m || geoPop == null) return;
+    m.value = document.querySelector('input[name=nrPopSrc]:checked').value === 'geojson' ? geoPop : ''; };
+  document.querySelectorAll('input[name=nrPopSrc]').forEach(x => x.onchange = popSrc);
+  const popReady = nrPopulation().then(popSrc);
+  setTimeout(() => $('#nrName').focus(), 50);
+  // importación automática: con nombre y país (o región de mar) ya decididos no se abre el diálogo
+  const auto = opt.auto && pre.name && (pre.sea || $('#nrCountry').value);
+  if (auto) await popReady;
+  const ok = auto ? true : await new Promise(res => { dlg.onclose = () => res(dlg.returnValue === 'ok'); dlg.returnValue = ''; dlg.showModal(); });
+  if (!ok) return;
+  const mode = overSea ? document.querySelector('input[name=nrMode]:checked').value : 'new';
+  if (mode === 'existing') return addOp({ kind: 'assign', polygon, region: +$('#nrExisting').value, fill: $('#fill').checked, land_only: false });
+  const name = $('#nrName').value.trim();
+  if (!name) return status('La región nueva necesita un nombre');
+  const seaKind = opt.nueva && document.querySelector('input[name=nrKind]:checked').value === 'sea';
+  if (seaKind) {
+    if (!opt.sea.length) return status('Para una región marítima dibuja sobre el mar');
+    return addOp({ kind: 'new_region', polygon, from: null, sea: true, newName: name, u_type: 0, owner: null, fill: false });
+  }
+  const terrain = $('#nrType').value, cutAll = opt.nueva ? !!(opt.land.length && opt.cut) : false;
+  const pop_fractions = {};
+  const geoPopOn = geoPop != null && !!$('#nrPopSrcRow') && $('#nrPopSrcRow').style.display !== 'none' && document.querySelector('input[name=nrPopSrc]:checked').value === 'geojson';   // población del GeoJSON
+  $('#nrPop').querySelectorAll('input[data-pct]').forEach(i => { pop_fractions[i.dataset.name] = Math.max(0, Math.min(100, +i.value || 0)) / 100; });
+  if (!$('#nrCountry').value) { alert('Elige el propietario de la región nueva'); return askNewRegion(polygon, from, opt); }
+  addOp({ kind: 'new_region', polygon, from: opt.nueva ? null : from, cut_all: cutAll, newName: name, u_type: SCEN_TERRAIN[terrain] || 1, terrain,
+    pop_fractions: !geoPopOn && Object.keys(pop_fractions).length ? pop_fractions : null,
+    historic: S.nrHist ? [...$('#nrHist').querySelectorAll('input[data-hist]:checked')].map(i => i.value) : null,
+    population: geoPopOn ? geoPop : $('#nrPopManual') && $('#nrPopManual').value !== '' ? Math.max(0, Math.round(+$('#nrPopManual').value || 0)) : null,
+    city: $('#nrCityOn').checked && $('#nrCityRow').style.display !== 'none' ? { name: $('#nrCityName').value.trim() || name, ipus: +$('#nrCityIpus').value || 0,
+      population: +$('#nrCityPop').value || 0, x: $('#nrCityX').value.trim() === '' ? null : +$('#nrCityX').value, y: $('#nrCityY').value.trim() === '' ? null : +$('#nrCityY').value } : null,
+    owner: $('#nrCountry').value || null, controller: $('#nrCtrl').value || null, fill: $('#fill').checked });
+}
+function nrSync() {
+  const overSea = $('#nrSeaChoice').style.display !== 'none', ex = overSea && document.querySelector('input[name=nrMode]:checked').value === 'existing';
+  const seaKind = $('#nrKindRow').style.display !== 'none' && document.querySelector('input[name=nrKind]:checked').value === 'sea';
+  $('#nrNewFields').style.display = ex ? 'none' : '';
+  $('#nrExisting').disabled = !ex;
+  for (const id of ['#nrCountryRow', '#nrCtrlRow', '#nrTypeRow']) $(id).style.display = seaKind ? 'none' : '';
+  $('#nrHistRow').style.display = seaKind || !S.nrHist ? 'none' : '';
+  $('#nrMoveNote').textContent = seaKind ? 'Región de mar: se crea en el regionpack y en waterWorld.xml de los escenarios; las flotas que quedan dentro pasan a ella.'
+    : 'Al guardar se crea en el regionpack y se registra en los escenarios que lo usan: las ciudades, recursos y unidades que quedan dentro pasan a la región nueva.';
+}
+document.querySelectorAll('input[name=nrKind]').forEach(x => x.onchange = () => { nrSync(); nrPopulation(); });
+// poblacion de la region nueva: % del area recortada de cada region de origen (editable en % o en habitantes)
+async function nrPopulation() {
+  const T = $('#nrPop'), seaKind = $('#nrKindRow').style.display !== 'none' && document.querySelector('input[name=nrKind]:checked').value === 'sea';
+  $('#nrPopRow').style.display = seaKind ? 'none' : '';
+  if (seaKind || !S.nrPolygon) { T.innerHTML = ''; return; }
+  T.innerHTML = '<tr><td class="muted">Calculando…</td></tr>';
+  const r = await (await fetch('/api/cut_preview', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ polygon: S.nrPolygon, sea: false }) })).json();
+  const ms = (r.mothers || []).filter(m => S.scen && S.scen.regions[m.name] && S.scen.regions[m.name].population != null);
+  // sin regiones de origen con población (o sin escenario): los habitantes se pueden poner a mano
+  const manual = `<tr><td style="padding-top:6px">Habitantes de la región nueva: <input id="nrPopManual" type="number" min="0" step="1" placeholder="automático" style="width:120px">
+      <span class="muted">(vacío = densidad media del país)</span></td></tr>`;
+  if (!S.scen) { T.innerHTML = '<tr><td class="muted">Elige un escenario en «Ver» para calcular la población.</td></tr>' + manual; return; }
+  if (!ms.length) { T.innerHTML = '<tr><td class="muted">No se recorta de ninguna región con población: la región nueva empieza con la densidad media del país, o con los habitantes que pongas.</td></tr>' + manual; return; }
+  const fmt = n => Math.round(n).toLocaleString('es');
+  T.innerHTML = '<tr><th align=left>Región de origen</th><th align=right>% del área</th><th align=right>Habitantes</th><th align=right>% que pasa</th><th align=right>Pasan</th></tr>' +
+    ms.map(m => { const pop = S.scen.regions[m.name].population, pct = Math.round(m.pct * 1000) / 10;
+      return `<tr style="border-top:1px solid var(--line)"><td>${m.name}</td><td align=right>${pct} %</td><td align=right>${fmt(pop)}</td>
+        <td align=right><input data-pct data-name="${m.name}" data-pop="${pop}" type="number" min="0" max="100" step="0.1" value="${pct}" style="width:64px"></td>
+        <td align=right><input data-hab data-name="${m.name}" type="number" min="0" max="${pop}" step="1" value="${Math.round(pop * pct / 100)}" style="width:90px"></td></tr>`; }).join('') +
+    '<tr style="border-top:1px solid var(--line)"><td colspan=4 align=right><b>Población de la región nueva</b></td><td align=right><b id="nrPopTotal"></b></td></tr>';
+  const total = () => { let t = 0; T.querySelectorAll('input[data-hab]').forEach(i => t += +i.value || 0); $('#nrPopTotal').textContent = fmt(t); };
+  T.querySelectorAll('input[data-pct]').forEach(i => i.oninput = () => { T.querySelector(`input[data-hab][data-name="${i.dataset.name}"]`).value = Math.round(+i.dataset.pop * (+i.value || 0) / 100); total(); });
+  T.querySelectorAll('input[data-hab]').forEach(i => i.oninput = () => { const p = T.querySelector(`input[data-pct][data-name="${i.dataset.name}"]`); p.value = Math.round((+i.value || 0) / +p.dataset.pop * 1000) / 10; total(); });
+  total();
+}
+
+// pincel
+let stroke = null;
+function startStroke(e) {
+  if (needSel()) return;
+  map.dragging.disable(); L.DomEvent.stop(e);
+  const rpx = +$('#brush').value;
+  stroke = { pts: [e.latlng], layer: L.polyline([e.latlng], { color: '#a855f7', weight: rpx * 2, opacity: 0.45, lineCap: 'round', lineJoin: 'round', interactive: false }).addTo(map), rdeg: rpx / Math.pow(2, map.getZoom()) };
+}
+map.on('mousemove', e => { if (stroke) { stroke.pts.push(e.latlng); stroke.layer.addLatLng(e.latlng); } });
+document.addEventListener('mouseup', () => {
+  if (!stroke) return; map.dragging.enable();
+  const st = stroke; stroke = null; map.removeLayer(st.layer);
+  const coords = st.pts.map(ll => [ll.lng, ll.lat]); if (coords.length === 1) coords.push([coords[0][0] + 1e-6, coords[0][1]]);
+  addOp({ kind: 'stroke', polygon: { type: 'LineString', coordinates: coords }, radius: st.rdeg, region: S.selected, fill: $('#fill').checked, land_only: $('#landonly').checked && !S.regions.get(S.selected).props.sea });
+});
+
+// ------------------------------------------------------------------ seleccion
+function select(i) {
+  const prev = S.selected; S.selected = i;
+  if (prev != null && S.regions.has(prev)) drawRegion(S.regions.get(prev));
+  const R = S.regions.get(i); if (!R) return;
+  drawRegion(R); R.layer.bringToFront(); refreshHandles(); showInfo();
+}
+function showInfo() {
+  const R = S.regions.get(S.selected); if (!R) return;
+  const p = R.props, o = ownerOf(R);
+  $('#info').innerHTML = `<h2>${p.name}<span class="tag">#${p.index}</span><span class="tag">${p.sea ? 'mar' : 'tierra'}</span>${R.modified ? '<span class="tag" style="color:var(--accent)">modificada</span>' : ''}</h2>
+    ${o ? `<div class="muted">${S.scenName}: ${o.owner || '—'}${o.controller && o.controller !== o.owner ? ' (controla ' + o.controller + ')' : ''} · ${o.terrain || ''}${o.population ? ' · ' + o.population.toLocaleString('es') + ' hab.' : ''}</div>` : ''}
+    <div class="muted">Vecinos: ${p.neighbors.join(', ') || '—'}</div>
+    ${p.detail && p.detail.length ? '<div class="muted">Región-isla: se edita el halo; la isla interior es detalle.</div>' : ''}
+    ${p.editable || S.view !== 'shape' ? '' : `<div class="err">No editable: ${p.invalid}</div>`}
+    ${ownerEditor(R)}
+    <div style="margin-top:8px"><button type="button" id="renRegion" title="Cambia el nombre de la región en el regionpack (RegionRename de map.xml) y en los escenarios que lo usan">Renombrar región…</button></div>
+    ${p.editable ? '<div style="margin-top:8px"><button type="button" id="delRegion" style="color:#b91c1c" title="Pregunta adónde va su área: a una vecina de tierra, al mar vecino o queda vacía">Eliminar región…</button></div>' : ''}
+    <details id="adv" ${S.advOpen ? 'open' : ''} style="margin-top:8px"><summary style="cursor:pointer;font-weight:600">{ } Avanzado</summary>
+      <div class="muted" style="margin:4px 0">GeoJSON (FeatureCollection con la región como MultiPolygon, longitud/latitud), como en geojson.io.
+        Editarlo o importarlo cambia la forma (solo en «Editar forma»); al guardar, lo ganado se quita a las vecinas como al mover nodos.</div>
+      <textarea id="advJson" spellcheck="false" style="width:100%;height:180px;font:11px/1.35 ui-monospace,Consolas,monospace;background:var(--bg);color:var(--ink);border:1px solid var(--line);border-radius:6px"></textarea>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:4px">
+        <button type="button" id="advApply">Aplicar</button><button type="button" id="advCopy">Copiar</button><button type="button" id="advExport">Exportar GeoJSON</button>
+        <button type="button" id="advImport">Importar GeoJSON…</button><input type="file" id="advFile" accept=".geojson,.json" hidden></div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:4px">
+        <button type="button" id="advAdd" title="Suma a esta región el área de los contornos de un GeoJSON (se la quita a las regiones que ocupaban esa zona)">＋ Sumar área desde GeoJSON…</button>
+        <button type="button" id="advSub" title="Resta a esta región el área de los contornos de un GeoJSON; luego se pregunta si queda vacía, pasa a otra región o se crea una región nueva">－ Restar área desde GeoJSON…</button>
+        <input type="file" id="advFileAdd" accept=".geojson,.json" hidden><input type="file" id="advFileSub" accept=".geojson,.json" hidden></div>
+    </details>`;
+  const ap = document.getElementById('ownApply');
+  if (ap) ap.onclick = () => applyOwner(R.props.name, $('#ownSel').value, $('#ctlSel').value);
+  advPanel(R);
+  const dr = document.getElementById('delRegion'); if (dr) dr.onclick = () => { if (S.view !== 'shape') setView('shape'); if (S.view === 'shape') askDeleteRegion(R); };
+  const rn = document.getElementById('renRegion'); if (rn) rn.onclick = () => askRenameRegion(R);
+  const rs = document.getElementById('regScen'); if (rs) rs.onclick = () => askRegisterRegion(R);
+}
+const ringArea = r => Math.abs(r.reduce((a, p, i) => { const q = r[(i + 1) % r.length]; return a + p[0] * q[1] - q[0] * p[1]; }, 0)) / 2;
+const polysArea = polys => polys.reduce((a, poly) => a + ringArea(poly[0]) - poly.slice(1).reduce((b, h) => b + ringArea(h), 0), 0);
+async function askRegisterRegion(R) {
+  const p = R.props, nb = p.neighbors.filter(n => S.scen.regions[n]);
+  if (!nb.length) return status('Ninguna región vecina tiene datos en el escenario');
+  $('#regTitle').textContent = `Registrar «${p.name}» en ${S.scenName}`;
+  $('#regMother').innerHTML = nb.map(n => `<option>${n}</option>`).join('');
+  const nations = S.nations.length ? S.nations : Object.keys(S.scen.colors).sort();
+  const fill = () => {
+    const mo = S.scen.regions[$('#regMother').value];
+    $('#regOwner').innerHTML = nations.map(c => `<option ${c === mo.owner ? 'selected' : ''}>${c}</option>`).join('');
+    $('#regCtl').innerHTML = nations.map(c => `<option ${c === mo.controller ? 'selected' : ''}>${c}</option>`).join('');
+    $('#regType').innerHTML = Object.keys(SCEN_TERRAIN).map(t => `<option ${t === mo.terrain ? 'selected' : ''}>${t}</option>`).join('');
+    const M = S.meta.find(m => m.name === $('#regMother').value), MR = M && S.regions.get(M.index);
+    const a = polysArea(R.polys), b = MR ? polysArea(MR.polys) : 0;
+    $('#regPct').value = b ? Math.round(1000 * a / (a + b)) / 10 : 0;
+  };
+  $('#regMother').onchange = fill; $('#regOwner').onchange = () => { $('#regCtl').value = $('#regOwner').value; }; fill();
+  const dlg = $('#regDlg');
+  const ok = await new Promise(res => { dlg.onclose = () => res(dlg.returnValue === 'ok'); dlg.returnValue = ''; dlg.showModal(); });
+  if (!ok) return;
+  const r = await (await fetch('/api/register_region', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
+    scenario: S.scenName, name: p.name, mother: $('#regMother').value, owner: $('#regOwner').value, controller: $('#regCtl').value,
+    terrain: $('#regType').value, pop_pct: +$('#regPct').value }) })).json();
+  report(scenarioNotes(r.scenarios), 'ok');
+  if (r.conflicts && r.conflicts.length) showUnitConflicts(r.conflicts);
+  const skipped = Object.entries(r.scenarios || {}).filter(([, n]) => (n || []).some(x => /no se ha tocado/.test(x))).map(([k]) => k);
+  if (skipped.length) alert('ATENCIÓN: no se registró la región en ' + skipped.join(', ') + ' porque tiene(n) cambios sin guardar en el editor de escenarios. ' +
+    'Guárdalos o descártalos y usa «Compatibilidad con el mapa» en ese escenario; si no, el juego no lo cargará con este mapa.');
+  S.scen = await (await fetch('/api/scenario?name=' + encodeURIComponent(S.scenName))).json(); restyleAll(); showInfo();
+}
+async function askCutTarget(polygon, from, under) {
+  // regiones que toca el dibujo (por área); la de origen por defecto: la seleccionada si está entre ellas, si no la de más área
+  under = (under || []).length ? under : (from != null && S.regions.get(from) ? [{ index: from, name: S.regions.get(from).props.name, sea: S.regions.get(from).props.sea, neighbors: S.regions.get(from).props.neighbors, n: 1 }] : []);
+  if (!under.length) return status('El recorte no toca ninguna región');
+  $('#cutFrom').innerHTML = under.map(u => `<option value="${u.index}">${u.name}${u.sea ? ' (mar)' : ''}</option>`).join('');
+  $('#cutFrom').value = String(under.some(u => u.index === from) ? from : under[0].index);
+  const fill = () => {
+    const u = under.find(x => x.index === +$('#cutFrom').value);
+    const nb = u.neighbors.map(n => S.byName[n.toLowerCase()]).filter(m => m && m.index !== u.index);
+    const land = nb.filter(m => !m.sea), sea = nb.filter(m => m.sea);
+    $('#cutTitle').textContent = `¿Qué hacer con lo recortado de «${u.name}»?`;
+    $('#cutLand').innerHTML = land.map(m => `<option value="${m.index}">${m.name}</option>`).join('') || '<option value="">(no tiene vecinas de tierra)</option>';
+    $('#cutSea').innerHTML = sea.map(m => `<option value="${m.index}">${m.name}</option>`).join('') || '<option value="">(no tiene mar vecino)</option>';
+    document.querySelector('input[name=cutMode][value=land]').disabled = !land.length;
+    document.querySelector('input[name=cutMode][value=sea]').disabled = !sea.length;
+    document.querySelector('input[name=cutMode][value=new]').disabled = !!u.sea;
+    document.querySelector(`input[name=cutMode][value=${land.length && !u.sea ? 'land' : sea.length ? 'sea' : 'none'}]`).checked = true;
+  };
+  $('#cutFrom').onchange = fill; fill();
+  const dlg = $('#cutDlg');
+  const ok = await new Promise(res => { dlg.onclose = () => res(dlg.returnValue === 'ok'); dlg.returnValue = ''; dlg.showModal(); });
+  if (!ok) return status('Recorte cancelado');
+  from = +$('#cutFrom').value;
+  const mode = document.querySelector('input[name=cutMode]:checked').value;
+  if (mode === 'new') return askNewRegion(polygon, from);   // región nueva sacada de la recortada
+  const into = mode === 'land' ? +$('#cutLand').value : mode === 'sea' ? +$('#cutSea').value : null;
+  if (mode !== 'none' && (into == null || isNaN(into))) return status('Elige la región a la que pasa');
+  addOp({ kind: 'cut', polygon, from, into });
+  const nm = i => (S.meta.find(m => m.index === i) || {}).name;
+  status(`Recorte de «${nm(from)}» → ${into != null ? '«' + nm(into) + '»' : 'vacío'}; se aplica al «Guardar»`);
+}
+// renombrar: nombre interno (sin acentos, el de los escenarios) y texto visible (con acentos)
+async function askRenameRegion(R) {
+  const old = R.props.name;
+  const text = prompt(`Nuevo nombre para «${old}» (como se verá en el juego; puede llevar acentos):`, old); if (text == null || !text.trim() || text.trim() === old) return;
+  const plain = text.trim().normalize('NFD').replace(/[̀-ͯ]/g, '');
+  const name = prompt('Nombre interno (sin acentos; es el que usan los escenarios):', plain); if (name == null || !name.trim()) return;
+  if (!confirm(`¿Renombrar «${old}» a «${name.trim()}»${text.trim() !== name.trim() ? ' (texto: «' + text.trim() + '»)' : ''}?
+
+` +
+    `Se añade un RegionRename a map.xml del regionpack (se copia al juego al «Instalar») y se renombra en los escenarios que lo usan, que se guardan.`)) return;
+  const r = await scenPost('/api/region/rename', { region: old, new_name: name.trim(), text: text.trim() }); if (!r) return;
+  report(`«${old}» → «${name.trim()}». Falta «Instalar» para que el juego use el nuevo map.xml.
+
+` + scenarioNotes(r.scenarios), 'ok');
+  S.version++; await reloadMeta(); await reloadAll(); loadChangelog(); if (S.scenName) refreshScen(); else checkScenSync();
+}
+// importar un GeoJSON como regiones nuevas: cada contorno (Polygon / MultiPolygon) pasa por el mismo diálogo que una región dibujada
+function geojsonShapes(j) {
+  const feats = j.type === 'FeatureCollection' ? j.features || [] : j.type === 'Feature' ? [j] : [{ type: 'Feature', properties: {}, geometry: j }];
+  return feats.filter(f => f.geometry && /Polygon$/.test(f.geometry.type)).map(f => ({ geometry: f.geometry, props: f.properties || {} }));
+}
+$('#nuevaImport').onclick = () => gjOpen('import');
+// contornos de un GeoJSON -> regiones nuevas. o: {popMode: 'area'|'geojson', ownerMode: 'province'|'geojson', auto}
+async function importShapes(shapes, o = {}) {
+  if (S.view !== 'shape') { setView('shape'); if (S.view !== 'shape') return; }
+  report(`GeoJSON: ${shapes.length} contorno(s). Se pedirán los datos de cada región nueva.`, 'ok');
+  let n = 0;
+  for (const sh of shapes) {
+    const parts = sh.geometry.type === 'Polygon' ? [sh.geometry.coordinates] : sh.geometry.coordinates, counts = new Map();
+    for (const part of parts) for (const u of await regionsUnderServer(part[0])) counts.set(u.index, Object.assign(counts.get(u.index) || { ...u, n: 0 }, { n: (counts.get(u.index) || { n: 0 }).n + u.n }));
+    const under = [...counts.values()].sort((a, b) => b.n - a.n), land = under.filter(x => !x.sea), water = under.filter(x => x.sea);
+    const pr = sh.props, seaKind = pr.mh_type === 'sea_region' || pr.sea === true;
+    const name = pr.name || pr.nombre || pr.NAME || pr.strName || '';
+    const before = S.ops.length;
+    await askNewRegion(sh.geometry, land.length ? land[0].index : null, { nueva: true, cut: $('#dbCut').checked, motherName: land.length ? land[0].name : null,
+      land: land.map(x => x.name), sea: water.map(x => x.name),
+      auto: !!o.auto, preset: { name, popMode: o.popMode || 'area', sea: seaKind,
+        owner: o.ownerMode === 'geojson' ? (pr.owner || pr.pais || pr.country || pr.strOwner || null) : null,
+        controller: o.ownerMode === 'geojson' ? (pr.controller || pr.strController || null) : null,
+        population: pr.population ?? pr.poblacion ?? pr.nPopulation ?? null } });
+    if (S.ops.length > before) n++;
+  }
+  status(`Importados ${n} de ${shapes.length} contorno(s) como regiones nuevas (falta «Guardar»)`);
+  return n;
+}
+async function askDeleteRegion(R) {
+  const p = R.props, nb = p.neighbors.map(n => S.byName[n.toLowerCase()]).filter(Boolean);
+  const land = nb.filter(m => !m.sea), sea = nb.filter(m => m.sea);
+  $('#delTitle').textContent = `Eliminar «${p.name}»`;
+  $('#delLand').innerHTML = land.map(m => `<option value="${m.index}">${m.name}</option>`).join('') || '<option value="">(no tiene vecinas de tierra)</option>';
+  $('#delSea').innerHTML = sea.map(m => `<option value="${m.index}">${m.name}</option>`).join('') || '<option value="">(no tiene mar vecino)</option>';
+  document.querySelector('input[name=delMode][value=land]').disabled = p.sea || !land.length;
+  document.querySelector('input[name=delMode][value=sea]').disabled = !sea.length;
+  document.querySelector(`input[name=delMode][value=${p.sea ? (sea.length ? 'sea' : 'none') : land.length ? 'land' : sea.length ? 'sea' : 'none'}]`).checked = true;
+  const dlg = $('#delDlg');
+  const ok = await new Promise(res => { dlg.onclose = () => res(dlg.returnValue === 'ok'); dlg.returnValue = ''; dlg.showModal(); });
+  if (!ok) return;
+  const mode = document.querySelector('input[name=delMode]:checked').value;
+  const into = mode === 'land' ? +$('#delLand').value : mode === 'sea' ? +$('#delSea').value : null;
+  if (mode !== 'none' && (into == null || isNaN(into))) return status('Elige a qué región pasa');
+  addOp({ kind: 'delete_region', region: p.index, into, polygon: { type: 'MultiPolygon', coordinates: closeRings(R.polys) } });
+  status(`«${p.name}» se eliminará al guardar` + (into != null ? ` (su área pasa a ${S.meta.find(m => m.index === into).name})` : ' (queda vacía)'));
+}
+// ------------------------------------------------------------------ Avanzado: geometría de la región en GeoJSON
+const closeRings = polys => polys.map(poly => poly.map(ring => ring.concat([ring[0]])));
+function advPanel(R) {
+  const adv = $('#adv'); if (!adv) return;
+  adv.ontoggle = () => { S.advOpen = adv.open; };
+  // FeatureCollection completo, como geojson.io: se puede pegar allí tal cual (y al revés)
+  const collection = () => ({ type: 'FeatureCollection', features: [{ type: 'Feature', properties: { mh_type: R.props.sea ? 'sea_region' : 'land_region',
+    name: R.props.name, map_name: R.props.mapName, owner: (ownerOf(R) || {}).owner || null }, geometry: { type: 'MultiPolygon', coordinates: closeRings(R.polys) } }] });
+  const text = () => JSON.stringify(collection(), null, 2).replace(/\[\s+(-?[\d.e-]+),\s+(-?[\d.e-]+)\s+\]/g, '[$1, $2]');
+  $('#advJson').value = text();
+  $('#advExport').onclick = () => {
+    const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([text()], { type: 'application/geo+json' }));
+    a.download = R.props.name + '.geojson'; a.click();
+  };
+  $('#advCopy').onclick = async () => {
+    try { await navigator.clipboard.writeText($('#advJson').value); status('GeoJSON copiado'); }
+    catch (e) { $('#advJson').select(); document.execCommand('copy'); status('GeoJSON copiado'); }
+  };
+  $('#advApply').onclick = () => { try { setGeometry(R, JSON.parse($('#advJson').value)); } catch (e) { status('JSON no válido: ' + e.message); } };
+  // sumar / restar área con un GeoJSON (cada contorno es una operación; se aplican al «Guardar»)
+  const areaOp = mode => async e => {
+    const f = e.target.files[0]; if (!f) return; e.target.value = '';
+    let shapes; try { shapes = geojsonShapes(JSON.parse(await f.text())); } catch (err) { return status('GeoJSON no válido: ' + err.message); }
+    if (!shapes.length) return status('El GeoJSON no tiene contornos (Polygon o MultiPolygon)');
+    if (S.view !== 'shape') { setView('shape'); if (S.view !== 'shape') return; }
+    if (!R.props.editable) return status(`«${R.props.name}» no se puede editar: ${R.props.invalid}`);
+    let n = 0;
+    for (const sh of shapes) {
+      if (mode === 'add') {
+        addOp({ kind: 'assign', polygon: sh.geometry, region: R.props.index, fill: $('#fill').checked, land_only: $('#landonly').checked && !R.props.sea });
+        n++;
+      } else {   // restar: queda vacía, pasa a otra región (de tierra o de mar) o se crea una región nueva
+        const before = S.ops.length;
+        await askCutTarget(sh.geometry, R.props.index, [{ index: R.props.index, name: R.props.name, sea: !!R.props.sea, neighbors: R.props.neighbors || [], n: 1 }]);
+        if (S.ops.length > before) n++;
+      }
+    }
+    status(`${mode === 'add' ? 'Sumados' : 'Restados'} ${n} de ${shapes.length} contorno(s) ${mode === 'add' ? 'a' : 'de'} «${R.props.name}» (falta «Guardar»)`);
+  };
+  $('#advAdd').onclick = () => $('#advFileAdd').click(); $('#advFileAdd').onchange = areaOp('add');
+  $('#advSub').onclick = () => $('#advFileSub').click(); $('#advFileSub').onchange = areaOp('sub');
+  $('#advImport').onclick = () => $('#advFile').click();
+  $('#advFile').onchange = async e => {
+    const f = e.target.files[0]; if (!f) return; e.target.value = '';
+    try { setGeometry(R, JSON.parse(await f.text())); } catch (err) { status('GeoJSON no válido: ' + err.message); }
+  };
+}
+function setGeometry(R, g) {
+  if (S.view !== 'shape') return status('Activa «Editar forma» para cambiar la geometría');
+  if (!R.props.editable) return status(`«${R.props.name}» no se puede editar: ${R.props.invalid}`);
+  // acepta coordenadas sueltas, Geometry, Feature o FeatureCollection (se usa la primera)
+  if (g.type === 'FeatureCollection') g = (g.features || [])[0] || {};
+  if (g.type === 'Feature') g = g.geometry || {};
+  let coords = Array.isArray(g) ? g : g.coordinates;
+  if (g.type === 'Polygon') coords = [coords];
+  if (!Array.isArray(coords) || !coords.length || !Array.isArray(coords[0][0])) return status('Se esperaba un Polygon o MultiPolygon');
+  pushUndo([R.props.index]);
+  R.polys = coords.map(poly => poly.map(ring => openRing(ring.map(p => [+p[0], +p[1]]))));
+  R.modified = true; drawRegion(R); S.nodeIndex = null; refreshHandles(); updatePending(); showInfo();
+  status(`${R.props.name}: geometría cambiada (falta «Guardar»)`);
+}
+function ownerEditor(R) {
+  if (R.props.sea) return '';
+  if (!S.scenName) return '<div class="muted" style="margin-top:6px">Elige un escenario (Ver › Escenario) para cambiar el dueño de esta región.</div>';
+  const o = ownerOf(R);
+  if (!o) return `<div class="muted" style="margin-top:6px">Esta región no tiene datos en ${S.scenName}.</div>
+    <div style="margin-top:4px"><button type="button" id="regScen">Registrar en el escenario…</button></div>`;
+  const opts = cur => S.nations.map(n => `<option ${n === cur ? 'selected' : ''}>${n}</option>`).join('');
+  return `<div class="owner-edit"><label for="ownSel">Propietario</label><select id="ownSel">${opts(o.owner)}</select>
+    <label for="ctlSel">Controlador</label><select id="ctlSel">${opts(o.controller)}</select></div>
+    <div style="margin-top:6px"><button class="tool primary" id="ownApply" style="flex-direction:row;min-width:0">Aplicar</button>
+    <span class="muted">Cambia la propiedad sin tocar la forma; falta «Guardar escenario».</span></div>`;
+}
+async function scenPost(url, body) {
+  const r = await (await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })).json();
+  if (r.error) { report(r.error, 'err'); return null; }
+  return r;
+}
+async function refreshScen(dirty) {
+  S.scen = await (await fetch('/api/scenario?name=' + encodeURIComponent(S.scenName))).json();
+  restyleAll(); showInfo();
+  if (dirty) { $('#saveScen').disabled = !dirty.length; $('#saveScen').title = dirty.length ? 'Sin guardar: ' + dirty.join(', ') : 'Todo guardado'; }
+  checkScenSync(); refreshPointBoxes(true);
+}
+// indicador junto al escenario: ¿cuadran sus regiones con este regionpack? (si no, el juego no lo carga) y botón «Adecuar»
+async function checkScenSync() {
+  const el = $('#scenSync'), n = S.scenName, pack = $('#pack').value;
+  if (!n) { el.innerHTML = ''; return null; }
+  const r = await (await fetch(`/api/scen/pack_check?name=${encodeURIComponent(n)}&pack=${encodeURIComponent(pack)}`)).json().catch(() => ({ error: '?' }));
+  if (r.error) { el.innerHTML = ''; return null; }
+  const ok = r.uses === pack && !r.missing.length && !r.extra.length;
+  if (ok) { el.innerHTML = '<span style="color:#16a34a">✓ coincide con el mapa</span>'; el.title = ''; return r; }
+  const why = r.uses !== pack ? `usa «${r.uses || '—'}»` : [r.missing.length ? `faltan ${r.missing.length}` : '', r.extra.length ? `sobran ${r.extra.length}` : ''].filter(Boolean).join(', ');
+  el.innerHTML = `<span style="color:#dc2626">⚠ ${why}</span> <button type="button" id="scenFit">Adecuar</button>` +
+    (r.poblacion_ref && r.missing.length ? ` <select id="scenPop" title="Población de las regiones nuevas"><option value="area">Repartir la población actual según el área (por defecto)</option><option value="ref">Repartir la población actual según las proporciones de MH2</option><option value="ref_abs">Poner la cifra de MH2 tal cual</option></select>` : '');
+  el.title = (r.missing.length ? 'Faltan en el escenario: ' + r.missing.join(', ') : '') + (r.extra.length ? '\nSobran: ' + r.extra.join(', ') : '');
+  $('#scenFit').onclick = async () => {
+    if (!confirm(`¿Adecuar «${n}» al regionpack «${pack}»? Pasa a usarlo y se le añaden y quitan las regiones necesarias para que el juego lo cargue (falta «Guardar escenario»).`)) return;
+    const a = await scenPost('/api/scen/set_pack', { name: n, pack, pop_mode: $('#scenPop') ? $('#scenPop').value : 'area' }); if (!a) return;
+    report(`«${n}» → «${pack}»:\n  ` + (a.notes.join('\n  ') || 'sin cambios') + '\nFalta «Guardar escenario».', 'ok');
+    await refreshScen(a.dirty);
+  };
+  return r;
+}
+async function applyOwner(region, owner, controller) {
+  const r = await scenPost('/api/scen/set_owner', { name: S.scenName, region, owner, controller });
+  if (!r) return;
+  report(`${region}: dueño ${owner}, controlador ${controller}` + (r.notes.length ? '\n' + r.notes.join('\n') : ''), 'ok');
+  await refreshScen(r.dirty);
+}
+async function paintOwner(i) {
+  const R = S.regions.get(i); if (!R) return;
+  if (!S.scenName) return status('Elige primero un escenario (Ver › Escenario)');
+  if (R.props.sea) return status(`${R.props.name} es mar: no tiene dueño`);
+  const c = $('#paintCountry').value; if (!c) return status('Elige un país en «País»');
+  const o = ownerOf(R);
+  await applyOwner(R.props.name, c, $('#paintCtrl').checked ? c : (o ? o.controller : c));
+}
+function setView(v) {
+  if (v === 'shape' && S.view !== 'shape' && !confirm('Activar la edición de la FORMA de las regiones (regionpack). Los cambios afectan a todos los escenarios que usan este regionpack. ¿Continuar?')) return;
+  S.view = v; $('#app').dataset.view = v;
+  $('#viewBtn').classList.toggle('on', v === 'view'); $('#shapeBtn').classList.toggle('on', v === 'shape');
+  const want = v === 'shape' ? 'mover' : 'ver';
+  S.mode = want; document.querySelectorAll('[data-mode]').forEach(x => x.classList.toggle('on', x.dataset.mode === want));
+  document.body.className = 'mode-' + S.mode; refreshHandles(); showInfo();
+}
+
+// ------------------------------------------------------------------ guardar
+function updatePending() {
+  const mods = [...S.regions.values()].filter(R => R.modified).map(R => R.props.name), parts = [];
+  if (mods.length) parts.push('Nodos movidos en: ' + mods.join(', '));
+  const names = { assign: 'Dibujar →', stroke: 'Pintar →', cut: 'Recortar de', fill_point: 'Rellenar →', new_region: 'Región nueva', delete_region: 'Eliminar' };
+  for (const op of S.ops) parts.push(`${names[op.kind]} ${op.name}`);
+  const cs = Object.keys(S.centers); if (cs.length) parts.push('Centros movidos: ' + cs.length);
+  $('#pending').textContent = parts.join('\n') || 'ninguno';
+  $('#save').disabled = $('#discard').disabled = !parts.length;
+}
+async function save() {
+  const modified = {};
+  for (const [i, R] of S.regions) if (R.modified) modified[i] = R.polys.map(poly => poly.map(r => r.concat([r[0]])));
+  const body = { modified, assigns: S.ops.map(({ name, ...op }) => op.kind === 'new_region' ? Object.assign(op, { name: op.newName }) : op),
+    centers: S.centers, topo: S.topo, paint: $('#paint').checked, register: $('#register').checked, scenario: S.scenName || null };
+  $('#save').disabled = true; report('Guardando… (unos segundos)');
+  const r = await (await fetch('/api/save', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })).json();
+  showReport(r);
+  if (!r.errors || !r.errors.length) { clearEdits(); S.version++; if ((r.new_regions && r.new_regions.length) || (r.deleted && r.deleted.length)) await reloadMeta(); await reloadAll(); loadChangelog(); } else updatePending();
+  if (r.conflicts && r.conflicts.length) showUnitConflicts(r.conflicts);
+  if (r.new_regions && r.new_regions.length && (!r.errors || !r.errors.length)) goToRegion(r.new_regions[0].name);   // que se vea la región creada
+  checkScenSync();
+  const o = r.open_other_pack;   // el escenario abierto usa otro regionpack: la región nueva no está en él
+  if (o) {
+    const pack = $('#pack').value, names = (r.new_regions || []).map(c => c.text || c.name).join(', ');
+    if (confirm(`«${o.name}» usa el regionpack «${o.pack || '—'}», no «${pack}», así que no se le ha añadido ${names}.\n\n¿Pasar «${o.name}» a «${pack}»? Se añaden las regiones que le faltan y se quitan las que sobran (falta «Guardar escenario»).`)) {
+      const a = await scenPost('/api/scen/set_pack', { name: o.name, pack }); if (!a) return;
+      await refreshScen(a.dirty);
+      report($('#report').textContent + `\n\n«${o.name}» → «${pack}»:\n  ` + (a.notes.join('\n  ') || 'sin cambios') + '\nFalta «Guardar escenario».', 'ok');
+    }
+  }
+}
+function showReport(r) {
+  const out = [];
+  if (r.errors && r.errors.length) out.push('ERRORES:\n  ' + r.errors.join('\n  '));
+  if (r.warnings && r.warnings.length) out.push('Avisos:\n  ' + r.warnings.join('\n  '));
+  if (r.transfers && r.transfers.length) {
+    const agg = {}; for (const t of r.transfers) { const k = `${t.from} → ${t.to}`; agg[k] = (agg[k] || 0) + t.area; }
+    out.push('Traspasos:\n  ' + Object.entries(agg).map(([k, a]) => `${k}: ${a.toExponential(2)} grados²`).join('\n  '));
+  }
+  if (r.deleted && r.deleted.length) out.push('Regiones eliminadas: ' + r.deleted.map(d => `${d.name} → ${d.into || 'vacía'}`).join(', '));
+  if (r.new_regions && r.new_regions.length) out.push('Regiones nuevas:\n  ' + r.new_regions.map(c => `${c.text || c.name}${c.text && c.text !== c.name ? ' (interno: ' + c.name + ')' : ''} #${c.index}${c.mother ? ' de ' + c.mother + ' (' + Math.round(100 * (c.fraccion || 0)) + ' % del área)' : ' → ' + (c.owner || 'sin país')} · vecinas: ${(c.neighbors || []).join(', ')}`).join('\n  '));
+  if (r.new_pairs && r.new_pairs.length) out.push('Vecindades nuevas: ' + r.new_pairs.map(p => p.join('–')).join(', '));
+  if (r.tiles) out.push('Texturas repintadas: ' + r.tiles.join(', '));
+  if (r.check) out.push(`Comprobación: pasos de longitud cero ${r.check.pasos_cero} · bordes ${r.check.bordes}`);
+  if (r.scenarios) out.push(scenarioNotes(r.scenarios));
+  if (r.seconds != null) out.push(`(${r.seconds} s)`);
+  report(out.join('\n\n') || 'Hecho', r.errors && r.errors.length ? 'err' : 'ok');
+}
+const scenarioNotes = sc => 'Escenarios:\n' + (Object.entries(sc).map(([n, notes]) => `  ${n}:\n    ` + (notes.join('\n    ') || 'sin cambios')).join('\n') || '  ninguno usa este regionpack');
+const report = (t, cls) => { const el = $('#report'); el.textContent = t; el.className = cls || 'muted'; };
+const status = t => { $('#status').textContent = t; };
+function clearEdits() { S.ops = []; S.centers = {}; S.undo = []; S.redo = []; redrawOps(); for (const R of S.regions.values()) R.modified = false; updatePending(); updateHistoryButtons(); }
+async function reloadAll() {
+  // la barra de carga sigue hasta que las regiones cambiadas se ven en el mapa
+  return mhBusy(async () => {
+    for (const R of S.regions.values()) if (R.layer) map.removeLayer(R.layer);
+    S.regions.clear(); S.nodeIndex = null; const sel = S.selected;
+    await loadRegions(); if (sel != null && S.regions.has(sel)) select(sel);
+  }, (localStorage.getItem('mh-lang') || 'es') === 'en' ? 'Updating the map…' : 'Actualizando el mapa…');
+}
+
+// ------------------------------------------------------------------ barra
+document.querySelectorAll('[data-mode]').forEach(b => b.onclick = () => {
+  if (S.multiOpen) openMulti(false);       // elegir otra herramienta cierra la selección múltiple
+  if (S.drawing) finishDraw();
+  S.mode = b.dataset.mode; document.querySelectorAll('[data-mode]').forEach(x => x.classList.toggle('on', x === b));
+  document.body.className = 'mode-' + S.mode; refreshHandles();
+});
+const topoBtn = $('#topoBtn'); topoBtn.classList.add('on');
+topoBtn.onclick = () => { S.topo = !S.topo; topoBtn.classList.toggle('on', S.topo); status(S.topo ? 'Topología activada: sin huecos' : 'Topología desactivada: los cambios pueden dejar huecos'); };
+$('#undo').onclick = doUndo; $('#redo').onclick = doRedo;
+$('#packCopy').onclick = async () => {
+  const info = await (await fetch('/api/pack/info')).json(), d = new Date(), z = n => String(n).padStart(2, '0');
+  $('#pcFrom').textContent = info.pack;
+  $('#pcName').value = `${info.pack.replace(/[^A-Za-z0-9_-]/g, '_')}_respaldo_${d.getFullYear()}${z(d.getMonth() + 1)}${z(d.getDate())}_${z(d.getHours())}${z(d.getMinutes())}`;
+  const users = (info.users || {})[info.pack] || [];
+  $('#pcScen').innerHTML = users.length ? users.map(n => `<label style="display:block"><input type="checkbox" value="${n}"> ${n}</label>`).join('') : '<span class="muted">(ningún escenario usa este regionpack)</span>';
+  const dlg = $('#pcDlg');
+  const ok = await new Promise(res => { dlg.onclose = () => res(dlg.returnValue === 'ok'); dlg.returnValue = ''; dlg.showModal(); });
+  if (!ok) return;
+  const body = { name: $('#pcName').value.trim(), scenarios: [...$('#pcScen').querySelectorAll('input:checked')].map(i => i.value), project: $('#pcProj').checked };
+  const r = await (await fetch('/api/pack/copy', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })).json();
+  if (r.error) return report('No se hizo la copia: ' + r.error, 'err');
+  report(r.notes.join(String.fromCharCode(10)), 'ok'); await loadPacks();
+};
+// salir con cambios sin guardar (formas sin «Guardar» o propiedad sin «Guardar escenario»): preguntar antes
+window.mhDirty = () => parent === window && (S.ops.length > 0 || Object.keys(S.centers).length > 0 || [...S.regions.values()].some(R => R.modified) ||
+  !!S.drawing || !$('#saveScen').disabled);
+window.addEventListener('beforeunload', e => { if (window.mhDirty() && !window.mhSkipUnload) { e.preventDefault(); e.returnValue = ''; } });
+$('#dbUndo').onclick = undoDrawPoint; $('#dbRedo').onclick = redoDrawPoint; $('#dbDone').onclick = finishDraw; $('#dbCancel').onclick = cancelDraw;
+$('#redoSave').onclick = async () => {
+  const r = await (await fetch('/api/redo', { method: 'POST' })).json();
+  report(r.msg + (r.scenarios ? '\n\n' + scenarioNotes(r.scenarios) : ''), r.ok ? 'ok' : 'err');
+  S.version++; clearEdits(); if (r.added_regions && r.added_regions.length) await reloadMeta(); await reloadAll(); loadChangelog(); refreshRedoSave();
+};
+function showUnitConflicts(list) {
+  const kind = k => k === 'Army' ? 'Ejército' : k === 'Fleet' ? 'Flota' : 'Aviación';
+  $('#ucList').innerHTML = '<table style="width:100%;border-collapse:collapse;font-size:13px"><tr><th align=left>Escenario</th><th align=left>Unidad</th><th align=left>De</th><th align=left>En</th><th align=left>Qué hacer</th></tr>' +
+    list.map((c, i) => `<tr style="border-top:1px solid var(--line)"><td>${c.scenario}</td><td>${kind(c.kind)} ${c.unit}</td><td>${c.owner}</td><td>${c.region} (de ${c.region_owner})</td>
+      <td><select data-i="${i}"><option value="owner">Pasa a ser de ${c.region_owner}</option>${c.nearest ? `<option value="move">Trasladar a ${c.nearest.name} (${c.owner})</option>` : ''}<option value="keep">Dejar</option></select></td></tr>`).join('') + '</table>';
+  document.querySelectorAll('#ucDlg [data-all]').forEach(b => b.onclick = () => $('#ucList').querySelectorAll('select').forEach(x => { if ([...x.options].some(o => o.value === b.dataset.all)) x.value = b.dataset.all; }));
+  $('#ucGo').onclick = async () => {
+    const items = [...$('#ucList').querySelectorAll('select')].map(x => { const c = list[+x.dataset.i];
+      return { scenario: c.scenario, id: c.id, action: x.value, target: c.nearest && c.nearest.name, xy: c.nearest && c.nearest.xy }; }).filter(x => x.action !== 'keep');
+    ucDlg.close(); if (!items.length) return;
+    const r = await (await fetch('/api/scen/resolve_units', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items }) })).json();
+    report(r.error ? r.error : 'Unidades:' + String.fromCharCode(10) + r.notes.join(String.fromCharCode(10)), r.error ? 'err' : 'ok');
+  };
+  ucDlg.showModal();
+}
+async function refreshRedoSave() { const m = await (await fetch('/api/meta')).json().catch(() => ({})); $('#redoSave').disabled = !(m && m.can_redo); }
+$('#save').onclick = save;
+$('#discard').onclick = async () => { if (confirm('¿Descartar los cambios sin guardar?')) { clearEdits(); await reloadAll(); report('Cambios descartados'); } };
+refreshRedoSave();
+$('#undoSave').onclick = async () => { if (!confirm('¿Volver al estado anterior al último guardado?')) return; const r = await (await fetch('/api/undo', { method: 'POST' })).json(); report(r.msg + (r.scenarios ? '\n\n' + scenarioNotes(r.scenarios) : ''), r.ok ? 'ok' : 'err'); S.version++; clearEdits(); if ((r.removed_regions && r.removed_regions.length) || (r.restored_regions && r.restored_regions.length)) await reloadMeta(); await reloadAll(); loadChangelog(); refreshRedoSave(); };
+$('#install').onclick = async () => {
+  const info = await (await fetch('/api/pack/info')).json();
+  if (info.decided) {
+    const apply = await pickScenarios(info.pack, info.users[info.pack] || []); if (!apply) return;
+    return doInstall({ target: 'same', apply_scenarios: apply });
+  }
+  const users = info.users[info.pack] || [];
+  $('#instPack').textContent = info.pack;
+  $('#instScen').innerHTML = users.map(s => `<label><input type="checkbox" value="${s}" checked> ${s}</label>`).join('') || '<span class="muted">Ningún escenario usa este regionpack.</span>';
+  $('#instDlg').showModal();
+};
+// al instalar: qué escenarios usarán el regionpack (se adecuan sus regiones y se guardan). Marcados: los que ya lo usan
+// y el abierto en el editor. Devuelve la lista elegida o null si se cancela.
+async function pickScenarios(pack, users) {
+  const all = await (await fetch('/api/scenarios')).json(), dlg = $('#psDlg');
+  const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+  $('#psPack').textContent = pack;
+  $('#psList').innerHTML = all.map(s => {
+    const uses = users.includes(s), on = uses || s === S.scenName;
+    return `<label style="display:block"><input type="checkbox" value="${esc(s)}" ${on ? 'checked' : ''}> ${esc(s)}` +
+      `<span class="muted"> ${uses ? '(ya lo usa)' : s === S.scenName ? '(abierto en el editor; pasará a este regionpack)' : ''}</span></label>`;
+  }).join('');
+  const ok = await new Promise(res => { dlg.onclose = () => res(dlg.returnValue === 'ok'); dlg.returnValue = ''; dlg.showModal(); });
+  return ok ? [...$('#psList').querySelectorAll('input:checked')].map(i => i.value) : null;
+}
+async function doInstall(body) {
+  const r = await (await fetch('/api/install', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })).json();
+  if (!r.ok) return report('Error: ' + (r.msg || ''), 'err');
+  report(`Instalado en el regionpack «${r.regionpack}»:\n  ${r.files.join('\n  ')}${r.escenarios && r.escenarios.length ? '\n\nEscenarios que ahora usan «' + r.regionpack + '»:\n  ' + r.escenarios.join('\n  ') : ''}\n\nEl changelog se guardó en el regionpack.` + (r.scenarios ? '\n\n' + scenarioNotes(r.scenarios) : ''), 'ok');
+  if (S.scenName && r.scenarios && r.scenarios[S.scenName]) await refreshScen(); else checkScenSync();
+  const inc = Object.entries(r.incompatibles || {});
+  if (inc.length) {   // escenarios que usan este regionpack y no cuadran con su mapa: el juego no los cargaria
+    const nl = String.fromCharCode(10);
+    alert('ATENCIÓN: estos escenarios usan «' + r.regionpack + '» pero no cuadran con su mapa, y el juego no los cargará:' + nl + nl +
+      inc.map(([n, x]) => '• ' + n + (x.faltan && x.faltan.length ? ': les falta ' + x.faltan.join(', ') : '') + (x.sobran && x.sobran.length ? '; les sobra ' + x.sobran.join(', ') : '') + (x.error ? ': ' + x.error : '')).join(nl) +
+      nl + nl + 'Ábrelos en el editor de escenarios y usa «Compatibilidad con el mapa» (y luego «Guardar»).');
+  }
+  await loadPacks();
+}
+async function loadPacks() {
+  const info = await (await fetch('/api/pack/info')).json(), sel = $('#pack');
+  sel.innerHTML = info.packs.map(p => `<option ${p === info.pack ? 'selected' : ''}>${p}</option>`).join('');
+  return info;
+}
+$('#pack').onchange = async e => {
+  if (!$('#save').disabled && !confirm('Hay cambios sin guardar que se perderán. ¿Cambiar de regionpack?')) { loadPacks(); return; }
+  await fetch('/api/pack/select', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pack: e.target.value }) });
+  clearEdits(); S.version++; S.selected = null; await reloadAll(); report('Regionpack: ' + e.target.value); checkScenSync();
+};
+$('#scenario').onchange = async e => {
+  const n = e.target.value; S.scen = n ? await (await fetch('/api/scenario?name=' + encodeURIComponent(n))).json() : null; S.scenName = n;
+  const opt = n ? await (await fetch('/api/scen/options?name=' + encodeURIComponent(n))).json() : {};
+  if (opt.error || (S.scen && S.scen.error)) report(`No se pudo leer el escenario «${n}»: ${opt.error || S.scen.error}`, 'err');
+  S.nations = opt.strOwner || [];
+  $('#paintCountry').innerHTML = n ? S.nations.map(c => `<option>${c}</option>`).join('') : '<option value="">(elige escenario)</option>';
+  if (n) { $('#colormode').value = 'pais'; S.colorMode = 'pais'; const d = await scenPost('/api/scen/dirty', { name: n }); if (d) { $('#saveScen').disabled = !d.dirty.length; } }
+  restyleAll(); showInfo(); refreshPointBoxes(true);
+  if (S.multiOpen) openMulti(true);      // el panel de selección múltiple sigue al escenario elegido
+  const k = await checkScenSync();
+  if (k && n && (k.uses !== k.pack || k.missing.length || k.extra.length) && $('#scenFit')) $('#scenFit').click();   // pregunta si adecuarlo ya
+};
+// Refrescar: relee del disco el escenario elegido y, si el regionpack del juego cambió fuera del editor, lo carga
+$('#refreshAll').onclick = async () => {
+  if (window.mhDirty() && !confirm('Hay cambios sin guardar en el mapa que se perderán. ¿Refrescar?')) return;
+  const n = S.scenName, notes = [];
+  if (n) {
+    let r = await scenPost('/api/scen/reload', { name: n }); if (!r) return;
+    if (r.needs_confirm) {
+      if (!confirm(`«${n}» tiene cambios sin guardar (${r.dirty.join(', ')}). ¿Descartarlos y leerlo de nuevo del disco?`)) return;
+      r = await scenPost('/api/scen/reload', { name: n, force: true }); if (!r) return;
+    }
+    notes.push(`Escenario «${n}» leído del disco` + (r.missing && r.missing.length ? `; faltan regiones del mapa: ${r.missing.join(', ')}` : '') +
+      (r.extra && r.extra.length ? `; sobran: ${r.extra.join(', ')}` : '') + (r.errors ? `; ${r.errors} errores de validación` : ''));
+  }
+  const post = b => scenPost('/api/refresh', b);
+  let m = await post({}); if (!m) return;
+  if (m.state === 'changed' && confirm(`El regionpack «${m.pack}» del juego ha cambiado fuera del editor. ¿Cargarlo en el editor? (se pierde «Volver / Rehacer» de esta sesión)`)) m = await post({ load_installed: true });
+  else if (m.state === 'pending' && confirm(`El mapa del editor tiene cambios guardados que aún no están instalados en «${m.pack}». ¿Descartarlos y cargar el regionpack del juego?`)) m = await post({ load_installed: true });
+  if (!m) return;
+  notes.push(m.loaded ? `Regionpack cargado desde el juego` : m.state === 'same' ? 'El mapa coincide con el regionpack del juego' : 'El mapa se mantiene (cambios sin instalar)');
+  clearEdits(); S.version++; S.selected = null; if (m.loaded) await reloadMeta(); await reloadAll();
+  if (n && [...$('#scenario').options].some(o => o.value === n)) { $('#scenario').value = n; await $('#scenario').onchange({ target: $('#scenario') }); }
+  report(notes.join('. ') + '.', 'ok');
+};
+$('#colormode').onchange = e => { S.colorMode = e.target.value; restyleAll(); };
+$('#viewBtn').onclick = () => setView('view');
+$('#shapeBtn').onclick = () => setView('shape');
+$('#saveScen').onclick = async () => {
+  if (!S.scenName || !confirm(`Se escribirán en el juego los archivos modificados de «${S.scenName}». ¿Guardar?`)) return;
+  let r = await scenPost('/api/scen/save', { name: S.scenName }); if (!r) return;
+  if (r.needs_fit) {   // regiones que no cuadran con el regionpack: el juego no cargaría el escenario
+    const lst = xs => xs.slice(0, 12).join(', ') + (xs.length > 12 ? '…' : '');
+    const msg = `Las regiones de «${S.scenName}» no coinciden con su regionpack «${r.pack}»: el juego no cargará el escenario.` +
+      (r.missing.length ? `\n\nFaltan en el escenario: ${lst(r.missing)}` : '') + (r.extra.length ? `\nSobran en el escenario: ${lst(r.extra)}` : '');
+    if (confirm(msg + '\n\n¿Adecuar el escenario al regionpack y guardar?')) {
+      const NL = String.fromCharCode(10);
+      const f = await scenPost('/api/scen/pack_sync', { name: S.scenName, pack: r.pack, switch: true }); if (!f) return;
+      report('Adecuar:' + NL + '  ' + (f.notes.join(NL + '  ') || 'sin cambios'), 'ok');
+      r = await scenPost('/api/scen/save', { name: S.scenName });
+    } else if (confirm('¿Guardar igualmente sin adecuar?')) r = await scenPost('/api/scen/save', { name: S.scenName, ignore_pack: true });
+    else return;
+    if (!r) return;
+    if (r.needs_fit) {   // no se pudo adecuar del todo: no se guarda y se dice por qué
+      report($('#report').textContent + String.fromCharCode(10, 10) + `No se ha guardado: siguen sin coincidir con «${r.pack}»` + (r.missing.length ? `; faltan ${r.missing.join(', ')}` : '') +
+        (r.extra.length ? `; sobran ${r.extra.join(', ')}` : '') + '.', 'err');
+      checkScenSync(); return;
+    }
+  }
+  report('Escenario guardado: ' + (r.written.join(', ') || 'nada') + (r.history ? '\nCopia del estado anterior: backup/historial/' + r.history : ''), 'ok');
+  await refreshScen([]);
+};
+$('#allv').onchange = () => refreshHandles();
+$('#search').addEventListener('change', e => {
+  const m = S.byName[e.target.value.trim().toLowerCase()]; if (!m) return;
+  const [x0, y0, x1, y1] = m.bbox; map.fitBounds([[y0, x0], [y1, x1]], { maxZoom: 9 });
+  setTimeout(async () => { await loadRegions(); if (S.regions.has(m.index)) select(m.index); }, 400);
+});
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && S.drawing) cancelDraw();
+  if (S.drawing && !/INPUT|SELECT|TEXTAREA/.test((e.target || {}).tagName || '')) {
+    const z = (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z', y = (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y';
+    if ((z && e.shiftKey) || y) { e.preventDefault(); e.stopImmediatePropagation(); return redoDrawPoint(); }
+    if (z || e.key === 'Backspace') { e.preventDefault(); e.stopImmediatePropagation(); return undoDrawPoint(); }
+  }
+  if (e.key === 'Enter' && S.drawing) finishDraw();
+  if (e.ctrlKey && e.key.toLowerCase() === 'z') { e.preventDefault(); doUndo(); }
+  if (e.ctrlKey && e.key.toLowerCase() === 'y') { e.preventDefault(); doRedo(); }
+});
+map.on('moveend', scheduleLoad);
+
+async function reloadMeta() {
+  const meta = await (await fetch('/api/meta')).json(); S.meta = meta.regions; S.byName = {};
+  const dl = $('#names'); dl.innerHTML = '';
+  for (const m of S.meta) { S.byName[m.name.toLowerCase()] = m; const o = document.createElement('option'); o.value = m.name; dl.appendChild(o); }
+  return meta;
+}
+// regiones nuevas del changelog: siempre visibles (borde naranja y nombre), a cualquier zoom
+const NEW = { layer: L.layerGroup().addTo(map), names: new Set() };
+async function drawNewRegions(names) {
+  NEW.layer.clearLayers(); NEW.names = new Set(names);
+  for (let i = 0; i < 40 && !(S.meta && S.meta.length); i++) await new Promise(r => setTimeout(r, 250));   // al abrir, esperar la lista de regiones
+  for (const n of names) {
+    const m = (S.meta || []).find(x => x.name === n); if (!m) continue;
+    const fc = await (await fetch(`/api/regions?bbox=${m.bbox.join(',')}`)).json().catch(() => null);
+    const f = fc && fc.features.find(x => x.properties.name === n); if (!f) continue;
+    const g = L.geoJSON(f.geometry, { interactive: false, style: { color: '#f97316', weight: 2.5, dashArray: '6 4', fillColor: '#f97316', fillOpacity: 0.25 } });
+    g.addTo(NEW.layer);
+    L.marker([m.center[1], m.center[0]], { interactive: false, icon: L.divIcon({ className: '', html: `<span style="background:#f97316;color:#fff;font:600 11px system-ui;padding:1px 6px;border-radius:8px;white-space:nowrap">${n}</span>` }) }).addTo(NEW.layer);
+  }
+}
+function goToRegion(n) {
+  const m = (S.meta || []).find(x => x.name === n); if (!m) return;
+  const [x0, y0, x1, y1] = m.bbox; map.fitBounds([[y0, x0], [y1, x1]], { maxZoom: 7, padding: [40, 40] });
+  setTimeout(async () => { await loadRegions(); if (S.regions.has(m.index)) select(m.index); }, 450);
+}
+async function loadChangelog() { refreshRedoSave();
+  const c = await (await fetch('/api/changelog')).json();
+  const news = c.entries.flatMap(e => (e.regiones_nuevas || []).map(x => Object.assign({ fecha: e.fecha }, x)));
+  $('#clog').innerHTML = `${c.entries.length} guardado(s) en el changelog de «${c.pack}».` + (news.length ? '<br>Regiones nuevas: ' +
+    news.map(x => `<a href="#" data-go="${x.nombre}"><b>${x.texto || x.nombre}</b></a> ${x.madre ? 'de ' + x.madre : '(' + (x.pais || 'sin país') + ')'}`).join(', ') : '<br>Sin regiones nuevas.');
+  $('#clog').querySelectorAll('[data-go]').forEach(a => a.onclick = e => { e.preventDefault(); goToRegion(a.dataset.go); });
+  drawNewRegions(news.map(x => x.nombre));
+  const dels = c.entries.flatMap(e => e.regiones_eliminadas || []);
+  if (dels.length) $('#clog').innerHTML += '<br>Eliminadas: ' + dels.map(x => `<b>${x.nombre}</b> → ${x.absorbida_por || 'vacía'}`).join(', ');
+  const sel = $('#clogScen'), cur = sel.value;
+  sel.innerHTML = c.scenarios.map(s => `<option ${s === cur ? 'selected' : ''}>${s}</option>`).join('');
+}
+// Revisar changelog: mapa del proyecto contra la base (World) y el changelog; el usuario elige qué queda
+$('#clogReview').onclick = async () => {
+  const info = await (await fetch('/api/pack/info')).json(), dlg = $('#crDlg');
+  $('#crPack').textContent = info.pack;
+  $('#crBase').innerHTML = info.packs.filter(p => p !== info.pack).map(p => `<option ${p === 'World' ? 'selected' : ''}>${p}</option>`).join('');
+  const ST = { ok: ['✓', 'en el mapa y en el changelog', '#16a34a'], missing: ['⚠', 'en el mapa, falta en el changelog', '#d97706'], stale: ['✗', 'en el changelog, no está en el mapa', '#dc2626'] };
+  const load = async () => {
+    $('#crList').textContent = 'Comparando…'; $('#crGo').disabled = true;
+    const r = await (await fetch('/api/changelog/review?base=' + encodeURIComponent($('#crBase').value))).json();
+    if (r.error) { $('#crList').innerHTML = `<span style="color:#dc2626">${r.error}</span>`; return; }
+    $('#crList').innerHTML = r.rows.length ? '<table style="width:100%;border-collapse:collapse;font-size:13px">' + r.rows.map(x => {
+      const [ic, txt, col] = ST[x.status];
+      return `<tr style="border-top:1px solid var(--line)"><td><input type="checkbox" data-n="${x.name.replace(/"/g, '&quot;')}" data-s="${x.status}" ${x.status !== 'stale' ? 'checked' : ''}></td>
+        <td><b>${x.name}</b>${x.sea ? ' (mar)' : ''}</td><td>${x.mother ? 'de ' + x.mother : '<span class="muted">sin madre</span>'}</td>
+        <td style="color:${col}">${ic} ${txt}</td></tr>`;
+    }).join('') + '</table>' : 'El mapa no tiene regiones nuevas respecto a la base y el changelog está vacío.';
+    $('#crDeleted').textContent = r.deleted.length ? `Regiones de ${r.base} que este mapa ya no tiene: ${r.deleted.join(', ')}` : '';
+    $('#crGo').disabled = false;
+  };
+  $('#crBase').onchange = load; load();
+  const ok = await new Promise(res => { dlg.onclose = () => res(dlg.returnValue === 'ok'); dlg.returnValue = ''; dlg.showModal(); });
+  if (!ok) return;
+  const boxes = [...$('#crList').querySelectorAll('input[data-n]')];
+  const keep = boxes.filter(b => b.checked && b.dataset.s !== 'missing').map(b => b.dataset.n);
+  const add = boxes.filter(b => b.checked && b.dataset.s === 'missing').map(b => b.dataset.n);
+  const r = await scenPost('/api/changelog/review', { keep, add, base: $('#crBase').value }); if (!r) return;
+  report(`Changelog revisado.\n  Quitadas: ${r.removed.join(', ') || 'ninguna'}\n  Añadidas: ${r.added.join(', ') || 'ninguna'}` +
+    (r.game_updated ? '\n  También actualizado en el regionpack del juego.' : '\n  Se copiará al juego al «Instalar».'), 'ok');
+  loadChangelog(); checkScenSync();
+};
+$('#clogApply').onclick = async () => {
+  const sc = $('#clogScen').value; if (!sc) return;
+  if (!confirm(`¿Crear en «${sc}» las regiones nuevas del changelog? Se guarda el escenario.`)) return;
+  report('Aplicando el changelog…');
+  const r = await (await fetch('/api/changelog/apply', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ scenario: sc }) })).json();
+  report(r.msg || scenarioNotes(r.scenarios), 'ok');
+  if (S.scenName === sc) { S.scen = await (await fetch('/api/scenario?name=' + encodeURIComponent(sc))).json(); restyleAll(); }
+};
+document.querySelectorAll('input[name=nrMode]').forEach(x => x.onchange = nrSync);
+$('#nrName').onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); $('#nrDlg').close('ok'); } };
+
+(async () => {
+  // al (re)cargar la pagina se lee lo guardado (lo no guardado de los escenarios se descarta); dentro del editor de
+  // escenarios (iframe) no, porque los cambios son de esa pagina
+  if (parent === window) await fetch('/api/scen/discard_all', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+  const meta = await reloadMeta();
+  loadChangelog();
+  const sc = await (await fetch('/api/scenarios')).json(), sel = $('#scenario');
+  for (const n of sc) { const o = document.createElement('option'); o.value = o.textContent = n; sel.appendChild(o); }
+  const pk = await loadPacks();
+  report(`Regionpack: ${pk.pack}\nProyecto: ${meta.project}\nInstantáneas para volver atrás: ${meta.history}`);
+  const qs = new URLSearchParams(location.search);
+  if (qs.get('pack') && qs.get('pack') !== pk.pack && pk.packs.includes(qs.get('pack'))) {
+    await fetch('/api/pack/select', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pack: qs.get('pack') }) });
+    qs.delete('pack'); location.replace(location.pathname + '?' + qs.toString()); return;
+  }
+  if (qs.get('color') === 'pais') { $('#colormode').value = 'pais'; S.colorMode = 'pais'; }
+  // por defecto se colorea por país: si no se pidió escenario, el primero que usa este regionpack
+  const auto = !qs.get('scenario') && pk.users && (pk.users[pk.pack] || []).find(n => sc.includes(n));
+  if (auto) qs.set('scenario', auto);
+  if (qs.get('scenario')) { sel.value = qs.get('scenario'); await sel.onchange({ target: sel }); }
+  const want = qs.get('region') && S.byName[qs.get('region').toLowerCase()];
+  if (want) { const [x0, y0, x1, y1] = want.bbox; map.fitBounds([[y0, x0], [y1, x1]], { maxZoom: 9 }); await loadRegions(); if (S.regions.has(want.index)) select(want.index); }
+  else { updateTiles(); loadRegions(); }
+})();
+</script>
+<dialog id="crDlg" style="border:1px solid var(--line);border-radius:10px;background:var(--panel);color:var(--ink);width:min(680px,94vw)">
+  <form method="dialog">
+    <h3 style="margin-top:0">Revisar el changelog de «<span id="crPack"></span>»</h3>
+    <div>Comparar con <select id="crBase"></select> <span class="muted">(el regionpack de partida)</span></div>
+    <p class="muted">Regiones que el mapa tiene y la base no (regiones nuevas), y regiones del changelog que el mapa ya no tiene.
+      Marca las que deben quedar en el changelog; «Adecuar» y «Aplicar» usan esta lista.</p>
+    <div id="crList" style="max-height:50vh;overflow:auto">Comparando…</div>
+    <div id="crDeleted" class="muted" style="margin-top:6px"></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px"><button value="cancel">Cancelar</button>
+      <button value="ok" id="crGo" style="background:#0ea5e9;color:#fff;border:0;border-radius:6px;padding:5px 12px">Guardar changelog</button></div>
+  </form>
+</dialog>
+<dialog id="psDlg"style="border:1px solid var(--line);border-radius:10px;background:var(--panel);color:var(--ink);max-width:560px">
+  <form method="dialog">
+    <h3 style="margin-top:0">Instalar en «<span id="psPack"></span>»</h3>
+    <p class="muted">Se copian los archivos del proyecto al regionpack del juego. Los escenarios marcados pasarán a usarlo: se les añaden
+      las regiones nuevas, se quitan las que sobran y se guardan. Los que no marques no se tocan.</p>
+    <div id="psList" style="max-height:45vh;overflow:auto;margin:6px 0"></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px"><button value="cancel">Cancelar</button>
+      <button value="ok" style="background:#c2410c;color:#fff;border:0;border-radius:6px;padding:5px 12px">Instalar</button></div>
+  </form>
+</dialog>
+<dialog id="instDlg"style="border:1px solid var(--line);border-radius:10px;background:var(--panel);color:var(--ink);max-width:520px">
+  <h3 style="margin-top:0">¿Dónde guardar los cambios del mapa?</h3>
+  <p class="muted">Solo se pregunta una vez por proyecto.</p>
+  <label><input type="radio" name="dest" value="same" checked> En el regionpack actual «<b id="instPack"></b>»</label>
+  <label><input type="radio" name="dest" value="new"> En un regionpack nuevo (copia del actual):</label>
+  <input id="instName" placeholder="NombreDelRegionpack" style="margin:4px 0 8px 24px;padding:4px 7px">
+  <div style="margin-left:24px"><div class="muted">Escenarios que pasarán a usar el regionpack nuevo:</div><div id="instScen"></div></div>
+  <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px"><button onclick="instDlg.close()">Cancelar</button><button id="instGo" style="background:#c2410c;color:#fff;border:0;border-radius:6px;padding:5px 12px">Instalar</button></div>
+</dialog>
+<script>
+document.getElementById('instGo').onclick = async () => {
+  const dest = document.querySelector('input[name=dest]:checked').value;
+  const chosen = [...document.querySelectorAll('#instScen input:checked')].map(i => i.value);
+  const body = dest === 'new' ? { target: 'new', name: document.getElementById('instName').value.trim(), scenarios: chosen, apply_scenarios: chosen } : { target: 'same' };
+  document.getElementById('instDlg').close();
+  if (dest === 'same') {
+    const pack = document.getElementById('instPack').textContent, apply = await pickScenarios(pack, chosen);
+    if (!apply) return; body.apply_scenarios = apply;
+  }
+  doInstall(body);
+};
+</script>
+<script>
+// juego (MH1 / Gold): cada juego tiene su proyecto de mapa (editor_proyecto / editor_proyecto_gold)
+(async () => {
+  const sel = document.getElementById('gameSel'), info = await (await fetch('/api/game')).json();
+  sel.innerHTML = info.games.map(g => `<option value="${g.key}"${g.installed ? '' : ' disabled'}>${g.short}${g.installed ? '' : ' (no instalado)'}</option>`).join('');
+  sel.value = info.current; sel.title = info.games.find(g => g.key === info.current).path;
+  sel.onchange = async () => {
+    const r = await (await fetch('/api/game/select', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ game: sel.value }) })).json();
+    if (r.error) { alert(r.error); sel.value = info.current; return; }
+    location.href = '/';
+  };
+  // si el juego cambia desde otra pestaña o ventana, esta página quedaría con datos del otro juego: recargar
+  window.addEventListener('focus', async () => {
+    const now = await (await fetch('/api/game')).json().catch(() => null);
+    if (now && now.current !== info.current && confirm(`El editor ha pasado a ${now.games.find(g => g.key === now.current).short} desde otra ventana. ¿Recargar esta página?`)) {
+      window.mhSkipUnload = true; location.reload();
+    }
+  });
+})();
+</script>
+<dialog id="bgDlg" style="border:1px solid var(--line);border-radius:10px;background:var(--panel);color:var(--ink);width:min(620px,94vw)">
+  <h3 style="margin-top:0">Imagen de fondo (terreno)</h3>
+  <p class="muted">El terreno son 24 × 13 tiles de 15° (1024 px). Zona en grados: oeste, sur, este, norte (todo el mundo: -180, -90, 180, 105).</p>
+  <div style="display:grid;grid-template-columns:auto 1fr;gap:6px 10px;align-items:center">
+    <label>Zona</label><div><input id="bgBox" value="-180,-90,180,105" style="width:220px"> <button id="bgView" type="button">Zona visible</button> <button id="bgGeo" type="button">Límites de un GeoJSON…</button></div>
+    <label>Detalle al exportar</label><select id="bgLevel"><option value="0">completo (1024 px por tile)</option><option value="1">1/2</option><option value="2" selected>1/4</option><option value="3">1/8</option></select>
+    <label>Formato</label><select id="bgFmt"><option value="png">PNG</option><option value="jpg">JPG</option></select>
+    <label>Separar</label><label style="display:block"><input type="checkbox" id="bgSep" checked> Fondo y límites en imágenes separadas (.zip: fondo, límites transparentes y fondo con límites)</label>
+    <label>Terreno</label><label style="display:block"><input type="checkbox" id="bgTerr"> Añadir una imagen con el color del tipo de terreno de cada región (vacío en blanco, mar en celeste) y su leyenda</label>
+  </div>
+  <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
+    <button id="bgExport" type="button">Exportar</button>
+    <button id="bgImport" type="button" style="background:#c2410c;color:#fff;border:0;border-radius:6px;padding:5px 12px">Importar imagen…</button>
+    <span class="muted" id="bgMsg"></span>
+    <button type="button" style="margin-left:auto" onclick="bgDlg.close()">Cerrar</button>
+  </div>
+  <p class="muted">Importar: la imagen se estira para cubrir exactamente la zona y se baja a la resolución del juego; lo que queda fuera conserva el terreno.
+  Se guarda en el proyecto (con sus mipmaps) y llega al juego al pulsar «Instalar». Para un mundo nuevo (p. ej. Tamriel) usa como zona los límites de su GeoJSON.</p>
+  <input type="file" id="bgFile" accept="image/*" hidden><input type="file" id="bgGeoFile" accept=".geojson,.json" hidden>
+</dialog>
+<script>
+// imagen de fondo: exportar / importar
+(() => {
+  const $ = s => document.querySelector(s), box = () => $('#bgBox').value.split(',').map(Number);
+  $('#bgBtn').onclick = () => bgDlg.showModal();
+  $('#bgView').onclick = () => { const b = map.getBounds(); $('#bgBox').value = [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()].map(v => v.toFixed(2)).join(','); };
+  $('#bgGeo').onclick = () => $('#bgGeoFile').click();
+  $('#bgGeoFile').onchange = async e => {
+    const f = e.target.files[0]; if (!f) return;
+    let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
+    const walk = c => { if (typeof c[0] === 'number') { x0 = Math.min(x0, c[0]); x1 = Math.max(x1, c[0]); y0 = Math.min(y0, c[1]); y1 = Math.max(y1, c[1]); } else c.forEach(walk); };
+    try { const g = JSON.parse(await f.text()); (g.features || [g]).forEach(ft => ft.geometry && walk(ft.geometry.coordinates)); } catch (err) { return alert('GeoJSON no válido'); }
+    $('#bgBox').value = [x0, y0, x1, y1].map(v => v.toFixed(3)).join(','); e.target.value = '';
+  };
+  $('#bgExport').onclick = async () => {
+    const b = box(), fmt = $('#bgFmt').value;
+    const sn = await (await fetch('/api/terrain/snap?bbox=' + b.join(','))).json();
+    const a = document.createElement('a');
+    const sep = $('#bgSep').checked, terr = $('#bgTerr').checked;
+    a.href = `/api/terrain/export?bbox=${b.join(',')}&level=${$('#bgLevel').value}&fmt=${fmt}${sep ? '&separate=1' : ''}${terr ? '&terrain=1&scenario=' + encodeURIComponent(S.scenName || '') : ''}`;
+    a.download = `fondo_${sn.bbox.join('_')}.${sep || terr ? 'zip' : fmt}`; a.click();
+    $('#bgMsg').textContent = `Exportada la zona ${sn.bbox.join(', ')} (ajustada a tiles). Para reimportarla usa esa misma zona.`;
+    $('#bgBox').value = sn.bbox.join(',');
+  };
+  $('#bgImport').onclick = () => $('#bgFile').click();
+  $('#bgFile').onchange = async e => {
+    const f = e.target.files[0]; if (!f) return; e.target.value = '';
+    const b = box();
+    if (!confirm(`Importar «${f.name}» sobre la zona ${b.join(', ')}? Se reescriben los tiles del proyecto afectados (con sus mipmaps).`)) return;
+    $('#bgMsg').textContent = 'Convirtiendo…';
+    const data = await new Promise(res => { const r = new FileReader(); r.onload = () => res(r.result); r.readAsDataURL(f); });
+    const r = await (await fetch('/api/terrain/import', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ image: data, bbox: b }) })).json();
+    if (r.error) { $('#bgMsg').textContent = 'Error: ' + r.error; return; }
+    $('#bgMsg').textContent = `${r.tiles.length} tiles escritos en el proyecto. Pulsa «Instalar» para llevarlos al juego.`;
+    // recargar las imagenes del terreno en el mapa
+    S.version = 'bg' + Date.now(); updateTiles();
+  };
+})();
+</script>
+<script>
+// incrustado en el editor de escenarios (escenario.html): capas de color, puntos (ciudades, recursos, unidades) y clics
+// panel de «Selección múltiple» a la derecha: es la página del editor de escenarios en modo panel (un iframe); este mapa le
+// manda los clics y recibe sus órdenes (colores, puntos, marcas, recargas)
+const toHost = msg => {
+  const w = parent !== window ? parent : (S.multiOpen ? $('#multiFrame').contentWindow : null);
+  if (w) w.postMessage(msg, location.origin);
+};
+function openMulti(force) {
+  const f = $('#multiFrame');
+  if (S.multiOpen && !force) {          // cerrar
+    S.multiOpen = false; f.style.display = 'none'; f.removeAttribute('src'); $('#multiBtn').classList.remove('on');
+    document.querySelectorAll('[data-mode]').forEach(x => x.classList.toggle('on', x.dataset.mode === S.mode));      // vuelve la herramienta de antes
+    S.overlay = null; PT.sel = new Set(); PT.show = {}; PT.drag = false; S.pick = false; restyleAll(); drawPoints(); refreshPointBoxes(false);
+    return;
+  }
+  if (!S.scenName) { status('Elige un escenario en «Ver» para usar la selección múltiple'); return; }
+  if (S.view === 'shape') setView('view');
+  if (S.view === 'shape') return;
+  S.multiOpen = true; $('#multiBtn').classList.add('on'); f.style.display = '';
+  document.querySelectorAll('[data-mode]').forEach(x => x.classList.remove('on'));       // «Múltiple» es la única herramienta activa
+  f.src = '/escenario?panel=multi&keep=1&scenario=' + encodeURIComponent(S.scenName);
+}
+$('#multiBtn').onclick = () => openMulti(false);
+const PT = { layer: null, pts: [], show: {}, renderer: null, sel: new Set() };
+const PT_COL = { city: '#f8fafc', producer: '#facc15', army: '#ef4444', air: '#38bdf8', fleet: '#1d4ed8' };
+function drawPoints() {
+  if (!PT.renderer) { map.createPane('pts').style.zIndex = 650; PT.renderer = L.canvas({ pane: 'pts' }); }
+  if (PT.layer) map.removeLayer(PT.layer);
+  PT.layer = L.layerGroup();
+  for (const p of PT.pts) {
+    if (!PT.show[p.kind]) continue;
+    const draggable = PT.drag && (p.kind === 'city' || p.kind === 'producer') && parent !== window;
+    const m = draggable
+      ? L.marker([p.y, p.x], { draggable: true, icon: L.divIcon({ className: '', iconSize: [14, 14], iconAnchor: [7, 7],
+          html: `<div style="width:14px;height:14px;border-radius:50%;border:2px solid #f97316;background:${PT_COL[p.kind]};cursor:move"></div>` }) })
+      : L.circleMarker([p.y, p.x], { renderer: PT.renderer, pane: 'pts', radius: (p.kind === 'city' ? 4 : p.kind === 'producer' ? 3.5 : 5.5) + (PT.sel.has(p.id) ? 3 : 0),
+      color: PT.sel.has(p.id) ? '#2563eb' : '#111', weight: PT.sel.has(p.id) ? 3.5 : 1, fillColor: PT_COL[p.kind] || '#fff', fillOpacity: 0.95 });
+    if (draggable) m.on('dragend', () => { const ll = m.getLatLng(); toHost({ ev: 'pointMoved', id: p.id, x: ll.lng, y: ll.lat }); });
+    m.bindTooltip(p.label, { direction: 'top', className: 'rt' });
+    m.on('click', e => { L.DomEvent.stopPropagation(e); toHost({ ev: 'pointClick', id: p.id, kind: p.kind }); });
+    PT.layer.addLayer(m);
+  }
+  PT.layer.addTo(map);
+}
+window.addEventListener('message', async e => {
+  if (e.origin !== location.origin || !e.data || !e.data.cmd) return;
+  const d = e.data;
+  if (d.cmd === 'overlay') { S.overlay = d.overlay; restyleAll(); }
+  if (d.cmd === 'pick') { S.pick = !!d.on; map.getContainer().style.cursor = d.on ? 'crosshair' : ''; }
+  if (d.cmd === 'reloadAll') { S.version++; await reloadMeta(); await reloadAll(); loadChangelog(); checkScenSync(); }
+  if (d.cmd === 'scenDirty') { await refreshScen(d.dirty || []); }
+  if (d.cmd === 'goto') { map.setView([d.y, d.x], Math.max(map.getZoom(), d.zoom || 8)); }
+  if (d.cmd === 'selPoints') { PT.sel = new Set(d.ids || []); drawPoints(); }
+  if (d.cmd === 'dragPoints') { PT.drag = !!d.on; drawPoints(); }
+  if (d.cmd === 'points') { if (d.points) PT.pts = d.points; if (d.show) PT.show = d.show; drawPoints(); }
+  if (d.cmd === 'fit') {   // encuadrar unas regiones (p. ej. las históricas de un país)
+    for (let i = 0; i < 40 && !Object.keys(S.byName || {}).length; i++) await new Promise(r => setTimeout(r, 250));
+    const bb = (d.regions || []).map(n => (S.byName[String(n).toLowerCase()] || {}).bbox).filter(Boolean);
+    if (bb.length) map.fitBounds([[Math.min(...bb.map(b => b[1])), Math.min(...bb.map(b => b[0]))], [Math.max(...bb.map(b => b[3])), Math.max(...bb.map(b => b[2]))]], { maxZoom: 6, padding: [30, 30] });
+  }
+  if (d.cmd === 'reloadScen' && S.scenName) { S.scen = await (await fetch('/api/scenario?name=' + encodeURIComponent(S.scenName))).json(); restyleAll(); }
+});
+// interruptores propios (no embebido): ciudades, recursos y unidades del escenario elegido
+async function refreshPointBoxes(reload) {
+  if (parent !== window) return;
+  const has = !!S.scenName;
+  document.querySelectorAll('[data-ptk]').forEach(b => { b.disabled = !has; if (!has) b.checked = false; });
+  if (!has) { PT.pts = []; PT.show = {}; drawPoints(); return; }
+  if (reload || !PT.loadedFor || PT.loadedFor !== S.scenName) {
+    const r = await (await fetch('/api/scen/points?name=' + encodeURIComponent(S.scenName))).json().catch(() => ({}));
+    PT.pts = r.points || []; PT.loadedFor = S.scenName;
+  }
+  PT.show = {};
+  document.querySelectorAll('[data-ptk]').forEach(b => {
+    if (b.dataset.ptk === 'units') ['army', 'air', 'fleet'].forEach(k => { PT.show[k] = b.checked; }); else PT.show[b.dataset.ptk] = b.checked;
+  });
+  drawPoints();
+}
+document.querySelectorAll('[data-ptk]').forEach(b => b.onchange = () => refreshPointBoxes(false));
+if (parent !== window) {
+  document.documentElement.classList.add('embedded'); map.invalidateSize();
+  parent.postMessage({ ev: 'mapReady' }, location.origin);
+}
+</script>
+<dialog id="gjDlg" style="border:1px solid var(--line);border-radius:10px;background:var(--panel);color:var(--ink);width:min(680px,94vw)">
+  <h3 style="margin-top:0">GeoJSON</h3>
+  <div style="display:flex;gap:6px;margin-bottom:8px"><button type="button" id="gjTabExp">Exportar</button><button type="button" id="gjTabImp">Importar</button>
+    <button type="button" style="margin-left:auto" onclick="gjDlg.close()">Cerrar</button></div>
+  <div id="gjExp">
+    <p class="muted" id="gjScenNote"></p>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:3px 14px;font-size:13px">
+      <label><input type="checkbox" data-gf="regiones_tierra" checked> Regiones de tierra <span class="muted">(regiones_tierra.geojson)</span></label>
+      <label><input type="checkbox" data-gf="regiones_mar" checked> Regiones de mar <span class="muted">(regiones_mar.geojson)</span></label>
+      <label><input type="checkbox" data-gf="borders"> Fronteras <span class="muted">(borders.geojson)</span></label>
+      <label><input type="checkbox" data-gf="changelog" checked> Changelog comparado con la base <span class="muted">(changelog_comparado.json)</span></label>
+      <label data-needs-scen><input type="checkbox" data-gf="ciudades" checked> Ciudades <span class="muted">(ciudades.geojson)</span></label>
+      <label data-needs-scen><input type="checkbox" data-gf="unidades" checked> Unidades: ejército, aviación y flotas <span class="muted">(unidades.geojson)</span></label>
+      <label data-needs-scen><input type="checkbox" data-gf="minerales" checked> Minerales <span class="muted">(minerales.geojson)</span></label>
+      <label data-needs-scen><input type="checkbox" data-gf="naciones" checked> Naciones por región <span class="muted">(naciones.json)</span></label>
+    </div>
+    <div style="margin-top:8px;font-size:13px" data-needs-scen><label><input type="checkbox" id="gjSplit"> Un archivo de minerales por recurso</label></div>
+    <div style="margin-top:6px;font-size:13px"><label><input type="checkbox" id="gjColors"> Incluir el color del tipo de terreno en las regiones (propiedades <code>terrain</code> y <code>color</code>; mar en celeste, huecos en blanco en <code>leyenda_terreno.json</code>)</label></div>
+    <div style="margin-top:6px;font-size:13px">Comparar el changelog con el regionpack <select id="gjBase"></select>
+      <span class="muted">(qué regiones se dividieron, fusionaron, son nuevas o se quitaron, y de cuáles salió cada una con su % de área)</span></div>
+    <div style="margin-top:6px;font-size:13px"><span class="muted">Regiones, ciudades, unidades y naciones llevan dueño, controlador, terreno, cultura y población del escenario elegido en «Ver».</span></div>
+    <div style="margin-top:10px;display:flex;gap:8px;align-items:center"><button type="button" class="primary" id="gjDoExport">Exportar .zip</button><span class="muted" id="gjExpMsg"></span></div>
+  </div>
+  <div id="gjImp" style="display:none">
+    <button type="button" id="gjPick">Elegir archivos…</button> <span class="muted" id="gjFound">Elige uno o varios .geojson (regiones de tierra y de mar, ciudades, unidades, minerales…).</span>
+    <input type="file" id="gjFiles" accept=".geojson,.json" multiple hidden>
+    <fieldset id="gjRegOpts" style="margin-top:10px;font-size:13px;display:none"><legend>Regiones (contornos)</legend>
+      <label><input type="checkbox" id="gjLand" checked> Importar las de tierra</label> <label style="margin-left:12px"><input type="checkbox" id="gjSea" checked> Importar las de mar</label>
+      <div style="margin-top:6px"><b>Población de las regiones nuevas</b>
+        <label style="display:block"><input type="radio" name="gjPop" value="area" checked> Calcularla por el % del área que toman de las regiones de origen (World y escenario abierto)</label>
+        <label style="display:block"><input type="radio" name="gjPop" value="geojson"> Importar la población del GeoJSON <span class="muted">(si un contorno no la trae, se calcula por el área)</span></label></div>
+      <div style="margin-top:6px"><b>Nación dueña</b>
+        <label style="display:block"><input type="radio" name="gjOwn" value="province" checked> Asignarla desde la provincia que pierde área <span class="muted">(la región de origen que más área aporta)</span></label>
+        <label style="display:block"><input type="radio" name="gjOwn" value="geojson"> Importar la nación del GeoJSON <span class="muted">(si un contorno no la trae, se usa la de la provincia)</span></label></div>
+      <label style="display:block;margin-top:6px"><input type="checkbox" id="gjAuto" checked> No preguntar región a región cuando el contorno trae nombre y nación <span class="muted">(si falta algo, se abre el diálogo)</span></label>
+      <div class="muted" style="margin-top:4px">Los contornos cuyo nombre ya existe en el mapa se omiten (para cambiar una forma usa Avanzado → Sumar / Restar área).</div>
+    </fieldset>
+    <fieldset id="gjPtOpts" style="margin-top:10px;font-size:13px;display:none"><legend>Puntos (ciudades, unidades, minerales)</legend>
+      <div class="muted" id="gjPtNote"></div></fieldset>
+    <div style="margin-top:10px"><button type="button" class="primary" id="gjDoImport" disabled>Importar</button></div>
+  </div>
+</dialog>
+<dialog id="gjPtDlg" style="border:1px solid var(--line);border-radius:10px;background:var(--panel);color:var(--ink);width:min(760px,94vw)">
+  <h3 style="margin-top:0">Importar puntos · <span id="gjPtFile" class="muted"></span></h3>
+  <div id="gjPtBody"></div>
+  <div style="margin-top:8px;text-align:right"><button type="button" id="gjPtClose" onclick="gjPtDlg.close()">Cerrar</button></div>
+</dialog>
+<script>
+// GeoJSON: exportar (zip a elegir) e importar (contornos como regiones nuevas y puntos al escenario abierto)
+const G = { shapes: [], points: [] };
+const gjEsc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+function gjOpen(tab) {
+  gjTab(tab || 'export');
+  $('#gjScenNote').textContent = S.scenName ? `Escenario: ${S.scenName}` : 'Sin escenario elegido en «Ver»: solo se pueden exportar los archivos que no lo necesitan.';
+  document.querySelectorAll('#gjExp [data-needs-scen]').forEach(l => { const on = !!S.scenName; l.style.opacity = on ? '' : '.45'; l.querySelectorAll('input').forEach(i => { i.disabled = !on; }); });
+  fetch('/api/pack/info').then(r => r.json()).then(d => {
+    const cur = $('#gjBase').value || 'World'; $('#gjBase').innerHTML = d.packs.map(p => `<option ${p === cur ? 'selected' : ''}>${gjEsc(p)}</option>`).join('');
+  });
+  gjDlg.showModal();
+}
+function gjTab(t) { $('#gjExp').style.display = t === 'export' ? '' : 'none'; $('#gjImp').style.display = t === 'import' ? '' : 'none'; }
+$('#gjBtn').onclick = () => gjOpen('export');
+$('#gjTabExp').onclick = () => gjTab('export');
+$('#gjTabImp').onclick = () => gjTab('import');
+$('#gjDoExport').onclick = async () => {
+  const files = [...document.querySelectorAll('#gjExp [data-gf]')].filter(i => i.checked && !i.disabled).map(i => i.dataset.gf);
+  if (!files.length) return $('#gjExpMsg').textContent = 'Elige al menos un archivo';
+  const q = new URLSearchParams({ files: files.join(','), name: S.scenName || '', split: $('#gjSplit').checked ? '1' : '0', colors: $('#gjColors').checked ? '1' : '0', base: $('#gjBase').value || 'World', lang: window.MH_LANG ? MH_LANG() : 'es' });
+  $('#gjExpMsg').textContent = 'Preparando el .zip (puede tardar un poco)…'; $('#gjDoExport').disabled = true;
+  try {
+    const r = await fetch('/api/scen/geojson_export?' + q);
+    if (!r.ok) throw new Error('error ' + r.status);
+    const a = document.createElement('a'); a.href = URL.createObjectURL(await r.blob()); a.download = (S.scenName || $('#pack').value || 'mapa') + ' geojson.zip'; a.click();
+    $('#gjExpMsg').textContent = 'Exportado.';
+  } catch (e) { $('#gjExpMsg').textContent = 'No se pudo exportar: ' + e.message; }
+  $('#gjDoExport').disabled = false;
+};
+$('#gjPick').onclick = () => $('#gjFiles').click();
+$('#gjFiles').onchange = async e => {
+  G.shapes = []; G.points = [];
+  for (const f of e.target.files) {
+    let j; try { j = JSON.parse(await f.text()); } catch (err) { $('#gjFound').textContent = f.name + ': no es un JSON válido'; continue; }
+    const feats = j.type === 'FeatureCollection' ? j.features || [] : j.type === 'Feature' ? [j] : j.type ? [{ type: 'Feature', properties: {}, geometry: j }] : [];
+    const pts = feats.filter(x => x.geometry && x.geometry.type === 'Point');
+    for (const x of feats) if (x.geometry && /Polygon$/.test(x.geometry.type)) {
+      const pr = x.properties || {};
+      G.shapes.push({ geometry: x.geometry, props: pr, sea: pr.mh_type === 'sea_region' || pr.sea === true, file: f.name });
+    }
+    if (pts.length) G.points.push({ name: f.name, fc: { type: 'FeatureCollection', features: pts } });
+  }
+  e.target.value = '';
+  const land = G.shapes.filter(s => !s.sea).length, sea = G.shapes.length - land, np = G.points.reduce((n, p) => n + p.fc.features.length, 0);
+  $('#gjFound').textContent = `Encontrado: ${land} contorno(s) de tierra, ${sea} de mar y ${np} punto(s).`;
+  $('#gjRegOpts').style.display = G.shapes.length ? '' : 'none';
+  $('#gjPtOpts').style.display = np ? '' : 'none';
+  $('#gjPtNote').textContent = S.scenName ? `Se importarán al escenario «${S.scenName}»: ciudades y minerales a la región donde caen, unidades al territorio donde llegan (o al país que diga el GeoJSON). Se preguntará por las flotas sin país y por los posibles duplicados.`
+    : 'Para importar puntos elige primero un escenario en «Ver».';
+  $('#gjDoImport').disabled = !(G.shapes.length || (np && S.scenName));
+  if (G.shapes.some(s => s.props.owner || s.props.pais || s.props.country || s.props.strOwner)) document.querySelector('input[name=gjOwn][value=geojson]').checked = true;
+};
+$('#gjDoImport').onclick = async () => {
+  const o = { popMode: document.querySelector('input[name=gjPop]:checked').value, ownerMode: document.querySelector('input[name=gjOwn]:checked').value, auto: $('#gjAuto').checked };
+  let shapes = G.shapes.filter(s => s.sea ? $('#gjSea').checked : $('#gjLand').checked);
+  const pts = S.scenName ? G.points.slice() : [];
+  gjDlg.close();
+  if (shapes.length) {
+    const an = await (await fetch('/api/geojson/analyze', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ shapes: shapes.map(s => ({ geometry: s.geometry, props: s.props })) }) })).json();
+    const keep = shapes.filter((s, i) => !(an.shapes[i] && an.shapes[i].exists));
+    if (keep.length < shapes.length) report(`${shapes.length - keep.length} contorno(s) omitido(s) porque ya existe una región con ese nombre.`, 'ok');
+    shapes = keep;
+    if (shapes.length) await importShapes(shapes, o);
+  }
+  for (const p of pts) await gjPoints(p.name, p.fc, {}, {});
+};
+// ---- puntos: la misma interfaz que el editor de escenarios (tipo, país de las flotas, duplicados con «reemplazar»)
+async function gjPoints(fname, fc, types, opts) {
+  $('#gjPtFile').textContent = fname; $('#gjPtBody').innerHTML = '<p class="muted">Importando…</p>'; if (!gjPtDlg.open) gjPtDlg.showModal();
+  const r = await (await fetch('/api/scen/geojson_import', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: S.scenName, geojson: fc, types, opts }) })).json();
+  const B = $('#gjPtBody'), again = (t, o) => gjPoints(fname, fc, t, o);
+  if (r.error) { B.innerHTML = `<div class="note err">${gjEsc(r.error)}</div>`; return; }
+  if (r.needs_type) {
+    const os = Object.entries(r.types).map(([k, v]) => `<option value="${k}">${gjEsc(v)}</option>`).join('');
+    B.innerHTML = `<p>${r.needs_type.length} objeto(s) no dicen qué son (propiedad <code>mh_type</code>). Elige el tipo de cada uno:</p>
+      <div style="margin-bottom:6px">Todos: <select id="gjpAll"><option value="">—</option>${os}</select></div>
+      <table class="mini"><tr><th>#</th><th>Geometría</th><th>Propiedades</th><th>Tipo</th></tr>` +
+      r.needs_type.map(x => `<tr><td>${x.index}</td><td>${gjEsc(x.geometry)}</td><td class="muted">${gjEsc(JSON.stringify(x.properties))}</td><td><select data-i="${x.index}"><option value="">—</option>${os}</select></td></tr>`).join('') +
+      `</table><div style="margin-top:8px"><button class="primary" id="gjpGo">Importar</button></div>`;
+    $('#gjpAll').onchange = ev => B.querySelectorAll('select[data-i]').forEach(s => s.value = ev.target.value);
+    $('#gjpGo').onclick = () => { const t = Object.assign({}, types); let ok = true; B.querySelectorAll('select[data-i]').forEach(s => { if (!s.value) ok = false; t[s.dataset.i] = s.value; });
+      if (!ok) return alert('Falta elegir el tipo de algún objeto'); again(t, opts); };
+    return;
+  }
+  if (r.needs_owner) {
+    const co = r.countries.map(c => `<option>${gjEsc(c)}</option>`).join('');
+    B.innerHTML = `<p>${r.needs_owner.length} unidad(es) naval(es) no dicen de qué país son (propiedad <code>strOwner</code>). Elige el país de cada una:</p>
+      <div style="margin-bottom:6px">Todas: <select id="gjpAllO"><option value="">—</option>${co}</select></div>
+      <table class="mini"><tr><th>#</th><th>Flota</th><th>Región de mar</th><th>País</th></tr>` +
+      r.needs_owner.map(x => `<tr><td>${x.index}</td><td>${gjEsc(x.name)}</td><td>${gjEsc(x.region)}</td><td><select data-o="${x.index}"><option value="">—</option>${co}</select></td></tr>`).join('') +
+      `</table><div style="margin-top:8px"><button class="primary" id="gjpOwn">Continuar</button></div>`;
+    $('#gjpAllO').onchange = ev => B.querySelectorAll('select[data-o]').forEach(x => x.value = ev.target.value);
+    $('#gjpOwn').onclick = () => { const o = Object.assign({}, opts.owners || {}); let ok = true; B.querySelectorAll('select[data-o]').forEach(x => { if (!x.value) ok = false; o[x.dataset.o] = x.value; });
+      if (!ok) return alert('Falta elegir el país de alguna unidad'); again(types, { ...opts, owners: o }); };
+    return;
+  }
+  if (r.duplicates) {
+    const KIND = { city: 'Ciudad', producer: 'Recurso', army: 'Ejército', air_force: 'Aviación', fleet: 'Flota' };
+    B.innerHTML = `<p><b>${r.duplicates.length} posible(s) duplicado(s)</b>: objetos del GeoJSON muy cerca de otro del mismo tipo (o con la misma composición en la misma región).</p>
+      <table class="mini"><tr><th>#</th><th>Tipo</th><th>Del GeoJSON</th><th>Se parece a</th><th>Qué hacer</th></tr>` +
+      r.duplicates.map(d => `<tr><td>${d.index}</td><td>${gjEsc(KIND[d.type] || d.type)}</td><td>${gjEsc(d.name || '(sin nombre)')} <span class="muted">· ${gjEsc(d.region || '—')}${d.owner ? ' · ' + gjEsc(d.owner) : ''}</span></td>
+        <td>${gjEsc(d.near.name || '(sin nombre)')} <span class="muted">· ${gjEsc(d.near.region || '—')} · ${gjEsc(d.near.from)}${d.near.distance != null ? ' · a ' + d.near.distance + '°' : ''}</span></td>
+        <td><select data-d="${d.index}"><option value="skip">No importar</option><option value="import">Importar igual</option>${d.replaceable ? '<option value="replace">Reemplazar el existente</option>' : ''}</select></td></tr>`).join('') +
+      `</table><div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap"><button id="gjpDupAll">Importar todos igualmente</button><button id="gjpDupRep">Reemplazar los existentes</button><button id="gjpDupNone">No importar los duplicados</button>
+      <button class="primary" id="gjpDupPick">Importar con mis elecciones</button></div>`;
+    $('#gjpDupAll').onclick = () => again(types, { ...opts, dup: 'import' });
+    $('#gjpDupRep').onclick = () => again(types, { ...opts, dup: 'replace' });
+    $('#gjpDupNone').onclick = () => again(types, { ...opts, dup: 'skip' });
+    $('#gjpDupPick').onclick = () => { const dec = {}; B.querySelectorAll('select[data-d]').forEach(x => { dec[x.dataset.d] = x.value; }); again(types, { ...opts, dup: 'ask', decisions: dec }); };
+    return;
+  }
+  const c = Object.entries(r.counts).map(([k, v]) => `${v} ${k}`).join(', ');
+  B.innerHTML = `<div class="note">Importado: ${gjEsc(c || 'nada')}. Falta «Guardar escenario».</div><pre style="white-space:pre-wrap;font-size:12px;max-height:260px;overflow:auto">${gjEsc(r.notes.join('\n'))}</pre>`;
+  await refreshScen(r.dirty);
+}
+</script>
+</body>
+</html>

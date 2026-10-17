@@ -1,0 +1,22 @@
+__pycache__/
+*.pyc
+# compilación y datos de trabajo (nunca al repositorio)
+_build/
+MHEditor/
+*.zip
+editor_proyecto*/
+_proyecto_ui*/
+backup/
+mapa*/
+mods/
+logs/
+history/
+tiles/
+idioma.json
+ultimo_regionpack.json
+editor_juego.json
+# archivos del juego y capturas
+*.bin
+*.brd
+*.nts
+*.tga

@@ -1,0 +1,490 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Imágenes del escenario · Making History</title>
+<style>
+  :root { --bg:#f6f5f2; --panel:#fff; --ink:#1d1d1f; --muted:#6b6b70; --line:#e2e0da; --accent:#c2410c; --sel:#dbeafe; --ok:#15803d; --err:#b91c1c; --warn:#a16207; --bar:#111214; --barink:#f1f1f3; --chk1:#d9d9d9; --chk2:#f2f2f2; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#151517; --panel:#1f1f22; --ink:#ececee; --muted:#9a9aa1; --line:#333338; --accent:#fb923c; --sel:#1e3a5f; --ok:#4ade80; --err:#f87171; --warn:#facc15; --chk1:#3a3a3e; --chk2:#2a2a2e; } }
+  * { box-sizing:border-box; }
+  html, body { margin:0; height:100%; background:var(--bg); color:var(--ink); font:14px/1.4 system-ui, "Segoe UI", sans-serif; }
+  #bar { background:var(--bar); color:var(--barink); display:flex; flex-wrap:wrap; gap:8px; align-items:center; padding:6px 10px; position:sticky; top:0; z-index:5; }
+  #bar .title { font-weight:600; margin-right:8px; }
+  #bar a { color:#93c5fd; }
+  #bar select { background:#24252a; color:var(--barink); border:1px solid #3a3b42; border-radius:6px; padding:4px 10px; }
+  #tabs { display:flex; gap:2px; padding:6px 10px 0; background:var(--panel); border-bottom:1px solid var(--line); }
+  #tabs button { border:1px solid var(--line); border-bottom:0; background:var(--bg); border-radius:6px 6px 0 0; padding:5px 12px; cursor:pointer; }
+  #tabs button.on { background:var(--panel); font-weight:600; position:relative; top:1px; }
+  button, select, input, textarea { font:inherit; color:var(--ink); }
+  .page { display:none; padding:12px 16px; }
+  .page.on { display:block; }
+  .cols { display:grid; grid-template-columns:minmax(280px, 340px) 1fr; gap:14px; align-items:start; }
+  @media (max-width: 860px) { .cols { grid-template-columns:1fr; } }
+  .sec { border:1px solid var(--line); border-radius:8px; padding:8px 10px; margin:0 0 10px; background:var(--panel); }
+  .sec h3 { margin:0 0 6px; font-size:13.5px; }
+  .muted { color:var(--muted); font-size:12.5px; }
+  .btn { border:1px solid var(--line); background:var(--bg); border-radius:6px; padding:4px 10px; cursor:pointer; }
+  .btn.primary { background:var(--accent); color:#fff; border-color:var(--accent); }
+  .btn.small { padding:1px 7px; font-size:12px; }
+  .btn:disabled { opacity:.45; cursor:default; }
+  .row { display:flex; gap:6px; flex-wrap:wrap; align-items:center; margin:4px 0; }
+  .grid { display:grid; grid-template-columns:110px 1fr; gap:5px 8px; align-items:center; }
+  .grid label { color:var(--muted); font-size:13px; }
+  .grid input:not([type=checkbox]):not([type=color]), .grid select { width:100%; padding:3px 6px; border:1px solid var(--line); border-radius:5px; background:var(--bg); }
+  select { background:var(--bg); border:1px solid var(--line); border-radius:5px; padding:3px 6px; }
+  input[type=text], input[type=number] { padding:3px 6px; border:1px solid var(--line); border-radius:5px; background:var(--bg); }
+  .note { padding:6px 10px; border-radius:6px; margin:8px 0; font-size:13px; background:color-mix(in srgb, var(--ok) 14%, transparent); white-space:pre-wrap; }
+  .note.err { background:color-mix(in srgb, var(--err) 14%, transparent); }
+  .note.warn { background:color-mix(in srgb, var(--warn) 16%, transparent); }
+  .chk { background-color:var(--chk2); background-image:linear-gradient(45deg, var(--chk1) 25%, transparent 25%, transparent 75%, var(--chk1) 75%), linear-gradient(45deg, var(--chk1) 25%, transparent 25%, transparent 75%, var(--chk1) 75%); background-size:16px 16px; background-position:0 0, 8px 8px; }
+  #stage { position:relative; border:1px solid var(--line); border-radius:6px; overflow:auto; max-width:100%; }
+  #cv { display:block; image-rendering:pixelated; cursor:move; touch-action:none; }
+  .layers { list-style:none; margin:0; padding:0; }
+  .layers li { display:flex; gap:6px; align-items:center; padding:4px 6px; border:1px solid var(--line); border-radius:6px; margin:3px 0; cursor:pointer; font-size:13px; }
+  .layers li.on { background:var(--sel); }
+  .layers li .n { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .drop { border:1.5px dashed var(--line); border-radius:8px; padding:10px; text-align:center; cursor:pointer; }
+  .drop.over { border-color:var(--accent); }
+  .drop img { max-width:100%; max-height:90px; display:block; margin:4px auto 0; }
+  .cards { display:grid; grid-template-columns:repeat(auto-fill, minmax(230px, 1fr)); gap:10px; }
+  .card { border:1px solid var(--line); border-radius:8px; padding:6px 8px; background:var(--panel); }
+  .card b { font-size:13px; word-break:break-all; }
+  .card .pair { display:flex; flex-wrap:wrap; gap:8px; align-items:flex-end; margin-top:4px; }
+  .card .pair div { max-width:100%; }
+  .card .pair div { text-align:center; }
+  .card img { image-rendering:pixelated; display:block; border:1px solid var(--line); max-width:100%; }
+  table { border-collapse:collapse; width:100%; font-size:13px; }
+  td, th { padding:3px 6px; border-bottom:1px solid var(--line); text-align:left; }
+  tr.on td { background:var(--sel); }
+  tbody tr { cursor:pointer; }
+  .ok { color:var(--ok); } .no { color:var(--muted); }
+  #iconlist { max-height:360px; overflow:auto; border:1px solid var(--line); border-radius:6px; }
+</style>
+<script src="/i18n.js"></script>
+<script src="/busy.js"></script>
+</head>
+<body>
+<div id="bar">
+  <span class="title">Imágenes del escenario</span>
+  <label>Escenario <select id="scen"></select></label>
+  <span style="flex:1"></span>
+  <a href="/escenario" target="_blank">Editor de escenarios ↗</a>
+  <a href="/" target="_blank">Editor de mapa ↗</a>
+</div>
+<div id="tabs">
+  <button data-p="title" class="on">Título y botones</button>
+  <button data-p="flag">Banderas y escarapelas</button>
+  <button data-p="icon">Iconos de unidades y productos</button>
+</div>
+
+<!-- ====================================================================== título -->
+<section class="page on" id="p-title">
+  <div class="cols">
+    <div>
+      <div class="sec">
+        <h3>Archivo</h3>
+        <select id="tfile" style="width:100%"></select>
+        <div class="muted" id="tfmt" style="margin-top:4px"></div>
+        <label class="row"><input type="checkbox" id="tguide" checked> Mostrar zona visible del original</label>
+        <label class="row">Zoom <input type="range" id="tzoom" min="0.25" max="3" step="0.25" value="1" style="flex:1"> <span id="tzoomv">100%</span></label>
+      </div>
+      <div class="sec">
+        <h3>Capas</h3>
+        <div class="row">
+          <button class="btn small" id="addimg">+ Imagen</button>
+          <button class="btn small" id="addtext">+ Texto</button>
+          <button class="btn small" id="addrect">+ Relleno</button>
+          <input type="file" id="imgfile" accept="image/*" multiple hidden>
+        </div>
+        <div class="muted">También puedes arrastrar o pegar (Ctrl+V) imágenes. Arrastra en el lienzo para mover la capa elegida; rueda = escala.</div>
+        <ul class="layers" id="layers"></ul>
+      </div>
+      <div class="sec" id="lprops"></div>
+    </div>
+    <div>
+      <div id="stage" class="chk"><canvas id="cv"></canvas></div>
+      <div class="row" style="margin-top:8px">
+        <button class="btn" id="tdl">Descargar PNG</button>
+        <button class="btn primary" id="twrite">Escribir en el escenario…</button>
+        <span class="muted" id="tmsg"></span>
+      </div>
+      <div id="tnote"></div>
+    </div>
+  </div>
+</section>
+
+<!-- ====================================================================== banderas -->
+<section class="page" id="p-flag">
+  <div class="cols">
+    <div>
+      <div class="sec">
+        <h3>País</h3>
+        <input type="text" id="fcountry" list="fcountries" placeholder="Nombre de la carpeta del país" style="width:100%">
+        <datalist id="fcountries"></datalist>
+        <div class="muted" id="fstate" style="margin-top:4px"></div>
+      </div>
+      <div class="sec">
+        <h3>Bandera <span class="muted">(obligatoria)</span></h3>
+        <div class="drop" id="dflag" data-k="flag">Suelta o elige la imagen de la bandera</div>
+      </div>
+      <div class="sec">
+        <h3>Escarapela / emblema <span class="muted">(opcional)</span></h3>
+        <div class="drop" id="ddecal" data-k="decal">Sin escarapela: se recorta la bandera con una forma</div>
+        <div class="grid" style="margin-top:6px">
+          <label>Forma</label>
+          <select id="fshape"><option value="escudo">Escudo</option><option value="circulo">Círculo</option><option value="cuadrado">Cuadrado</option></select>
+        </div>
+        <button class="btn small" id="cleardecal" style="margin-top:4px">Quitar escarapela</button>
+      </div>
+      <div class="sec">
+        <h3>Foto del líder <span class="muted">(opcional, leader-lobby.tga)</span></h3>
+        <div class="drop" id="dleader" data-k="leader">Suelta o elige una foto (mejor PNG recortado)</div>
+        <button class="btn small" id="clearleader" style="margin-top:4px">Quitar foto</button>
+      </div>
+      <div class="sec">
+        <h3>Opciones</h3>
+        <div class="grid">
+          <label>Cuadrados</label>
+          <select id="fcrop"><option value="estirar">Estirar la bandera (como la mayoría)</option><option value="asta">Recortar desde el asta</option><option value="centro">Recortar al centro</option></select>
+          <label>Fondo</label>
+          <label style="color:inherit"><input type="checkbox" id="fremovebg" checked> Quitar fondo liso de escarapela y foto</label>
+          <label>Comparar con</label>
+          <select id="fcmp"></select>
+        </div>
+      </div>
+      <div class="row">
+        <button class="btn" id="fprev">Vista previa</button>
+        <button class="btn primary" id="fwrite" disabled>Escribir archivos…</button>
+      </div>
+      <div id="fnote"></div>
+    </div>
+    <div>
+      <div class="muted" id="fsum">Elige una bandera y pulsa «Vista previa». Cada tarjeta muestra el archivo generado y, al lado, el del país de comparación.</div>
+      <div class="cards" id="fcards"></div>
+    </div>
+  </div>
+</section>
+
+<!-- ====================================================================== iconos -->
+<section class="page" id="p-icon">
+  <div class="cols">
+    <div>
+      <div class="sec">
+        <h3>Para</h3>
+        <div class="row">
+          <label><input type="radio" name="ikind" value="unit" checked> Unidad (UnitTemplate)</label>
+          <label><input type="radio" name="ikind" value="output"> Producto de fábrica</label>
+        </div>
+        <input type="text" id="ifilter" placeholder="Filtrar…" style="width:100%; margin:4px 0">
+        <div id="iconlist"></div>
+        <div class="muted" id="itable"></div>
+      </div>
+      <div class="sec">
+        <h3>Imagen</h3>
+        <div class="drop" id="dicon" data-k="icon">Suelta o elige la imagen del icono</div>
+        <div class="grid" style="margin-top:6px">
+          <label>Nombre</label><input type="text" id="iname" placeholder="strName de la unidad o producto">
+          <label>Archivo</label><input type="text" id="ifile" placeholder="nombre-del-archivo">
+          <label>Margen</label><input type="number" id="ipad" value="2" min="0" max="20">
+          <label>Fondo</label><label style="color:inherit"><input type="checkbox" id="iremovebg"> Quitar fondo liso</label>
+          <label>Investigación</label><label style="color:inherit"><input type="checkbox" id="iresearch"> Imagen grande (MediaPack/Research)</label>
+          <label>Medida</label><select id="irsize"><option>256x256</option><option>128x256</option><option>512x256</option></select>
+          <label>Registrar</label><label style="color:inherit"><input type="checkbox" id="iregister" checked> Añadir/actualizar la tabla de iconos</label>
+        </div>
+      </div>
+      <div class="row">
+        <button class="btn" id="iprev">Vista previa</button>
+        <button class="btn primary" id="iwrite" disabled>Escribir…</button>
+      </div>
+      <div id="inote"></div>
+    </div>
+    <div>
+      <div class="muted">Los iconos van en <code>ui/art/2D/global/unit-template-icons/{6464,4646,3636,2626}</code> del escenario
+        (icono de 64, 46, 36 y 26 px arriba a la izquierda de un lienzo de 64 o 32 px, TGA 32 bits sin comprimir) y se registran en
+        <code>ui/UnitTemplateIconTable.xml</code> o <code>ui/FactoryOutputIconTable.xml</code> por <code>strName</code>.
+        La imagen de investigación va en <code>ui/art/2D/MediaPack/Research</code> y se registra en <code>ui/MediaPack.xml</code> (Research_Project_Icon).</div>
+      <div class="cards" id="icards" style="margin-top:10px"></div>
+    </div>
+  </div>
+</section>
+
+<script>
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const api = async (url, body) => {
+  const r = await fetch(url, body ? {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)} : {});
+  const j = await r.json(); if (j.error) throw new Error(j.error); return j;
+};
+const note = (el, msg, kind='') => { $(el).innerHTML = msg ? `<div class="note ${kind}">${esc(msg)}</div>` : ''; };
+const scen = () => $('#scen').value;
+const readFile = f => new Promise((ok, ko) => { const r = new FileReader(); r.onload = () => ok(r.result); r.onerror = ko; r.readAsDataURL(f); });
+const loadImg = src => new Promise((ok, ko) => { const i = new Image(); i.onload = () => ok(i); i.onerror = ko; i.src = src; });
+const store = (k, v) => { try { v === undefined ? localStorage.getItem(k) : localStorage.setItem(k, v); } catch (e) {} };
+const recall = k => { try { return localStorage.getItem(k); } catch (e) { return null; } };
+
+document.querySelectorAll('#tabs button').forEach(b => b.onclick = () => {
+  document.querySelectorAll('#tabs button').forEach(x => x.classList.toggle('on', x === b));
+  document.querySelectorAll('.page').forEach(p => p.classList.toggle('on', p.id === 'p-' + b.dataset.p));
+  store('img-tab', b.dataset.p);
+});
+
+// ---------------------------------------------------------------- zonas de soltar imagen
+const inputs = {};   // k -> dataURL
+function dropZone(el, onset) {
+  const fi = document.createElement('input'); fi.type = 'file'; fi.accept = 'image/*'; fi.hidden = true; el.after(fi);
+  const label = el.textContent;
+  const set = async f => { if (!f) return; inputs[el.dataset.k] = await readFile(f);
+    el.innerHTML = `${esc(f.name || 'imagen pegada')}<img src="${inputs[el.dataset.k]}">`; onset && onset(f); };
+  el.onclick = () => fi.click();
+  fi.onchange = () => set(fi.files[0]);
+  el.ondragover = e => { e.preventDefault(); el.classList.add('over'); };
+  el.ondragleave = () => el.classList.remove('over');
+  el.ondrop = e => { e.preventDefault(); el.classList.remove('over'); set(e.dataTransfer.files[0]); };
+  el.clear = () => { delete inputs[el.dataset.k]; el.textContent = label; };
+}
+
+// ================================================================== TÍTULO Y BOTONES
+const cv = $('#cv'), ctx = cv.getContext('2d');
+let T = {files:[], file:null, layers:[], sel:-1, base:null};
+
+async function loadTitles() {
+  const r = await api('/api/img/titles?scen=' + encodeURIComponent(scen()));
+  T.files = r.files;
+  $('#tfile').innerHTML = r.files.map(f => `<option>${esc(f.file)}</option>`).join('');
+  if (!r.files.length) { note('#tnote', 'Este escenario no tiene Title.tga ni botones.', 'warn'); return; }
+  await openTitle(r.files[0].file);
+}
+async function openTitle(name) {
+  const f = T.files.find(x => x.file === name); T.file = f;
+  const k = f.fmt;
+  $('#tfmt').textContent = `${k.w}×${k.h} · TGA ${k.bpp} bits · ${k.type === 10 ? 'RLE' : 'sin comprimir'} · origen ${k.desc & 0x20 ? 'arriba' : 'abajo'}` +
+    (k.visible ? ` · zona visible ${k.visible[2]-k.visible[0]}×${k.visible[3]-k.visible[1]} en (${k.visible[0]},${k.visible[1]})` : '');
+  cv.width = k.w; cv.height = k.h;
+  const img = await loadImg('/api/img/raw?rel=' + encodeURIComponent(f.rel) + '&t=' + Date.now());
+  T.layers = [{type:'image', name:'Original (' + name + ')', img, x:0, y:0, s:1, op:1, vis:true, base:true}];
+  const room = $('#stage').parentElement.clientWidth - 4;
+  $('#tzoom').value = Math.max(0.25, Math.min(1, Math.floor(room / k.w * 4) / 4));
+  T.sel = 0; applyZoom(); renderLayers(); draw();
+  note('#tnote', '');
+}
+function drawLayers(c, guide) {
+  c.clearRect(0, 0, cv.width, cv.height);
+  for (const L of T.layers) {
+    if (!L.vis) continue;
+    c.save(); c.globalAlpha = L.op;
+    if (L.type === 'image') c.drawImage(L.img, L.x, L.y, L.img.naturalWidth * L.s, L.img.naturalHeight * L.s);
+    else if (L.type === 'rect') { c.fillStyle = L.color; c.fillRect(L.x, L.y, L.w * L.s, L.h * L.s); }
+    else if (L.type === 'text') {
+      c.font = `${L.bold ? 'bold ' : ''}${L.size * L.s}px ${L.font}`; c.textBaseline = 'top';
+      if (L.shadow) { c.shadowColor = 'rgba(0,0,0,.75)'; c.shadowBlur = 3 * L.s; c.shadowOffsetX = c.shadowOffsetY = 2 * L.s; }
+      if (L.ow > 0) { c.lineJoin = 'round'; c.lineWidth = L.ow * 2 * L.s; c.strokeStyle = L.ocolor; c.strokeText(L.text, L.x, L.y); c.shadowColor = 'transparent'; }
+      c.fillStyle = L.color; c.fillText(L.text, L.x, L.y);
+    }
+    c.restore();
+  }
+  const v = T.file && T.file.fmt.visible;
+  if (guide && v && $('#tguide').checked) {
+    c.save(); c.setLineDash([4, 3]); c.strokeStyle = '#00e5ff'; c.lineWidth = 1;
+    c.strokeRect(v[0] + .5, v[1] + .5, v[2] - v[0] - 1, v[3] - v[1] - 1); c.restore();
+  }
+  const L = T.layers[T.sel];
+  if (guide && L && !L.base) { const b = bounds(L); c.save(); c.strokeStyle = '#ff2bd6'; c.setLineDash([2, 2]); c.strokeRect(b.x + .5, b.y + .5, b.w, b.h); c.restore(); }
+}
+function draw() { drawLayers(ctx, true); }
+function bounds(L) {
+  if (L.type === 'image') return {x:L.x, y:L.y, w:L.img.naturalWidth * L.s, h:L.img.naturalHeight * L.s};
+  if (L.type === 'rect') return {x:L.x, y:L.y, w:L.w * L.s, h:L.h * L.s};
+  ctx.save(); ctx.font = `${L.bold ? 'bold ' : ''}${L.size * L.s}px ${L.font}`; const w = ctx.measureText(L.text).width; ctx.restore();
+  return {x:L.x, y:L.y, w, h:L.size * L.s * 1.15};
+}
+function renderLayers() {
+  $('#layers').innerHTML = T.layers.map((L, i) => ({L, i})).reverse().map(({L, i}) =>
+    `<li data-i="${i}" class="${i === T.sel ? 'on' : ''}">
+      <input type="checkbox" data-vis="${i}" ${L.vis ? 'checked' : ''} title="Visible">
+      <span class="n">${esc(L.type === 'text' ? '“' + L.text + '”' : L.name)}</span>
+      <button class="btn small" data-up="${i}" title="Subir">▲</button><button class="btn small" data-dn="${i}" title="Bajar">▼</button>
+      <button class="btn small" data-del="${i}" title="Quitar">✕</button></li>`).join('');
+  renderProps();
+}
+$('#layers').onclick = e => {
+  const t = e.target, d = t.dataset;
+  if (d.vis !== undefined) { T.layers[+d.vis].vis = t.checked; draw(); return; }
+  const mv = (i, j) => { if (j < 0 || j >= T.layers.length) return; [T.layers[i], T.layers[j]] = [T.layers[j], T.layers[i]]; T.sel = j; };
+  if (d.up !== undefined) mv(+d.up, +d.up + 1);
+  else if (d.dn !== undefined) mv(+d.dn, +d.dn - 1);
+  else if (d.del !== undefined) { T.layers.splice(+d.del, 1); T.sel = Math.min(T.sel, T.layers.length - 1); }
+  else { const li = t.closest('li'); if (li) T.sel = +li.dataset.i; }
+  renderLayers(); draw();
+};
+function renderProps() {
+  const L = T.layers[T.sel];
+  if (!L) { $('#lprops').innerHTML = '<h3>Capa</h3><div class="muted">Sin capa elegida.</div>'; return; }
+  const f = (lab, key, type = 'number', extra = '') => `<label>${lab}</label><input type="${type}" data-k="${key}" value="${esc(L[key])}" ${extra}>`;
+  let h = `<h3>Capa: ${esc(L.type === 'text' ? 'texto' : L.name)}</h3><div class="grid">` +
+    f('X', 'x') + f('Y', 'y') + f('Escala', 's', 'number', 'step="0.01" min="0.01"') +
+    `<label>Opacidad</label><input type="range" data-k="op" min="0" max="1" step="0.01" value="${L.op}">`;
+  if (L.type === 'text') h += f('Texto', 'text', 'text') +
+    `<label>Fuente</label><select data-k="font">${['Georgia, serif', '"Times New Roman", serif', 'Impact, sans-serif', 'Arial, sans-serif', '"Trebuchet MS", sans-serif', '"Palatino Linotype", serif', '"Copperplate Gothic Bold", serif', 'Verdana, sans-serif'].map(x => `<option ${x === L.font ? 'selected' : ''}>${esc(x)}</option>`).join('')}</select>` +
+    f('Tamaño', 'size') + f('Color', 'color', 'color') + f('Contorno', 'ow', 'number', 'min="0" max="10"') + f('Color contorno', 'ocolor', 'color') +
+    `<label>Negrita</label><input type="checkbox" data-k="bold" ${L.bold ? 'checked' : ''}><label>Sombra</label><input type="checkbox" data-k="shadow" ${L.shadow ? 'checked' : ''}>`;
+  if (L.type === 'rect') h += f('Ancho', 'w') + f('Alto', 'h') + f('Color', 'color', 'color');
+  h += `</div><div class="row" style="margin-top:6px">
+    <button class="btn small" id="lfit">Ajustar al lienzo</button><button class="btn small" id="lfitv">Ajustar a la zona visible</button><button class="btn small" id="lcenter">Centrar</button></div>`;
+  $('#lprops').innerHTML = h;
+  $('#lprops').querySelectorAll('[data-k]').forEach(inp => inp.oninput = () => {
+    const k = inp.dataset.k;
+    L[k] = inp.type === 'checkbox' ? inp.checked : (inp.type === 'number' || inp.type === 'range') ? parseFloat(inp.value) || 0 : inp.value;
+    draw(); if (k === 'text') renderLayersNames();
+  });
+  const box = vis => { const v = vis && T.file.fmt.visible; return v ? {x:v[0], y:v[1], w:v[2]-v[0], h:v[3]-v[1]} : {x:0, y:0, w:cv.width, h:cv.height}; };
+  const fitTo = b => { const o = bounds(L), k = Math.min(b.w / o.w, b.h / o.h); L.s *= k; const n = bounds(L); L.x = b.x + (b.w - n.w) / 2; L.y = b.y + (b.h - n.h) / 2; renderProps(); draw(); };
+  $('#lfit').onclick = () => fitTo(box(false));
+  $('#lfitv').onclick = () => fitTo(box(true));
+  $('#lcenter').onclick = () => { const b = box(true), n = bounds(L); L.x = Math.round(b.x + (b.w - n.w) / 2); L.y = Math.round(b.y + (b.h - n.h) / 2); renderProps(); draw(); };
+}
+function renderLayersNames() { const li = $('#layers').querySelector(`li[data-i="${T.sel}"] .n`); const L = T.layers[T.sel]; if (li && L.type === 'text') li.textContent = '“' + L.text + '”'; }
+function addLayer(L) { T.layers.push(Object.assign({x:0, y:0, s:1, op:1, vis:true}, L)); T.sel = T.layers.length - 1; renderLayers(); draw(); }
+async function addImageFile(f) {
+  const img = await loadImg(await readFile(f));
+  const k = Math.min(1, cv.width / img.naturalWidth, cv.height / img.naturalHeight);
+  addLayer({type:'image', name:f.name || 'imagen', img, s:k});
+}
+$('#addimg').onclick = () => $('#imgfile').click();
+$('#imgfile').onchange = async () => { for (const f of $('#imgfile').files) await addImageFile(f); $('#imgfile').value = ''; };
+$('#addtext').onclick = () => addLayer({type:'text', text:(window.MH_LANG && MH_LANG() === 'en' ? 'NEW SCENARIO' : 'NUEVO ESCENARIO'), font:'Georgia, serif', size:Math.round(cv.height * 0.6), color:'#ffffff', ow:2, ocolor:'#000000', bold:true, shadow:true, x:30, y:Math.round(cv.height * 0.15)});
+$('#addrect').onclick = () => addLayer({type:'rect', name:'Relleno', w:cv.width, h:cv.height, color:'#000000', op:0.6});
+$('#stage').ondragover = e => e.preventDefault();
+$('#stage').ondrop = async e => { e.preventDefault(); for (const f of e.dataTransfer.files) await addImageFile(f); };
+document.addEventListener('paste', async e => {
+  if (!$('#p-title').classList.contains('on')) return;
+  for (const it of e.clipboardData.items) if (it.type.startsWith('image/')) await addImageFile(it.getAsFile());
+});
+let drag = null;
+const pos = e => { const r = cv.getBoundingClientRect(); return {x:(e.clientX - r.left) * cv.width / r.width, y:(e.clientY - r.top) * cv.height / r.height}; };
+cv.onpointerdown = e => { const L = T.layers[T.sel]; if (!L) return; const p = pos(e); drag = {p, x:L.x, y:L.y}; cv.setPointerCapture(e.pointerId); };
+cv.onpointermove = e => { if (!drag) return; const L = T.layers[T.sel], p = pos(e); L.x = Math.round(drag.x + p.x - drag.p.x); L.y = Math.round(drag.y + p.y - drag.p.y); draw(); };
+cv.onpointerup = () => { if (drag) { drag = null; renderProps(); } };
+cv.onwheel = e => { const L = T.layers[T.sel]; if (!L) return; e.preventDefault(); const p = pos(e), k = e.deltaY < 0 ? 1.05 : 1 / 1.05;
+  L.x = Math.round(p.x - (p.x - L.x) * k); L.y = Math.round(p.y - (p.y - L.y) * k); L.s = +(L.s * k).toFixed(4); draw(); renderProps(); };
+function applyZoom() { const z = +$('#tzoom').value; cv.style.width = cv.width * z + 'px'; cv.style.height = cv.height * z + 'px'; $('#tzoomv').textContent = Math.round(z * 100) + '%'; }
+$('#tzoom').oninput = applyZoom;
+$('#tguide').onchange = draw;
+$('#tfile').onchange = () => openTitle($('#tfile').value);
+function exportPNG() { const c = document.createElement('canvas'); c.width = cv.width; c.height = cv.height; const save = cv; drawLayers(c.getContext('2d'), false); return c.toDataURL('image/png'); }
+$('#tdl').onclick = () => { const a = document.createElement('a'); a.href = exportPNG(); a.download = T.file.file.replace('.tga', '.png'); a.click(); };
+$('#twrite').onclick = async () => {
+  const f = T.file; if (!f) return;
+  if (!confirm(`¿Escribir ${f.file} en «${scen()}»?\n\n${f.fmt.w}×${f.fmt.h}, TGA ${f.fmt.bpp} bits ${f.fmt.type === 10 ? 'RLE' : 'sin comprimir'} (igual que el original).\nSe guarda una copia del archivo actual en backup/.`)) return;
+  try { const r = await api('/api/img/title/write', {scen:scen(), file:f.file, png:exportPNG()});
+    note('#tnote', `Escrito ${r.written.join(', ')}.${r.backup ? '\nCopia del anterior en ' + r.backup : ''}`);
+  } catch (e) { note('#tnote', e.message, 'err'); }
+};
+
+// ================================================================== BANDERAS
+let C = {folders:[], players:[]}, lastFlag = null;
+async function loadCountries() {
+  C = await api('/api/img/countries?scen=' + encodeURIComponent(scen()));
+  const all = [...new Set([...C.folders, ...C.players])].sort();
+  $('#fcountries').innerHTML = all.map(n => `<option value="${esc(n)}">`).join('');
+  const prev = $('#fcmp').value || recall('img-cmp') || 'Chile';
+  $('#fcmp').innerHTML = '<option value="">(ninguno)</option>' + C.folders.map(n => `<option ${n === prev ? 'selected' : ''}>${esc(n)}</option>`).join('');
+  fstate();
+}
+function fstate() {
+  const n = $('#fcountry').value.trim();
+  if (!n) { $('#fstate').textContent = ''; return; }
+  const has = C.folders.includes(n), pl = C.players.includes(n);
+  $('#fstate').innerHTML = (has ? '<span style="color:var(--warn)">La carpeta ya existe: se reemplazan sus archivos (con copia).</span>' : 'Carpeta nueva.') +
+    (pl ? '' : ' <span class="muted">No hay player' + esc(n) + '.xml en el escenario (normal si el país aún no existe).</span>');
+}
+$('#fcountry').oninput = fstate;
+['dflag', 'ddecal', 'dleader'].forEach(id => dropZone($('#' + id), () => { $('#fwrite').disabled = true; }));
+$('#cleardecal').onclick = () => { $('#ddecal').clear(); $('#fwrite').disabled = true; };
+$('#clearleader').onclick = () => { $('#dleader').clear(); $('#fwrite').disabled = true; };
+['#fshape', '#fcrop', '#fremovebg'].forEach(s => $(s).onchange = () => { $('#fwrite').disabled = true; });
+$('#fcmp').onchange = () => { store('img-cmp', $('#fcmp').value); if (lastFlag) showFlagCards(lastFlag); };
+const flagBody = () => ({flag:inputs.flag, decal:inputs.decal, leader:inputs.leader, shape:$('#fshape').value, crop:$('#fcrop').value, removebg:$('#fremovebg').checked});
+async function showFlagCards(r) {
+  const cmp = $('#fcmp').value, cmpFiles = {};
+  if (cmp) (await api(`/api/img/country?scen=${encodeURIComponent(scen())}&name=${encodeURIComponent(cmp)}`)).files.forEach(f => cmpFiles[f.file] = f);
+  const z = w => Math.max(1, Math.min(4, Math.floor(200 / w)));
+  $('#fcards').innerHTML = r.files.map(f => { const o = cmpFiles[f.file], k = z(f.w);
+    return `<div class="card"><b>${esc(f.file)}</b><div class="muted">${f.w}×${f.h} · ${esc(f.fmt)}</div><div class="pair">
+      <div><img class="chk" src="${f.png}" style="width:${f.w * k}px"><span class="muted">nuevo</span></div>
+      ${o ? `<div><img class="chk" src="/api/img/raw?rel=${encodeURIComponent(o.rel)}" style="width:${o.w * k}px"><span class="muted">${esc(cmp)}${o.w !== f.w || o.h !== f.h ? ' ⚠ ' + o.w + '×' + o.h : ''}</span></div>` : ''}
+    </div></div>`; }).join('');
+  $('#fsum').textContent = `${r.files.length} archivos. 3DFlag.tga y decal.tga van invertidos verticalmente, como en el juego.`;
+}
+$('#fprev').onclick = async () => {
+  if (!inputs.flag) return note('#fnote', 'Falta la imagen de la bandera.', 'err');
+  try { note('#fnote', ''); lastFlag = await api('/api/img/flag/preview', flagBody()); await showFlagCards(lastFlag); $('#fwrite').disabled = false; }
+  catch (e) { note('#fnote', e.message, 'err'); }
+};
+$('#fwrite').onclick = async () => {
+  const n = $('#fcountry').value.trim();
+  if (!n) return note('#fnote', 'Escribe el nombre del país (carpeta).', 'err');
+  if (!confirm(`¿Escribir ${lastFlag.files.length} archivos en\n${scen()}\\ui\\art\\2D\\countries\\${n}\\ ?\n\n${C.folders.includes(n) ? 'La carpeta existe: los archivos actuales se copian antes a backup/.' : 'Carpeta nueva.'}`)) return;
+  try { const r = await api('/api/img/flag/write', Object.assign(flagBody(), {scen:scen(), country:n}));
+    note('#fnote', `Escritos ${r.written.length} archivos en ${r.folder}.${r.backup ? '\nCopia en ' + r.backup : ''}`); loadCountries();
+  } catch (e) { note('#fnote', e.message, 'err'); }
+};
+
+// ================================================================== ICONOS
+let I = {unit:null, output:null}, isel = null;
+async function loadIcons() {
+  const r = await api('/api/img/icons?scen=' + encodeURIComponent(scen()));
+  I = r; renderIconList();
+}
+const ikind = () => document.querySelector('input[name=ikind]:checked').value;
+function renderIconList() {
+  const k = ikind(), d = I[k]; if (!d) return;
+  const q = $('#ifilter').value.toLowerCase();
+  const rows = d.items.filter(x => !q || x.name.toLowerCase().includes(q));
+  $('#iconlist').innerHTML = `<table><thead><tr><th>strName</th><th>strIconName</th><th>Icono</th></tr></thead><tbody>` +
+    rows.map(x => `<tr data-n="${esc(x.name)}" class="${x.name === isel ? 'on' : ''}"><td>${esc(x.name)}</td><td class="muted">${esc(x.icon)}</td>
+      <td>${x.rel ? `<img src="/api/img/raw?rel=${encodeURIComponent(x.rel)}" style="width:32px;height:32px" class="chk">` : x.registered ? '<span class="no">falta archivo</span>' : '<span class="no">sin icono</span>'}</td></tr>`).join('') + '</tbody></table>';
+  $('#itable').textContent = d.table_in_scenario ? '' : 'El escenario no tiene su propia tabla de iconos: al registrar se copia la del juego al escenario.';
+}
+document.querySelectorAll('input[name=ikind]').forEach(r => r.onchange = () => { isel = null; renderIconList(); });
+$('#ifilter').oninput = renderIconList;
+const kebab = s => s.replace(/([a-z0-9])([A-Z])/g, '$1-$2').replace(/([A-Z])([A-Z][a-z])/g, '$1-$2').replace(/[^A-Za-z0-9-]+/g, '-').replace(/^-|-$/g, '').toLowerCase();
+$('#iconlist').onclick = e => { const tr = e.target.closest('tr[data-n]'); if (!tr) return; isel = tr.dataset.n; $('#iname').value = isel; $('#ifile').value = kebab(isel); renderIconList(); $('#iwrite').disabled = true; };
+$('#iname').oninput = () => { $('#ifile').value = kebab($('#iname').value); $('#iwrite').disabled = true; };
+dropZone($('#dicon'), () => { $('#iwrite').disabled = true; });
+['#ipad', '#iremovebg', '#iresearch', '#irsize', '#ifile'].forEach(s => $(s).onchange = () => { $('#iwrite').disabled = true; });
+const iconBody = () => ({img:inputs.icon, filebase:$('#ifile').value || kebab($('#iname').value), pad:+$('#ipad').value, removebg:$('#iremovebg').checked,
+  research:$('#iresearch').checked, research_size:$('#irsize').value});
+$('#iprev').onclick = async () => {
+  if (!inputs.icon) return note('#inote', 'Falta la imagen.', 'err');
+  try { note('#inote', ''); const r = await api('/api/img/icon/preview', iconBody());
+    $('#icards').innerHTML = r.files.map(f => { const k = Math.max(1, Math.min(4, Math.floor(200 / f.w)));
+      return `<div class="card"><b>${esc(f.file)}</b><div class="muted">${f.w}×${f.h} · ${esc(f.fmt)}</div><img class="chk" src="${f.png}" style="width:${f.w * k}px;margin-top:4px"></div>`; }).join('');
+    $('#iwrite').disabled = false;
+  } catch (e) { note('#inote', e.message, 'err'); }
+};
+$('#iwrite').onclick = async () => {
+  const name = $('#iname').value.trim();
+  if (!/^[A-Za-z0-9_]+$/.test(name)) return note('#inote', 'Escribe el strName (solo letras, números y _).', 'err');
+  const k = ikind(), exists = (I[k].items.find(x => x.name === name) || {}).registered;
+  if (!confirm(`¿Escribir los iconos «${$('#ifile').value}.tga» (4 medidas${$('#iresearch').checked ? ' + investigación' : ''}) en «${scen()}»` +
+    (($('#iregister').checked) ? `\ny ${exists ? 'actualizar' : 'añadir'} la entrada «${name}» en ${k === 'unit' ? 'UnitTemplateIconTable.xml' : 'FactoryOutputIconTable.xml'}?` : '?') +
+    '\n\nLos archivos existentes se copian antes a backup/.')) return;
+  try { const r = await api('/api/img/icon/write', Object.assign(iconBody(), {scen:scen(), kind:k, name, register:$('#iregister').checked}));
+    note('#inote', `Escritos ${r.written.length} archivos.\n${(r.notes || []).join('\n')}${r.backup ? '\nCopia en ' + r.backup : ''}`); loadIcons();
+  } catch (e) { note('#inote', e.message, 'err'); }
+};
+
+// ================================================================== arranque
+async function loadScenario() { store('img-scen', scen()); await Promise.all([loadTitles(), loadCountries(), loadIcons()].map(p => p.catch(e => console.error(e)))); }
+(async () => {
+  const r = await api('/api/img/scenarios');
+  const want = new URLSearchParams(location.search).get('escenario') || recall('img-scen') || 'The Modern World';
+  $('#scen').innerHTML = r.scenarios.map(s => `<option ${s === want ? 'selected' : ''}>${esc(s)}</option>`).join('');
+  $('#scen').onchange = loadScenario;
+  const tab = recall('img-tab'); if (tab) { const b = document.querySelector(`#tabs button[data-p="${tab}"]`); b && b.click(); }
+  await loadScenario();
+})();
+</script>
+</body>
+</html>
