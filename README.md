@@ -1,4 +1,4 @@
-# Making History 1 & Gold Editor (ENG)
+# Making History 1 & Gold Editor 2.0 (ENG)
 
 A map (*regionpack*), scenario, and image editor for **Making History: The Calm and The Storm (MH1)** and **Making History Gold**.
 
@@ -33,7 +33,7 @@ The editor is a web app that runs on your own computer through a small local Pyt
    pip install -r requirements.txt
    ```
 
-4. Start the editor by double-clicking `Editor de regiones.bat` or `Editor de escenarios.bat`, or run:
+4. Start the editor by double-clicking `Region Editor.bat` or `Scenario Editor.bat`, or run:
 
    ```bash
    python tools/editor_server.py
@@ -41,7 +41,7 @@ The editor is a web app that runs on your own computer through a small local Pyt
 
 5. Open the following address in your browser:
    - Map and region editor: http://localhost:8765
-   - Scenario editor: http://localhost:8765/escenario
+   - Scenario editor: http://localhost:8765/scenario
 
    If you start it using a `.bat` file, the browser opens automatically. To stop the server, close the terminal window or press `Ctrl+C`.
 6. In the selector at the top, choose **MH1** or **Gold**, then choose the *regionpack* and scenario. Changes are written to the game only when you click **Save** or **Install**.
@@ -62,18 +62,19 @@ Configure the server with `python tools/editor_server.py ...`:
 
 - `MH_ROOT`: where projects and logs are saved.
 - `MH_STEAM_COMMON`: the `steamapps\common` folder if the game is installed in a different Steam library; it is normally detected automatically.
+- `MH_GAME_MH1` / `MH_GAME_GOLD`: game folders for non-Steam installations.
 - `MH_PORT`: port used by the `.exe`.
 
 ### Common issues
 
 - **“An editor is already running…”**: a server is already using that port. Open it in your browser or close the other server.
-- **The game cannot be found:** make sure it is installed through Steam and that its folder contains `Modern Europe`. If it is not detected, set `MH_STEAM_COMMON`.
+- **The game cannot be found:** make sure its folder contains `Modern Europe`. Set `MH_STEAM_COMMON` for another Steam library, or `MH_GAME_MH1` / `MH_GAME_GOLD` for a non-Steam installation.
 - **The page looks outdated after updating the code:** restart the server and hard-refresh with `Ctrl+F5`.
 - Make a **backup** of your game and scenarios before you begin.
 
 ### Run from source (summary)
 
-Run `pip install -r requirements.txt`, then `python tools/editor_server.py`. Open http://localhost:8765 for the map editor or http://localhost:8765/escenario for the scenario editor. You can also run `python tools/mheditor_app.py` to open the same app in its own window.
+Run `pip install -r requirements.txt`, then `python tools/editor_server.py`. Open http://localhost:8765 for the map editor or http://localhost:8765/scenario for the scenario editor. You can also run `python tools/mheditor_app.py` to open the same app in its own window.
 
 ## Build `MHEditor.exe`
 
@@ -99,7 +100,7 @@ When you push a `v*` tag to GitHub, the `.github/workflows/build.yml` workflow b
 The editor **only writes to the game folder when you save or install**. Even so, back up your game and scenarios before using it.
 
 ---
-# Making History 1 & Gold Editor (ESP)
+# Making History 1 & Gold Editor 2.0 (ESP)
 
 Editor de mapas (*regionpacks*), escenarios e imágenes para **Making History: The Calm and The Storm (MH1)** y **Making History Gold**.
 
@@ -134,7 +135,7 @@ El editor es una aplicación web que se ejecuta en tu propio ordenador mediante 
    pip install -r requirements.txt
    ```
 
-4. Inicia el editor haciendo doble clic en `Editor de regiones.bat` o `Editor de escenarios.bat`, o ejecuta:
+4. Inicia el editor haciendo doble clic en `Region Editor.bat` o `Scenario Editor.bat`, o ejecuta:
 
    ```bash
    python tools/editor_server.py
@@ -142,7 +143,7 @@ El editor es una aplicación web que se ejecuta en tu propio ordenador mediante 
 
 5. Abre en el navegador:
    - Editor de mapas y regiones: http://localhost:8765
-   - Editor de escenarios: http://localhost:8765/escenario
+   - Editor de escenarios: http://localhost:8765/scenario
 
    Si lo inicias con un archivo `.bat`, el navegador se abrirá automáticamente. Para detener el servidor, cierra la ventana de terminal o pulsa `Ctrl+C`.
 6. En el selector superior, elige **MH1** o **Gold** y, después, el *regionpack* y el escenario. Los cambios solo se escribirán en el juego al pulsar **Guardar** o **Instalar**.
@@ -163,18 +164,19 @@ Puedes configurar el servidor con `python tools/editor_server.py ...`:
 
 - `MH_ROOT`: ubicación para guardar proyectos y registros.
 - `MH_STEAM_COMMON`: carpeta `steamapps\common` si el juego está en otra biblioteca de Steam; normalmente se detecta automáticamente.
+- `MH_GAME_MH1` / `MH_GAME_GOLD`: carpetas del juego en instalaciones que no son de Steam.
 - `MH_PORT`: puerto utilizado por el `.exe`.
 
 ### Problemas frecuentes
 
 - **«Ya hay un editor abierto…»**: ya hay un servidor usando ese puerto. Ábrelo en el navegador o cierra el otro servidor.
-- **No encuentra el juego:** comprueba que esté instalado en Steam y que la carpeta contenga `Modern Europe`. Si no lo detecta, configura `MH_STEAM_COMMON`.
+- **No encuentra el juego:** comprueba que la carpeta contenga `Modern Europe`. Configura `MH_STEAM_COMMON` para otra biblioteca de Steam o `MH_GAME_MH1` / `MH_GAME_GOLD` para instalaciones que no son de Steam.
 - **La página muestra una versión antigua tras actualizar el código:** reinicia el servidor y recarga con `Ctrl+F5`.
 - Haz una **copia de seguridad** del juego y de tus escenarios antes de empezar.
 
 ### Ejecutar desde el código fuente (resumen)
 
-Ejecuta `pip install -r requirements.txt` y después `python tools/editor_server.py`. Abre http://localhost:8765 para el editor de mapas o http://localhost:8765/escenario para el editor de escenarios. También puedes ejecutar `python tools/mheditor_app.py` para abrir la misma aplicación en su propia ventana.
+Ejecuta `pip install -r requirements.txt` y después `python tools/editor_server.py`. Abre http://localhost:8765 para el editor de mapas o http://localhost:8765/scenario para el editor de escenarios. También puedes ejecutar `python tools/mheditor_app.py` para abrir la misma aplicación en su propia ventana.
 
 ## Compilar `MHEditor.exe`
 
