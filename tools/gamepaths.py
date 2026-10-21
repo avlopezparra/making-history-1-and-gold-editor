@@ -43,9 +43,23 @@ def _steam_libraries():
     return res
 
 
+# instalaciones sin Steam (instalador de Muzzy Lane): MH_GAME_<MH1|GOLD> en el entorno o las carpetas habituales
+RETAIL = {'mh1': ['Making History 1.0', 'Making History', 'Making History The Calm and The Storm'], 'gold': ['Making History Gold']}
+
+
+def _retail(key):
+    out = [os.environ.get('MH_GAME_' + key.upper(), '')]
+    for pf in (os.environ.get('ProgramFiles(x86)') or r'C:\Program Files (x86)', os.environ.get('ProgramFiles') or r'C:\Program Files'):
+        out += [os.path.join(pf, 'Muzzy Lane Software', f) for f in RETAIL[key]] + [os.path.join(pf, 'Muzzy Lane', f) for f in RETAIL[key]]
+    return [x for x in out if x]
+
+
 def _find(key):
     for lib in _steam_libraries():
         p = os.path.join(lib, FOLDERS[key])
+        if os.path.isdir(os.path.join(p, 'Modern Europe')):
+            return p
+    for p in _retail(key):
         if os.path.isdir(os.path.join(p, 'Modern Europe')):
             return p
     return os.path.join(r'C:\Program Files (x86)\Steam\steamapps\common', FOLDERS[key])   # no instalado
@@ -106,6 +120,42 @@ def detect(game_dir):
         if p.startswith(os.path.abspath(g['path']).lower()):
             return k
     return None
+
+
+GOLD_ONLY_UNITS = ('MotorizedInfantry2', 'MotorizedInfantry3', 'MechanizedInfantry2', 'MechanizedInfantry3',
+                   'EarlyBombers', 'EarlyCruiser', 'EarlySubmarine')
+
+
+def scenario_game(scen_dir):
+    """¿El escenario es de MH1 o de Gold? Mira su contenido antes que la carpeta donde esta instalado.
+
+    Criterio, por orden:
+      1. Su sharedDataUnitTemplates.xml propio: Gold si sus unidades tienen nLandDefenseHitPercent (propiedad que solo
+         lee el motor de Gold) o trae unidades exclusivas de Gold (MotorizedInfantry2/3, MechanizedInfantry2/3,
+         EarlyBombers, EarlyCruiser, EarlySubmarine); MH1 si no tiene ninguna de las dos cosas.
+      2. Sin archivo propio, usa las plantillas por defecto del juego donde esta: es de ese juego.
+    Devuelve {'game', 'installed_in', 'mismatch', 'reasons'}; mismatch = esta instalado en el otro juego (hay que convertirlo)."""
+    import re
+    inst = detect(scen_dir)
+    reasons = []
+    game = None
+    f = os.path.join(scen_dir, 'sharedDataUnitTemplates.xml')
+    if os.path.exists(f):
+        t = open(f, encoding='utf-8', errors='replace').read()
+        names = set(re.findall(r'name="strName" value="([^"]*)"', t))
+        gold_units = [u for u in GOLD_ONLY_UNITS if u in names]
+        if 'nLandDefenseHitPercent' in t:
+            reasons.append('sus unidades tienen nLandDefenseHitPercent (defensa terrestre de Gold)')
+        if gold_units:
+            reasons.append('trae unidades de Gold: ' + ', '.join(gold_units))
+        game = 'gold' if reasons else 'mh1'
+        if not reasons:
+            reasons.append('sus plantillas de unidades no tienen nada de Gold (ni defensa terrestre ni unidades nuevas)')
+    else:
+        game = inst
+        if inst:
+            reasons.append('usa las plantillas de unidades por defecto de %s' % GAMES[inst]['short'])
+    return {'game': game, 'installed_in': inst, 'mismatch': bool(game and inst and game != inst), 'reasons': reasons}
 
 
 def info():

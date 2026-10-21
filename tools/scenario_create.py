@@ -39,7 +39,8 @@ def _insert_after(st, el, after, parent):
 
 
 # ---------------------------------------------------------------------------------------- 1. nación nueva
-def create_country(s, name, template=None, color=None, ctype='Minor', gov=None, flag=None, capital=None, regions=None, description=None):
+def create_country(s, name, template=None, color=None, ctype='Minor', gov=None, flag=None, capital=None, regions=None, description=None,
+                   new_capital=None):
     """País nuevo: country<Nombre>.xml + player<Nombre>.xml copiando una nación pequeña (sin regiones ni unidades) como plantilla,
     registrados en game.xml, y su Player en gamestate.xml. 'regions' (opcional) le pasa esas regiones; 'capital' es una ciudad suya
     (o, si no tiene regiones, la ciudad anhelada de una nación rendida liberable)."""
@@ -48,17 +49,14 @@ def create_country(s, name, template=None, color=None, ctype='Minor', gov=None, 
     if not name or BAD_FILE.search(name):
         raise ValueError('el país necesita un nombre válido (sin \\ / : * ? " < > |)')
     countries = s.countries()
-    if name in countries:
-        raise ValueError('ya existe el país %s' % name)
+    import scenario_new
+    why = scenario_new.name_taken(s, name)
+    if why:
+        raise ValueError(why)
     fc, fp = 'country%s.xml' % name, 'player%s.xml' % name
-    for f in (fc, fp):
-        if os.path.exists(s.path(f)):
-            raise ValueError('ya existe el archivo %s en la carpeta del escenario' % f)
-    if template is None:
-        small = [n for n, c in countries.items() if not _has_assets(s, n)]
-        template = 'Tibet' if 'Tibet' in small else (min(small, key=lambda n: os.path.getsize(st.doc_of[countries[n]])) if small else None)
-    if template not in countries:
-        raise ValueError('no hay país de plantilla (%s)' % template)
+    from_template = bool(template)       # sin plantilla: nación nueva con los valores por defecto (como al crearla desde una región)
+    if from_template and template not in countries:
+        raise ValueError('no existe el país de plantilla %s' % template)
     if color and not re.fullmatch(r'#[0-9A-Fa-f]{6}([0-9A-Fa-f]{2})?', color):
         raise ValueError('el color debe ser #RRGGBB')
     if ctype not in ('Minor', 'Major', 'Playable'):
@@ -71,96 +69,120 @@ def create_country(s, name, template=None, color=None, ctype='Minor', gov=None, 
     cities = {prop(c, 'strName'): c for c in s.all('City')}
     if capital and capital not in cities:
         raise ValueError('la ciudad «%s» no existe en el escenario' % capital)
-    gt = {prop(c, 'strGovType') for c in countries.values() if prop(c, 'strGovType')}
+    if new_capital:                 # capital nueva: se crea al final, en una de sus regiones (o en otra, si es una nación rendida)
+        nc = (new_capital.get('name') or '').strip()
+        if not nc:
+            raise ValueError('la capital nueva necesita un nombre')
+        if nc in cities:
+            raise ValueError('ya existe una ciudad llamada %s' % nc)
+        if (new_capital.get('region') or (regions[0] if regions else None)) not in land:
+            raise ValueError('elige la región de la capital nueva')
+    gt = {prop(c, 'strGovType') for c in countries.values() if prop(c, 'strGovType')} | {prop(g, 'strName') for g in s.all('GovTypeTemplate')}
     if gov and gov not in gt:
         raise ValueError('gobierno desconocido: %s (hay: %s)' % (gov, ', '.join(sorted(gt))))
     notes = []
 
-    # ---- country<Nombre>.xml
-    tc = countries[template]
-    croot = ET.Element('objects', {'name': 'Object Load', 'version': '0.1'})
-    c = ET.SubElement(croot, 'object', {'type': 'MECountry', 'name': ''})
-    for p in tc:
-        if p.tag == 'property':
-            c.append(copy.deepcopy(p))
-    for k in objs(tc):
-        if k.get('type') == 'CultureSet':
-            c.append(copy.deepcopy(k))
-    pv = lambda k, v: _setp(c, k, v)
-    pv('strName', name)
-    pv('strHomelands', name)
-    pv('strFlagName', flag or prop(tc, 'strFlagName') or name)
-    if gov:
-        pv('strGovType', gov)
-    pv('bNonPlayable', 'false' if ctype == 'Playable' else 'true')
-    pv('eCountryType', {'Minor': None, 'Major': 'COUNTRYTYPE_MAJOR', 'Playable': 'COUNTRYTYPE_PLAYABLE'}[ctype])
-    pv('strCapital', None)
-    pv('strOriginalCapital', None)
-    pv('bSurrendered', 'true')
-    cpath = os.path.abspath(s.path(fc))
-    _write_new(s, cpath, croot)
-
-    # ---- player<Nombre>.xml
-    tp = next((p for p in s.all('MEPlayerData') if prop(p, 'strOwner') == template), None)
-    proot = ET.Element('objects', {'name': 'Object Load', 'version': '0.1'})
-    if tp is not None:
-        pd = ET.SubElement(proot, 'object', {'type': 'MEPlayerData', 'name': ''})
-        for p in tp:
+    if not from_template:
+        cult = [prop(land[r], 'strCulture') for r in regions if prop(land[r], 'strCulture')]
+        notes += scenario_new.create_nation(s, {'name': name, 'color': (color or '')[:7] or None, 'gov': gov or None, 'flag': flag or None,
+                                                 'playable': ctype == 'Playable', 'description': description or '',
+                                                 'culture': cult[0] if cult else None}, need_capital=False)
+        if ctype == 'Major':
+            st.set_prop(s.countries()[name], 'eCountryType', 'COUNTRYTYPE_FEATURED')
+    else:
+        # ---- country<Nombre>.xml
+        tc = countries[template]
+        croot = ET.Element('objects', {'name': 'Object Load', 'version': '0.1'})
+        c = ET.SubElement(croot, 'object', {'type': 'MECountry', 'name': ''})
+        for p in tc:
             if p.tag == 'property':
-                pd.append(copy.deepcopy(p))
-        for k in objs(tp):
-            if k.get('type') == 'MEAIData':
-                pd.append(ET.Element('object', {'type': 'MEAIData', 'name': 'objAIData'}))
-            elif k.get('type') == 'DipRelInitialValueList':
-                dl = ET.SubElement(pd, 'object', {'type': 'DipRelInitialValueList', 'name': 'objDipRelInitialValueList'})
-                ET.SubElement(dl, 'property', {'name': 'nDefault', 'value': prop(k, 'nDefault') or '500'})
-        _setp(pd, 'strOwner', name)
-        _setp(pd, 'strFoggees', name)
-    else:
-        notes.append('AVISO: la plantilla %s no tiene datos de jugador: %s queda sin ellos' % (template, name))
-    _write_new(s, os.path.abspath(s.path(fp)), proot)
+                c.append(copy.deepcopy(p))
+        for k in objs(tc):
+            if k.get('type') == 'CultureSet':
+                c.append(copy.deepcopy(k))
+        pv = lambda k, v: _setp(c, k, v)
+        pv('strName', name)
+        pv('strHomelands', name)
+        for k in ('Name', 'Possessive', 'Adjective', 'People', 'Alliance'):     # textos propios, no los de la plantilla
+            key = 'sidAllianceName' if k == 'Alliance' else 'sid' + k
+            if prop(c, key) is not None or k == 'Name':
+                pv(key, 'SID.Game.Country.%s.%s' % (k, _slug(name)))
+        pv('strFlagName', flag or name)
+        if gov:
+            pv('strGovType', gov)
+        pv('bNonPlayable', 'false' if ctype == 'Playable' else 'true')
+        pv('eCountryType', {'Minor': None, 'Major': 'COUNTRYTYPE_FEATURED', 'Playable': 'COUNTRYTYPE_PLAYABLE'}[ctype])
+        pv('strCapital', None)
+        pv('strOriginalCapital', None)
+        pv('bSurrendered', 'true')
+        cpath = os.path.abspath(s.path(fc))
+        _write_new(s, cpath, croot)
 
-    # ---- game.xml: los dos archivos se cargan (solo cuentan los que figuran aquí)
-    last = [g for g in s.all('GO') if (g.get('fromFile') or '').startswith(('country', 'player'))]
-    if not last:
-        raise ValueError('game.xml no carga ningún country*/player*.xml: no sé dónde registrar el país')
-    host = st.parent[last[-1]]
-    ref_c = ET.Element('object', {'type': 'GO', 'name': 'objGOs', 'fromFile': fc})
-    ref_p = ET.Element('object', {'type': 'GO', 'name': 'objGOs', 'fromFile': fp})
-    _insert_after(st, ref_c, last[-1], host)
-    _insert_after(st, ref_p, ref_c, host)
-    for v in s.all('View'):         # vistas de países (p. ej. «minor»): entra donde estaba la plantilla
-        al = [p for p in v if p.tag == 'property' and p.get('name') == 'strAliases']
-        t = next((p for p in al if p.get('value') == template), None)
-        if t is not None and not any(p.get('value') == name for p in al):
-            e = ET.Element('property', {'name': 'strAliases', 'value': name})
-            v.insert(list(v).index(t) + 1, e)
-            st.parent[e], st.doc_of[e] = v, st.doc_of[v]
-            st.touch(v, structural=True)
-    # ---- gamestate.xml: el Player (color y si es jugable)
-    players = [p for p in s.all('Player', lambda f: f == 'gamestate.xml') if prop(p, 'strName')]
-    if players:
-        tpl = next((p for p in players if prop(p, 'strName') == template), players[-1])
-        np_ = copy.deepcopy(tpl)
-        _setp(np_, 'strName', name)
-        _setp(np_, 'bNonPlayable', 'false' if ctype == 'Playable' else 'true')
-        _setp(np_, 'sidName', 'SID.Game.Country.Name.' + _slug(name))
-        if description and description.strip():
-            _setp(np_, 'sidShortDescription', 'SID.Game.Country.Description.%s.%s' % (_slug(s.name), _slug(name)))
-        col = (color or _free_color(players)).upper()
-        _setp(np_, 'colCountryColor', col + 'FF' if len(col) == 7 else col)
-        _insert_after(st, np_, players[-1], st.parent[players[-1]])
-    else:
-        notes.append('AVISO: gamestate.xml no tiene jugadores: falta añadir el Player de %s' % name)
-    s._opts = None
-    notes.append('país %s creado (country%s.xml + player%s.xml, plantilla %s), registrado en game.xml y gamestate.xml' % (name, name, name, template))
-    # ---- texto de la nación (nombre y descripción en el escenario)
-    notes += sc.set_region_string(s, 'SID.Game.Country.Name.' + _slug(name), name)
-    if description and description.strip():
-        sid = 'SID.Game.Country.Description.%s.%s' % (_slug(s.name), _slug(name))
-        notes += sc.set_region_string(s, sid, description.strip())
+        # ---- player<Nombre>.xml
+        tp = next((p for p in s.all('MEPlayerData') if prop(p, 'strOwner') == template), None)
+        proot = ET.Element('objects', {'name': 'Object Load', 'version': '0.1'})
+        if tp is not None:
+            pd = ET.SubElement(proot, 'object', {'type': 'MEPlayerData', 'name': ''})
+            for p in tp:
+                if p.tag == 'property':
+                    pd.append(copy.deepcopy(p))
+            for k in objs(tp):
+                if k.get('type') == 'MEAIData':
+                    pd.append(ET.Element('object', {'type': 'MEAIData', 'name': 'objAIData'}))
+                elif k.get('type') == 'DipRelInitialValueList':
+                    dl = ET.SubElement(pd, 'object', {'type': 'DipRelInitialValueList', 'name': 'objDipRelInitialValueList'})
+                    ET.SubElement(dl, 'property', {'name': 'nDefault', 'value': prop(k, 'nDefault') or '500'})
+            _setp(pd, 'strOwner', name)
+            _setp(pd, 'strName', name)          # el de la plantilla haría dos PlayerData con su nombre
+            _setp(pd, 'strFoggees', name)
+        else:
+            notes.append('AVISO: la plantilla %s no tiene datos de jugador: %s queda sin ellos' % (template, name))
+        _write_new(s, os.path.abspath(s.path(fp)), proot)
+
+        # ---- game.xml: los dos archivos se cargan (solo cuentan los que figuran aquí)
+        last = [g for g in s.all('GO') if (g.get('fromFile') or '').startswith(('country', 'player'))]
+        if not last:
+            raise ValueError('game.xml no carga ningún country*/player*.xml: no sé dónde registrar el país')
+        host = st.parent[last[-1]]
+        ref_c = ET.Element('object', {'type': 'GO', 'name': 'objGOs', 'fromFile': fc})
+        ref_p = ET.Element('object', {'type': 'GO', 'name': 'objGOs', 'fromFile': fp})
+        _insert_after(st, ref_c, last[-1], host)
+        _insert_after(st, ref_p, ref_c, host)
+        for v in s.all('View'):         # vistas de países (p. ej. «minor»): entra donde estaba la plantilla
+            al = [p for p in v if p.tag == 'property' and p.get('name') == 'strAliases']
+            t = next((p for p in al if p.get('value') == template), None)
+            if t is not None and not any(p.get('value') == name for p in al):
+                e = ET.Element('property', {'name': 'strAliases', 'value': name})
+                v.insert(list(v).index(t) + 1, e)
+                st.parent[e], st.doc_of[e] = v, st.doc_of[v]
+                st.touch(v, structural=True)
+        # ---- gamestate.xml: el Player (color y si es jugable)
+        players = [p for p in s.all('Player', lambda f: f == 'gamestate.xml') if prop(p, 'strName')]
+        if players:
+            tpl = next((p for p in players if prop(p, 'strName') == template), players[-1])
+            np_ = copy.deepcopy(tpl)
+            _setp(np_, 'strName', name)
+            _setp(np_, 'bNonPlayable', 'false' if ctype == 'Playable' else 'true')
+            _setp(np_, 'sidName', 'SID.Game.Country.Name.' + _slug(name))
+            _setp(np_, 'sidShortDescription', 'SID.Game.Country.Description.%s.%s' % (_slug(s.name), _slug(name)))   # nunca la de la plantilla
+            _setp(np_, 'strFlagName', flag or name)
+            col = (color or _free_color(players)).upper()
+            _setp(np_, 'colCountryColor', col + 'FF' if len(col) == 7 else col)
+            _insert_after(st, np_, players[-1], st.parent[players[-1]])
+        else:
+            notes.append('AVISO: gamestate.xml no tiene jugadores: falta añadir el Player de %s' % name)
+        s._opts = None
+        notes.append('país %s creado (country%s.xml + player%s.xml, plantilla %s), registrado en game.xml y gamestate.xml' % (name, name, name, template))
+        # ---- texto de la nación (nombre y descripción en el escenario)
+        notes += sc.set_region_string(s, 'SID.Game.Country.Name.' + _slug(name), name)
+        for k in ('Possessive', 'Adjective', 'People', 'Alliance'):
+            notes += sc.set_region_string(s, 'SID.Game.Country.%s.%s' % (k, _slug(name)), name)
+        # el texto tiene que existir aunque esté vacío: un sidShortDescription sin texto impide cargar la partida
+        notes += sc.set_region_string(s, 'SID.Game.Country.Description.%s.%s' % (_slug(s.name), _slug(name)), (description or '').strip())
     # ---- territorio y capital
     new = s.countries()[name]
+    if template is None and not from_template:
+        template = '(nación nueva)'
     for r in regions:
         notes += s.update(st.eid(land[r]), {'strOwner': name, 'strController': name})
     if regions:
@@ -175,18 +197,35 @@ def create_country(s, name, template=None, color=None, ctype='Minor', gov=None, 
                 st.attach(e, cset)
             notes.append('culturas: %s' % ', '.join(cult))
         notes += L.unsurrender(s, name, regions[0])
+        if new_capital:
+            capital = _new_capital(s, name, new_capital, regions[0], notes)
+            cities = {prop(c, 'strName'): c for c in s.all('City')}
         if capital:
             if prop(st.parent.get(cities[capital]), 'strOwner') != name:
                 raise ValueError('la capital %s no está en una región de %s' % (capital, name))
             st.set_prop(new, 'strCapital', capital)
             st.set_prop(new, 'strOriginalCapital', capital)
             notes.append('capital: %s' % capital)
+    elif new_capital:              # sin regiones: la capital nueva va en otra región y la nación queda rendida, liberable allí
+        notes += L.make_surrendered(s, name, _new_capital(s, name, new_capital, None, notes))
     elif capital:
         notes += L.make_surrendered(s, name, capital)
     else:
         notes.append('%s es una nación sin regiones ni capital: dale territorio (pestaña Land Regions) o conviértela en rendida con capital' % name)
     notes.append('Bandera e iconos: faltan en UI/art/2D/countries/%s (copia ahí los de otro país; el editor no escribe en la carpeta del juego)' % name)
     return st.eid(new), notes
+
+
+def _new_capital(s, name, spec, default_region, notes):
+    """Crea la ciudad capital nueva (en un punto al azar de su región si no se dan coordenadas) y devuelve su nombre."""
+    region = spec.get('region') or default_region
+    x, y = spec.get('x'), spec.get('y')
+    if x in (None, '') or y in (None, ''):
+        x, y = L.region_point(s, region)
+    _, n = L.create_city(s, spec['name'].strip(), float(x), float(y), spec.get('ipus', 5), spec.get('population', 100000),
+                         (spec.get('display') or spec['name']).strip(), spec.get('port') or None, region=region)
+    notes += n
+    return spec['name'].strip()
 
 
 def _has_assets(s, name):
@@ -271,6 +310,79 @@ def create_fleet(s, owner, name, region, units, city=None):
                                                                    ', '.join('%d %s' % (int(u['n']), u['type']) for u in units))]
 
 
+def create_airforce(s, owner, name, region, units):
+    """Fuerza aérea de 'owner' en una región de tierra o de mar. Solo unidades aéreas (UNIT_TYPE_AIR_FORCE)."""
+    st = s.s
+    countries = s.countries()
+    if owner not in countries:
+        raise ValueError('no existe el país %s' % owner)
+    name = (name or '').strip()
+    if not name:
+        raise ValueError('la fuerza aérea necesita un nombre')
+    if any(prop(a, 'strName') == name and prop(a, 'strOwner') == owner for a in s.all('AirForce')):
+        raise ValueError('%s ya tiene una fuerza aérea llamada %s' % (owner, name))
+    regions = {prop(r, 'strName') for r in s.regions()}
+    if region not in regions:
+        raise ValueError('no existe la región %s' % region)
+    templates = {prop(t, 'strName'): (prop(t, 'eType') or '') for t in s.all('UnitTemplate')}
+    units = [u for u in units or [] if int(u.get('n') or 0) > 0]
+    if not units:
+        raise ValueError('la fuerza aérea necesita al menos una unidad')
+    for u in units:
+        if u['type'] not in templates:
+            raise ValueError('tipo de unidad desconocido: %s' % u['type'])
+        if templates[u['type']] != 'UNIT_TYPE_AIR_FORCE':
+            raise ValueError('«%s» no es una unidad aérea' % u['type'])
+    el = ET.Element('object', {'type': 'AirForce', 'name': 'objGOs'})
+    for k, v in (('strName', name), ('strOwner', owner), ('strRegion', region)):
+        ET.SubElement(el, 'property', {'name': k, 'value': v})
+    for u in units:
+        o = ET.SubElement(el, 'object', {'type': 'UnitSummary', 'name': 'objUnits'})
+        ET.SubElement(o, 'property', {'name': 'strName', 'value': u['type']})
+        ET.SubElement(o, 'property', {'name': 'nNumber', 'value': str(int(u['n']))})
+    country = countries[owner]
+    kids = list(country)
+    air = [k for k, x in enumerate(kids) if x.tag == 'object' and x.get('type') == 'AirForce']
+    anyu = [k for k, x in enumerate(kids) if x.tag == 'object' and x.get('type') in ('Army', 'AirForce', 'Fleet')]
+    st.attach(el, country, index=(air[-1] + 1) if air else ((anyu[-1] + 1) if anyu else None))
+    return st.eid(el), ['fuerza aérea %s de %s creada en %s con %s' % (name, owner, region, ', '.join('%d %s' % (int(u['n']), u['type']) for u in units))]
+
+
+# ---------------------------------------------------------------------------------------- ideología nueva
+def create_govtype(s, name, display=None, color=None, icon=None, base=None):
+    """Ideología (tipo de gobierno) nueva: copia de la plantilla 'base' (todas sus propiedades y reglas) con otro nombre,
+    color e icono. El nombre visible va al stringTable del escenario (SID.Game.GovTypeTemplate.Name.<nombre>)."""
+    import copy
+    st = s.s
+    name = re.sub(r'[^A-Za-z0-9_]', '', (name or '').strip())
+    if not name:
+        raise ValueError('la ideología necesita un nombre interno (letras y números)')
+    govs = s.all('GovTypeTemplate')
+    if any(prop(g, 'strName') == name for g in govs):
+        raise ValueError('ya existe la ideología %s' % name)
+    src = next((g for g in govs if prop(g, 'strName') == base), None) or (govs[0] if govs else None)
+    if src is None:
+        raise ValueError('el escenario no define ideologías (GovTypeTemplate) que copiar')
+    el = copy.deepcopy(src)
+    sid = 'SID.Game.GovTypeTemplate.Name.' + name
+    if color and not re.match(r'^#[0-9A-Fa-f]{6}([0-9A-Fa-f]{2})?$', color):
+        raise ValueError('color no válido: %s (usa #RRGGBB)' % color)
+    for k, v in (('strName', name), ('sidDisplayName', sid), ('strIconName', icon or prop(src, 'strIconName') or name),
+                 ('colColor', ((color + 'FF') if color and len(color) == 7 else color) or prop(src, 'colColor'))):
+        p = next((x for x in el.findall('property') if x.get('name') == k), None)
+        if p is None:
+            p = ET.SubElement(el, 'property', {'name': k})
+        p.set('value', v)
+    parent = st.parent[src]
+    st.attach(el, parent, index=list(parent).index(src) + 1 + sum(1 for g in govs if st.parent[g] is parent and list(parent).index(g) > list(parent).index(src)))
+    s._opts = None              # el desplegable de Gobierno ya la incluye
+    notes = ['ideología %s creada (copia de %s)' % (name, prop(src, 'strName'))]
+    notes += sc.set_region_string(s, sid, (display or name).strip())
+    if not icon:
+        notes.append('usa el icono de %s; para uno propio pon su nombre en strIconName' % prop(src, 'strIconName'))
+    return st.eid(el), notes
+
+
 # ---------------------------------------------------------------------------------------- 3. alianza nueva
 def create_alliance(s, name, leader, members):
     name = (name or '').strip()
@@ -331,7 +443,7 @@ def create_access(s, a, b, land=True, air=True, sea=True, date=None):
         raise ValueError('elige dos países distintos')
     if not (land or air or sea):
         raise ValueError('marca al menos tierra, aire o mar')
-    for t in s.all('TreatyAgreement'):
+    for t in s.all('TreatyAgreement') + s.all('Treaty', lambda f: f == 'treaties.xml'):
         if {prop(t, 'strFromCountry'), prop(t, 'strToCountry')} == {a, b} and any(o.get('type') == 'MilAccessTerm' for o in objs(t)):
             raise ValueError('%s y %s ya tienen un acuerdo de acceso militar' % (a, b))
     lst = next(iter(s.all('TreatyList')), None)
@@ -343,9 +455,13 @@ def create_access(s, a, b, land=True, air=True, sea=True, date=None):
         date = '%02d/%02d/%s' % (int(g('nStartMonth', '1') or 1), int(g('nStartDay', '1') or 1), g('nStartYear', '1936'))
     if not re.fullmatch(r'\d{2}/\d{2}/\d{4}', date):
         raise ValueError('fecha no válida (MM/DD/AAAA)')
-    t = ET.Element('object', {'type': 'TreatyAgreement', 'name': 'objGOs'})
-    for k, v in (('strName', '%s-%s Military Access Agreement' % (a, b)), ('strToCountry', b), ('strFromCountry', a),
-                 ('eTreatyState', 'TREATY_RATIFIED'), ('strDateProposed', date), ('strDateRatified', date)):
+    # mismo formato que los acuerdos que ya tiene el escenario: «Treaty» corto (TMW, mods) o «TreatyAgreement» con nombre y fechas
+    short = bool(s.all('Treaty', lambda f: f == 'treaties.xml')) and not s.all('TreatyAgreement')
+    t = ET.Element('object', {'type': 'Treaty' if short else 'TreatyAgreement', 'name': 'objGOs'})
+    props = (('strToCountry', b), ('strFromCountry', a), ('eTreatyState', 'TREATY_RATIFIED')) if short else \
+        (('strName', '%s-%s Military Access Agreement' % (a, b)), ('strToCountry', b), ('strFromCountry', a),
+         ('eTreatyState', 'TREATY_RATIFIED'), ('strDateProposed', date), ('strDateRatified', date))
+    for k, v in props:
         ET.SubElement(t, 'property', {'name': k, 'value': v})
     for to_term in ('true', 'false'):
         m = ET.SubElement(t, 'object', {'type': 'MilAccessTerm', 'name': 'objGOs'})

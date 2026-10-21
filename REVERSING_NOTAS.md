@@ -19,7 +19,7 @@ exportaciones con nombres C++ (MSVC), importaciones, cadenas y tablas de textos.
 
 ## Registro del juego
 Los avisos internos («invalid region ID %d for region %s», «Failed to load scenario named %s»…) solo se ven con un
-capturador del canal de depuración de Windows. `tools/game_log.py` («Registro del juego.bat») los guarda en
+capturador del canal de depuración de Windows. `tools/game_log.py` («Game Log.bat») los guarda en
 `logs/juego_<fecha>.log`: abrirlo, lanzar el juego, reproducir el fallo y cerrarlo. Es la forma de saber por qué un
 escenario no carga («Error creating local game»).
 

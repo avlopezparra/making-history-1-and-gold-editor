@@ -42,6 +42,12 @@ FALLBACK = {'MotorizedInfantry2': 'MotorizedInfantry', 'MotorizedInfantry3': 'Mo
             'MechanizedInfantry2': 'MechanizedInfantry', 'MechanizedInfantry3': 'MechanizedInfantry',
             'EarlyBombers': 'LightBombers', 'EarlyCruiser': 'BattleCruiser', 'EarlySubmarine': 'ElectricDieselSubmarine',
             'Partisans': 'Militia'}
+# escenarios oficiales: referencia de colores (los que estan en los dos juegos) y de poblacion (los del juego de destino);
+# no se usan los del usuario, que pueden ser conversiones hechas con esta misma herramienta
+OFFICIAL_BOTH = ('Conclusion of the War', 'Steps to a Global War', 'The End of Diplomacy', 'The Limits of Peace',
+                 'The Politics of Appeasement', 'The World at War', 'Tutorial')
+OFFICIAL = {'mh1': OFFICIAL_BOTH, 'gold': OFFICIAL_BOTH + ('Blitzkrieg', 'Clash of Continents', 'Rise of the Reich', 'Southern Star')}
+IMAGE_EXT = {'.tga', '.bmp', '.png', '.dds', '.jpg', '.jpeg', '.pdn', '.db'}
 POP_FACTOR = 1.5      # «mucha poblacion»: mas de 1,5 veces la del escenario mas poblado del juego de destino
 
 
@@ -162,13 +168,13 @@ def gamestate_colors(scen_dir):
     return out
 
 
-def color_model(src, dst):
+def color_model(src, dst, exclude=()):
     """(tabla color->color, matriz 4x3 RGB lineal) a partir de los escenarios que existen en los dos juegos."""
     import numpy as np
     pairs = Counter()
     rs, rd = gamepaths.scen_root(src), gamepaths.scen_root(dst)
-    for s in os.listdir(rd):
-        if os.path.isdir(os.path.join(rs, s)):
+    for s in OFFICIAL_BOTH:
+        if os.path.isdir(os.path.join(rs, s)) and s not in exclude:
             a, b = gamestate_colors(os.path.join(rs, s)), gamestate_colors(os.path.join(rd, s))
             for k in a:
                 if k in b:
@@ -195,8 +201,8 @@ def map_color(c, table, W):
     return '#%02X%02X%02X%s' % (out[0], out[1], out[2], h[6:8] or 'FF'), 'aprox'
 
 
-def convert_colors(scen_dir, src, dst):
-    table, W = color_model(src, dst)
+def convert_colors(scen_dir, src, dst, exclude=()):
+    table, W = color_model(src, dst, exclude)
     f = os.path.join(scen_dir, 'gamestate.xml')
     t = read(f)
     how = Counter()
@@ -253,7 +259,7 @@ def registered_files(scen_dir):
 
 
 def convert(src_dir, dst_game, out_dir=None, src_game=None, colors=False, infra='auto', units_only=False,
-            complete_new=True, remove_partisan_event=True, log=print):
+            complete_new=True, remove_partisan_event=True, skip_images=False, log=print):
     src_dir = os.path.abspath(src_dir)
     src_game = src_game or gamepaths.detect(src_dir)
     if src_game is None:
@@ -269,7 +275,22 @@ def convert(src_dir, dst_game, out_dir=None, src_game=None, colors=False, infra=
         raise ValueError('ya existe %s: elige otra carpeta de salida (no se sobrescribe nada)' % out_dir)
     rep = {'origen': src_dir, 'salida': out_dir, 'de': src_game, 'a': dst_game, 'fecha': time.strftime('%Y-%m-%d %H:%M:%S'),
            'archivos': [], 'notas': [], 'investigacion': {}, 'unidades_cambiadas': {}, 'colores': None, 'infraestructura': None}
-    shutil.copytree(src_dir, out_dir)
+    skipped = Counter()
+
+    def ignore(d, names):
+        # sin imagenes: no se copian las de las subcarpetas (ui/: banderas, retratos...), solo las del raiz
+        # (Title.tga, Button.tga... que usa el menu de escenarios)
+        if not skip_images or os.path.abspath(d) == src_dir:
+            return []
+        out = [n for n in names if os.path.splitext(n)[1].lower() in IMAGE_EXT and os.path.isfile(os.path.join(d, n))]
+        for n in out:
+            skipped['n'] += 1
+            skipped['bytes'] += os.path.getsize(os.path.join(d, n))
+        return out
+    shutil.copytree(src_dir, out_dir, ignore=ignore)
+    if skip_images:
+        rep['notas'].append('sin imágenes: se omitieron %d imágenes de las subcarpetas (%.0f MB); el juego usará las suyas por defecto'
+                            % (skipped['n'], skipped['bytes'] / 1e6))
     log('copiado a %s' % out_dir)
 
     # 1. datos compartidos y sprites
@@ -354,12 +375,12 @@ def convert(src_dir, dst_game, out_dir=None, src_game=None, colors=False, infra=
 
     # 5. colores
     if colors:
-        rep['colores'] = convert_colors(out_dir, src_game, dst_game)
+        rep['colores'] = convert_colors(out_dir, src_game, dst_game, exclude={name, os.path.basename(out_dir)})
 
     # 6. infraestructura
     sd = os.path.join(out_dir, 'sharedData.xml')
     pop = total_population(out_dir)
-    ref = max([total_population(os.path.join(gamepaths.scen_root(dst_game), s)) for s in os.listdir(gamepaths.scen_root(dst_game))
+    ref = max([total_population(os.path.join(gamepaths.scen_root(dst_game), s)) for s in OFFICIAL[dst_game]
                if os.path.isdir(os.path.join(gamepaths.scen_root(dst_game), s)) and s != name] or [0])
     info = {'poblacion': pop, 'poblacion_max_juego': ref, 'aplicada': False}
     if os.path.exists(sd):
@@ -425,9 +446,10 @@ def main():
     ap.add_argument('--solo-unidades', action='store_true')
     ap.add_argument('--no-completar-nuevas', action='store_true')
     ap.add_argument('--mantener-evento-partisanos', action='store_true')
+    ap.add_argument('--sin-imagenes', action='store_true', help='no copiar las imagenes de las subcarpetas (ui/...)')
     a = ap.parse_args()
     rep = convert(a.escenario, a.dst, a.salida, a.src, a.colores, a.infra, a.solo_unidades, not a.no_completar_nuevas,
-                  not a.mantener_evento_partisanos)
+                  not a.mantener_evento_partisanos, a.sin_imagenes)
     print(summary(rep))
 
 

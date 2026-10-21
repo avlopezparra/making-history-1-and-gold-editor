@@ -1,76 +1,76 @@
-# Making History 1 & Gold Editor
+# Making History 1 & Gold Editor 2.0
 
-Editor de mapa (regionpacks), de escenarios y de imágenes para **Making History: The Calm and The Storm (MH1)** y
-**Making History Gold**. / Map (regionpack), scenario and image editor for Making History 1 and Gold.
+Map (regionpack), scenario and image editor for **Making History: The Calm and The Storm (MH1)** and **Making History Gold**.
 
-> Proyecto de fans, sin relación con Muzzy Lane. No incluye archivos del juego: hace falta tener el juego instalado en Steam
-> (el editor lo busca solo). / Fan project, not affiliated with Muzzy Lane. It ships no game files: you need the game on Steam.
+> Fan project, not affiliated with Muzzy Lane. It ships no game files: you need the game installed (Steam, or the
+> Muzzy Lane installer in `C:\Program Files (x86)\Muzzy Lane Software\...`; the editor finds it on its own).
 
-## Qué hace / What it does
-- **Editor de regiones**: mover nodos, dibujar, recortar, unificar, crear, renombrar y borrar regiones; cambios de forma que respetan
-  la topología; instala el resultado en un *regionpack*; changelog por regionpack; ver ciudades, recursos y unidades.
-- **Editor de escenarios** (como `ed.exe`): 25 pestañas, capas de mapa con clic, selección múltiple (regiones y países), crear
-  ciudades, recursos y ejércitos, alianzas, guerras, embargos, países históricos, GeoJSON, validador.
-- **Adecuar**: pasa un escenario a un regionpack añadiendo y quitando las regiones necesarias para que el juego lo cargue.
-- **Imágenes**: título, banderas, iconos, fondo del terreno (con exportación separada de fondo y fronteras).
-- Español e inglés. Documentación: [EDITOR.md](EDITOR.md), formato del mapa: [MAPA_FORMATO.md](MAPA_FORMATO.md).
+- **Download / updates:** [Releases](https://github.com/avlopezparra/making-history-1-and-gold-editor/releases/)
+- **Community:** [Discord](https://discord.com/invite/gFJyCjWEnr)
+- **Report bugs:** alopezcl@protonmail.com (or open an issue)
 
-## Usar el programa (sin instalar nada)
-Descarga **MHEditor.zip** de [Releases](../../releases), descomprímelo y abre `MHEditor.exe`
-(Windows 10/11 de 64 bits; usa WebView2, que ya trae Windows 11).
+Made by Alejandro Víctor López Parra (@avlopezparra), 2026. **Version 2.0**.
 
-## Usarlo en el navegador (versión web) / Run it in the browser
+## What it does
+- **Region editor**: move nodes, draw, cut, merge, create, rename and delete regions; topology-safe shape changes; installs the
+  result as a *regionpack*; changelog per regionpack; GeoJSON import/export; shows cities, resources and units.
+- **Scenario editor** (like `ed.exe`): all tabs (nations, regions, cities, armies, air forces, fleets, ideologies, alliances, wars,
+  diplomacy, events...), clickable map layers, multi-select, create objects, validator with automatic fixes.
+- **Adapt**: moves a scenario to another regionpack, adding/removing the regions the game needs to load it.
+- **Images**: title, flags, icons, terrain background (with separate background/borders export).
+- English and Spanish UI. Documentation (Spanish): [EDITOR.md](EDITOR.md), map format: [MAPA_FORMATO.md](MAPA_FORMATO.md).
+  For AI coding agents (Claude Code, Codex...): [AGENTS.md](AGENTS.md).
 
-El editor es una **web que corre en tu propio PC** (un pequeño servidor local, Python) y que lee y escribe la carpeta de tu juego, así que
-**no se puede alojar en internet** (GitHub Pages u otro hosting): cada persona la ejecuta en su ordenador, con el juego instalado.
+## Use the program (nothing to install)
+Download **MHEditor.zip** from [Releases](https://github.com/avlopezparra/making-history-1-and-gold-editor/releases/), unzip it and run
+`MHEditor.exe` (Windows 10/11 64-bit; uses WebView2, already included in Windows 11).
 
-*The editor is a web app that runs on your own PC (a small local Python server) and reads/writes your game folder, so it cannot be hosted
-online: everyone runs it locally with the game installed.*
+## Run it in the browser (from source)
+The editor is a web app that runs **on your own PC** (a small local Python server) and reads/writes your game folder, so it cannot be
+hosted online: everyone runs it locally with the game installed.
 
-**Paso a paso (Windows)**
-1. Instala **Python 3.12 o superior** desde https://www.python.org/downloads/ (marca «Add python.exe to PATH»).
-2. Descarga este repositorio («Code → Download ZIP») y descomprímelo, o clónalo con `git clone`.
-3. Abre una terminal en la carpeta del proyecto e instala las dependencias (una sola vez):
-   ```
-   pip install -r requirements.txt
-   ```
-4. Arranca el editor, con **doble clic** en `Editor de regiones.bat` (o `Editor de escenarios.bat`), o desde la terminal:
-   ```
-   python tools/editor_server.py
-   ```
-5. Abre el navegador en **http://localhost:8765** (el editor de mapa/regiones) y **http://localhost:8765/escenario** (el editor de escenarios).
-   Si lo arrancas con el `.bat` se abre solo. Para pararlo, cierra la ventana negra o pulsa `Ctrl+C`.
-6. Arriba, el selector **MH1 / Gold** elige el juego; luego eliges regionpack y escenario. Los cambios solo se escriben en el juego al pulsar
-   **Guardar** o **Instalar**.
+1. Install **Python 3.12+** from https://www.python.org/downloads/ (tick "Add python.exe to PATH").
+2. Download this repository ("Code → Download ZIP") or `git clone` it.
+3. Install the dependencies once: `pip install -r requirements.txt`
+4. Start it by double-clicking `Region Editor.bat` (or `Scenario Editor.bat`), or run `python tools/editor_server.py`.
+5. Open **http://localhost:8765** (map/region editor) and **http://localhost:8765/scenario** (scenario editor).
+   `python tools/mheditor_app.py` opens the same thing in its own window.
+6. The **MH1 / Gold** selector at the top picks the game. Changes are only written to the game when you press **Save** or **Install**.
 
-**Opciones del servidor** (`python tools/editor_server.py ...`)
-| Opción | Para qué |
+| Server option | Purpose |
 |---|---|
-| `--puerto 8770` | usar otro puerto si el 8765 está ocupado |
-| `--juego mh1` o `--juego gold` | elegir el juego al arrancar |
-| `--pack World` | regionpack con el que empezar |
-| `--no-abrir` | no abrir el navegador automáticamente |
-| `--escenarios CARPETA` | (pruebas) trabajar con copias de escenarios en vez de los del juego |
+| `--puerto 8770` | use another port if 8765 is busy |
+| `--juego mh1` / `--juego gold` | choose the game at start |
+| `--pack World` | regionpack to start with |
+| `--no-abrir` | don't open the browser |
+| `--escenarios FOLDER` | (testing) work on copies of scenarios instead of the game's |
 
-**Variables de entorno:** `MH_ROOT` (dónde guardar proyectos y registros), `MH_STEAM_COMMON` (carpeta `steamapps\common` si el juego está en otra
-biblioteca de Steam; normalmente se detecta sola), `MH_PORT` (puerto del `.exe`).
+Environment variables: `MH_ROOT` (where projects and logs are kept), `MH_STEAM_COMMON` (a `steamapps\common` folder in another Steam
+library), `MH_GAME_MH1` / `MH_GAME_GOLD` (game folder of a non-Steam install), `MH_PORT` (port of the `.exe`).
 
-**Problemas frecuentes**
-- *«Ya hay un editor abierto…»*: ya hay un servidor en ese puerto; ábrelo en el navegador o ciérralo antes.
-- *No encuentra el juego*: comprueba que está instalado en Steam y que la carpeta contiene `Modern Europe`; si no, indica la ruta con `MH_STEAM_COMMON`.
-- *La página se ve vieja tras actualizar el código*: reinicia el servidor y recarga con `Ctrl+F5`.
-- Haz **copia de seguridad** de tu juego y de tus escenarios antes de empezar.
+**Troubleshooting**
+- *"An editor is already open..."*: a server already uses that port; open it in the browser or close it first.
+- *Game not found*: check the folder contains `Modern Europe`, or set `MH_GAME_MH1` / `MH_GAME_GOLD` / `MH_STEAM_COMMON`.
+- *Old page after updating*: restart the server and reload with `Ctrl+F5`.
+- **Back up** your game and scenarios before you start.
 
-**Run from source (summary):** `pip install -r requirements.txt`, then `python tools/editor_server.py` and open http://localhost:8765
-(map editor) or http://localhost:8765/escenario (scenario editor); `python tools/mheditor_app.py` opens the same thing in its own window.
-
-## Compilar MHEditor.exe / Build the exe
+## Build MHEditor.exe
 ```
-compilar_exe.bat          (o:  pip install -r requirements.txt  &&  python tools/build_exe.py)
+compilar_exe.bat          (or:  pip install -r requirements.txt  &&  python tools/build_exe.py)
 ```
-El resultado queda en `MHEditor\` (ejecutable + `_internal`). Para publicarlo, comprime esa carpeta entera en `MHEditor.zip`.
-Al subir una etiqueta `v*` a GitHub, el flujo `.github/workflows/build.yml` lo compila y lo adjunta a la release solo.
+The result goes to `MHEditor\` (exe + `_internal`); zip that whole folder as `MHEditor.zip`. Pushing a `v*` tag runs
+`.github/workflows/build.yml`, which builds it and attaches it to the release.
 
-## Aviso importante
-El editor **escribe en la carpeta del juego solo al guardar o instalar**. Haz una copia de seguridad de tu juego y de tus
-escenarios antes de usarlo. / The editor only writes to the game folder when you save or install; back up first.
+---
+
+## En español
+Editor de mapa (regionpacks), de escenarios y de imágenes para Making History 1 y Gold. Proyecto de fans, sin relación con Muzzy Lane;
+no incluye archivos del juego.
+
+- **Descargas y actualizaciones:** [Releases](https://github.com/avlopezparra/making-history-1-and-gold-editor/releases/) ·
+  **Discord:** https://discord.com/invite/gFJyCjWEnr · **Errores:** alopezcl@protonmail.com
+- **Sin instalar nada:** descarga `MHEditor.zip`, descomprímelo y abre `MHEditor.exe`.
+- **Desde el código:** Python 3.12+, `pip install -r requirements.txt`, doble clic en `Region Editor.bat` y abre
+  http://localhost:8765 (regiones) o http://localhost:8765/scenario (escenarios).
+- El editor **solo escribe en la carpeta del juego al Guardar o Instalar**. Haz una copia de seguridad antes de empezar.
+- Documentación completa: [EDITOR.md](EDITOR.md).

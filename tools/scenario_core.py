@@ -22,6 +22,39 @@ BACKUPS = os.environ.get('MH_RESPALDOS') == '1'
 BACKUP_ROOT = os.path.join(os.environ.get('MH_ROOT') or os.path.join(HERE, '..'), 'backup')
 
 
+_ENUMS = {}
+
+
+def enum_options():
+    """{propiedad: valores} de las propiedades de tipo Enum del juego (propertyDef subType → defEnum de namespace.xml)."""
+    if GAME in _ENUMS:
+        return _ENUMS[GAME]
+    dirs = [os.path.join(GAME, 'system', 'game'), os.path.join(GAME, 'Modern Europe', 'system', 'game')]
+    enums, subtype = {}, {}
+    for d in dirs:
+        if not os.path.isdir(d):
+            continue
+        for f in sorted(os.listdir(d)):
+            if not f.endswith('.xml'):
+                continue
+            try:
+                root = ET.parse(os.path.join(d, f)).getroot()
+            except ET.ParseError:
+                continue
+            for e in root.iter('defEnum'):
+                enums[e.get('name')] = [v.get('name') for v in e.iter('value') if v.get('name')]
+            for p in root.iter('propertyDef'):
+                if p.get('type') == 'Enum' and p.get('subType'):
+                    subtype.setdefault(p.get('name'), p.get('subType'))
+    _ENUMS[GAME] = {n: enums[t] for n, t in subtype.items() if t in enums}
+    return _ENUMS[GAME]
+
+
+def _ev():
+    import scenario_events          # eventos en palabras (importa este módulo: se carga al usarlo)
+    return scenario_events
+
+
 def parse(path):
     return ET.parse(path, ET.XMLParser(target=ET.TreeBuilder(insert_comments=True)))
 
@@ -74,7 +107,9 @@ LABELS = {
     'eScenarioType': 'Tipo de escenario', 'fileScenario': 'Archivo del escenario', 'fileGame': 'Archivo de partida',
     'strContentPackName': 'Paquete de contenido', 'strGovType': 'Gobierno (ideología)', 'strCulture': 'Cultura (etnia)', 'strTerrain': 'Terreno',
 }
-COUNTRY_TYPE = {'COUNTRYTYPE_PLAYABLE': 'Playable', 'COUNTRYTYPE_MAJOR': 'Major', 'COUNTRYTYPE_MINOR': 'Minor'}
+COUNTRY_TYPE = {'COUNTRYTYPE_PLAYABLE': 'Playable', 'COUNTRYTYPE_FEATURED': 'Major', 'COUNTRYTYPE_NON_FEATURED': 'Minor'}
+# valores que el juego acepta (system/game/namespace.xml); otro valor hace que la partida no se cree («Error creating game»)
+COUNTRY_TYPE_FIX = {'COUNTRYTYPE_MINOR': 'COUNTRYTYPE_NON_FEATURED', 'COUNTRYTYPE_MAJOR': 'COUNTRYTYPE_FEATURED'}
 FREE_TEXT = re.compile(r'^(strName|sid|vec|str?Description|strDisplayName|strTypeLabel|path|exp)')
 
 
@@ -97,6 +132,16 @@ class Store:
             self.docs[path] = tree
             self._index(tree.getroot(), path)
         return self.docs[path]
+
+    def new_doc(self, path, xml):
+        """Documento nuevo que aún no existe en disco (se crea al guardar)."""
+        path = os.path.abspath(path)
+        tree = ET.ElementTree(ET.fromstring(xml))
+        self.docs[path] = tree
+        self._index(tree.getroot(), path)
+        self.dirty.add(path)
+        self.restructured.add(path)
+        return tree
 
     def _index(self, root, path):
         for p in root.iter():
@@ -182,16 +227,106 @@ class Store:
         self.detach(el)
 
     # ---- guardar
+    def fix_load_errors(self, paths):
+        """Antes de escribir: corrige lo que haría que el juego no cree la partida («Error creating game»), sea quien sea
+        quien lo produjo (editor de regiones al crear naciones, editor de escenarios, archivos a mano):
+        eCountryType fuera de PLAYABLE/FEATURED/NON_FEATURED y sidShortDescription de un Player sin texto en ningún
+        stringTable (se crea vacío en <escenario>/game/stringTable.xml). Devuelve (rutas a escribir, notas)."""
+        paths, notes = list(paths), []
+        dirs = {os.path.dirname(p) for p in paths}
+        trees = {d: research_tree(d) for d in dirs}
+        for path in [p for p in self.docs if os.path.dirname(p) in dirs]:     # todos los cargados del escenario
+            for pd in list(self.docs[path].getroot().iter('object')):
+                if pd.get('type') != 'MEPlayerData':
+                    continue
+                # investigaciones completadas cuyos requisitos no lo están: se completan también
+                refs = [o for o in pd if o.tag == 'object' and o.get('type') == 'ResearchProjectInitRef']
+                miss = missing_prereqs(trees[os.path.dirname(path)], [prop(o, 'strProjectName') for o in refs if prop(o, 'eResearchState') == 'RESEARCH_COMPLETED'])
+                if miss:
+                    at = list(pd).index(refs[-1]) + 1
+                    for q in miss:
+                        e = ET.Element('object', {'type': 'ResearchProjectInitRef', 'name': 'objInitResearchRefs'})
+                        ET.SubElement(e, 'property', {'name': 'strProjectName', 'value': q})
+                        ET.SubElement(e, 'property', {'name': 'eResearchState', 'value': 'RESEARCH_COMPLETED'})
+                        pd.insert(at, e)
+                        at += 1
+                        for x in e.iter():
+                            self.doc_of[x] = path
+                        self.parent[e] = pd
+                    notes.append('%s: investigación completada también %s (requisitos)' % (os.path.basename(path), ', '.join(miss)))
+                    self.dirty.add(path)
+                    self.restructured.add(path)
+                    if path not in paths:
+                        paths.append(path)
+            for pd in list(self.docs[path].getroot().iter('object')):
+                # DipRelInitialValue suelto en MEPlayerData (fuera de su lista): el juego descarta el player*.xml entero
+                stray = [o for o in pd if o.tag == 'object' and o.get('type') == 'DipRelInitialValue'] if pd.get('type') == 'MEPlayerData' else []
+                if not stray:
+                    continue
+                lst = next((o for o in pd if o.tag == 'object' and o.get('type') == 'DipRelInitialValueList'), None)
+                if lst is None:
+                    lst = ET.SubElement(pd, 'object', {'type': 'DipRelInitialValueList', 'name': 'objDipRelInitialValueList'})
+                    ET.SubElement(lst, 'property', {'name': 'nDefault', 'value': '500'})
+                    self.parent[lst], self.doc_of[lst] = pd, path
+                for o in stray:
+                    pd.remove(o)
+                    lst.append(o)
+                    self.parent[o] = lst
+                notes.append('%s: %d relaciones diplomáticas movidas a su DipRelInitialValueList' % (os.path.basename(path), len(stray)))
+                self.dirty.add(path)
+                self.restructured.add(path)
+                if path not in paths:
+                    paths.append(path)
+            for c in self.docs[path].getroot().iter('object'):
+                if c.get('type') != 'MECountry':
+                    continue
+                for p in c.findall('property'):
+                    if p.get('name') == 'eCountryType' and p.get('value') not in COUNTRY_TYPE:
+                        good = COUNTRY_TYPE_FIX.get(p.get('value'), 'COUNTRYTYPE_NON_FEATURED')
+                        notes.append('%s: eCountryType %s → %s' % (os.path.basename(path), p.get('value'), good))
+                        p.set('value', good)
+                        self.dirty.add(path)
+                        if path not in paths:
+                            paths.append(path)
+        for d in sorted({os.path.dirname(p) for p in paths}):
+            gs = os.path.join(d, 'gamestate.xml')
+            tp = os.path.join(d, 'game', 'stringTable.xml')
+            if gs not in self.docs or not os.path.exists(tp):
+                continue
+            known = set()
+            for f in (os.path.join(GAME, 'system', 'locale', 'en', 'stringTableGame.xml'),
+                      os.path.join(GAME, 'system', 'locale', 'en', 'stringTableScenarios.xml')):
+                try:
+                    known |= {s.get('id') for s in ET.parse(f).getroot().iter('string')}
+                except (OSError, ET.ParseError):
+                    pass
+            table = self.open(tp).getroot()
+            known |= {s.get('id') for s in table.iter('string')}
+            for pl in self.docs[gs].getroot().iter('object'):
+                sid = prop(pl, 'sidShortDescription') if pl.get('type') == 'Player' else None
+                if sid and sid not in known:
+                    e = ET.Element('string', {'id': sid, 'value': ''})
+                    table.append(e)
+                    self.parent[e], self.doc_of[e] = table, tp
+                    self.dirty.add(tp)
+                    self.restructured.add(tp)
+                    known.add(sid)
+                    notes.append('game/stringTable.xml: texto %s creado (vacío)' % sid)
+                    if tp not in paths:
+                        paths.append(tp)
+        return paths, notes
+
     def save(self, paths=None, scenario=None):
         written = []
         stamp = time.strftime('%Y%m%d-%H%M%S')
-        for path in sorted(paths if paths is not None else self.dirty):
+        paths, fixed = self.fix_load_errors([p for p in (paths if paths is not None else self.dirty) if p in self.dirty and p in self.docs])
+        for path in sorted(paths):
             if path not in self.dirty:
                 continue
             # copias de prueba (--escenarios) fuera del juego: la copia de seguridad cuelga de su carpeta
             in_game = os.path.normcase(path).startswith(os.path.normcase(os.path.abspath(GAME)) + os.sep)
             rel = os.path.relpath(path, GAME if in_game else os.path.dirname(os.path.abspath(SCEN_ROOT)))
-            if BACKUPS:
+            if BACKUPS and os.path.exists(path):
                 orig = os.path.join(BACKUP_ROOT, 'archivos_originales', rel)
                 if not os.path.exists(orig):
                     os.makedirs(os.path.dirname(orig), exist_ok=True)
@@ -199,7 +334,7 @@ class Store:
                 hist = os.path.join(BACKUP_ROOT, 'historial', stamp, rel)
                 os.makedirs(os.path.dirname(hist), exist_ok=True)
                 shutil.copy2(path, hist)           # la version anterior a este guardado
-            raw = open(path, 'rb').read()
+            raw = open(path, 'rb').read() if os.path.exists(path) else b'\r\n'     # archivo nuevo: CRLF como los del juego
             crlf = b'\r\n' in raw[:4000]
             tree = self.docs[path]
             if path in self.restructured:
@@ -210,6 +345,8 @@ class Store:
             m_new = re.match(r'<[^>]*>', data)
             if m_old and m_new and m_old.group(0).split()[0] == m_new.group(0).split()[0].rstrip('>'):
                 data = m_old.group(0) + data[m_new.end():]
+            elif not m_old and m_new and data.startswith('<objects ') and 'xmlns:xsi' not in m_new.group(0):
+                data = m_new.group(0)[:-1] + ' xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">' + data[m_new.end():]
             data = '<?xml version="1.0" encoding="UTF-8"?>\n' + data + '\n'
             if crlf:
                 data = data.replace('\r\n', '\n').replace('\n', '\r\n')
@@ -218,7 +355,7 @@ class Store:
             self.dirty.discard(path)
             self.restructured.discard(path)
             written.append(rel)
-        return {'written': written, 'history': stamp if written and BACKUPS else None}
+        return {'written': written, 'history': stamp if written and BACKUPS else None, 'fixed': fixed}
 
     def revert(self, paths=None):
         for path in list(paths if paths is not None else self.dirty):
@@ -342,6 +479,12 @@ class Scenario:
              [('Propietario', lambda e: P(e, 'strOwner')), ('Nombre', lambda e: P(e, 'strName')), ('Ubicación', lambda e: P(e, 'strRegion'))]),
             ('navies', 'Navies', lambda: self.all('Fleet', country_files),
              [('Propietario', lambda e: P(e, 'strOwner')), ('Nombre', lambda e: P(e, 'strName')), ('Ubicación', lambda e: P(e, 'strRegion'))]),
+            ('govtypes', 'Ideologies', lambda: self.all('GovTypeTemplate'),
+             [('Nombre', lambda e: P(e, 'strName')), ('Nombre visible', lambda e: self.strings.get(P(e, 'sidDisplayName') or '') or ''),
+              ('Color', lambda e: P(e, 'colColor')), ('Icono', lambda e: P(e, 'strIconName'))]),
+            ('cultures', 'Cultures', lambda: self.all('CultureTemplate'),
+             [('Cultura', lambda e: P(e, 'strCultureName')), ('Nombre visible', lambda e: _ev()._string(self, P(e, 'sidDisplayName') or '') or ''),
+              ('Regiones', lambda e: str(self._culture_count().get(P(e, 'strCultureName'), 0)))]),
             ('alliances', 'Alliances', lambda: self.all('Alliance'),
              [('Nombre', lambda e: P(e, 'strDisplayName')), ('Miembros', lambda e: str(len(objs(e))))]),
             ('wars', 'Wars', lambda: self.all('War'),
@@ -350,7 +493,7 @@ class Scenario:
              [('Exportador', lambda e: P(e, 'strFromCountry')), ('Importador', lambda e: P(e, 'strToCountry'))]),
             ('aid', 'Aid Flows', lambda: self.all('Flow', pred=lambda e: e.get('name') == 'objAidFlows'),
              [('De', lambda e: P(e, 'strFromCountry')), ('A', lambda e: P(e, 'strToCountry'))]),
-            ('access', 'Military Access', lambda: self.all('Treaty', lambda f: f == 'treaties.xml'),
+            ('access', 'Military Access', lambda: self.all('Treaty', lambda f: f == 'treaties.xml') + self.all('TreatyAgreement', lambda f: f == 'treaties.xml'),
              [('De', lambda e: P(e, 'strFromCountry')), ('A', lambda e: P(e, 'strToCountry')), ('Estado', lambda e: P(e, 'eTreatyState'))]),
             ('players', 'Players / AI', lambda: self.all('MEPlayerData'),
              [('País', lambda e: P(e, 'strOwner')), ('Posición', lambda e: (P(e, 'eInternationalPosition') or '').replace('PLAYER_INTERNATIONAL_POSITION__', '')),
@@ -361,8 +504,14 @@ class Scenario:
              [('País', lambda e: self.owner_of_player(e)), ('Con', lambda e: P(e, 'strTargetCountry')), ('Valor (0 pésimas – 1000 excelentes)', lambda e: '%s · %s' % (P(e, 'nValue'), dip_label(P(e, 'nValue'))))]),
             ('historic', 'Historic Countries', lambda: self.all('HistoricCountry'),
              [('País', lambda e: P(e, 'strCountry')), ('Regiones', lambda e: ', '.join(P(k, 'strRegion') or '' for k in objs(e)))]),
-            ('events', 'Events', lambda: [e for e in self.all_types(('ScriptedEventDef', 'PlayerDecisionDef', 'PlayerDecisionTrigPlayEvent', 'DecisionPointDef', 'WarPlan'))],
-             [('Tipo', lambda e: e.get('type')), ('Nombre', lambda e: P(e, 'strTypeLabel') or P(e, 'strName') or ''), ('Archivo', lambda e: os.path.basename(self.s.doc_of[e]))]),
+            ('events', 'Events', lambda: [e for e in self.all_types(('ScriptedEventDef', 'PlayerDecisionDef', 'PlayerDecisionTrigPlayEvent', 'DecisionPointDef'))],
+             [('Clase', lambda e: '%s%s' % (_ev().event_class(self, e)[0], '' if _ev().is_generic(P(e, 'strTypeLabel')) else ' · del escenario')),
+              ('Tipo', lambda e: _ev().KIND_ES.get(e.get('type'), e.get('type'))), ('Nombre', lambda e: P(e, 'strTypeLabel') or P(e, 'strName') or ''),
+              ('Quién', lambda e: _ev()._who(e)), ('Qué hace', lambda e: _ev().short(self, e)), ('Archivo', lambda e: os.path.basename(self.s.doc_of[e]))]),
+            ('terrains', 'Terrain Types', lambda: self.all('TerrainType'),
+             [('Terreno', lambda e: P(e, 'strTerrain')), ('Nombre visible', lambda e: _ev()._string(self, P(e, 'sidDisplayName') or '') or ''),
+              ('Regiones', lambda e: str(sum(1 for r in self.regions() if P(r, 'strTerrain') == P(e, 'strTerrain')))),
+              ('Archivo', lambda e: os.path.basename(self.s.doc_of[e]))]),
             ('models_land', 'Unit Models (land)', lambda: self.model_nodes('MKDTableCountryAliasesLand.xml'),
              [('País', lambda e: P(e, 'strKey') or '(por defecto)'), ('Unidades', lambda e: str(len(objs(e))))]),
             ('models_air', 'Unit Models (air)', lambda: self.model_nodes('MKDTableCountryAliasesAir.xml'),
@@ -379,6 +528,12 @@ class Scenario:
              [('Nombre', lambda e: P(e, 'strName')), ('Rama', lambda e: (P(e, 'strBranchName') or '').replace('RESEARCH_BRANCH_', ''))]),
         ]
         return T
+
+    def _culture_count(self):
+        c = getattr(self, '_cc', None)          # la lista de la pestaña lo pide en cada fila: se reutiliza unos segundos
+        if c is None or time.time() - c[0] > 3:
+            c = self._cc = (time.time(), Counter(prop(r, 'strCulture') for r in self.regions(sea=False)))
+        return c[1]
 
     def all_types(self, types):
         res = []
@@ -450,7 +605,9 @@ class Scenario:
         opts['strPortForRegion'] = sea
         opts['strInitialWorkOrder'] = [''] + outputs
         opts['strCapital'] = opts['strOriginalCapital'] = cities
-        opts['__region'] = land
+        opts['strGovType'] = sorted({prop(e, 'strName') for e in self.all('GovTypeTemplate') if prop(e, 'strName')}
+                                    | {prop(c, 'strGovType') for c in self.countries().values() if prop(c, 'strGovType')})
+        opts['__region'] = land + sea
         opts['__unit'] = units
         opts['bool'] = ['true', 'false']
         # listas completas (no solo las que ya se usan): posición internacional y perfiles diplomático y de tratados
@@ -460,6 +617,14 @@ class Scenario:
                                                | set(opts.get('strDipRelProcListName', [])))
         opts['strAITreatyEvalListName'] = sorted({prop(e, 'strName') for e in self.all('AIEvalRefList') if prop(e, 'strName')}
                                                  | set(opts.get('strAITreatyEvalListName', [])))
+        # tipos cerrados: todos los valores de cada Enum del juego (namespace.xml), no solo los que ya se usan
+        for n, vals in enum_options().items():
+            opts[n] = sorted(set(vals) | set(opts.get(n, [])))
+        opts['strCulture'] = opts['strCultureName'] = sorted({prop(e, 'strCultureName') for e in self.all('CultureTemplate') if prop(e, 'strCultureName')}
+                                                              | {prop(r, 'strCulture') for r in self.regions(sea=False) if prop(r, 'strCulture')})
+        opts['strTerrain'] = sorted({prop(e, 'strTerrain') for e in self.all('TerrainType') if prop(e, 'strTerrain')}
+                                    | {prop(r, 'strTerrain') for r in self.regions() if prop(r, 'strTerrain')})
+        opts['strResource'] = sorted({prop(e, 'strResource') for e in self.all('Producer') if prop(e, 'strResource')} | set(opts.get('strResource', [])))
         self._opts = opts
         return opts
 
@@ -514,6 +679,9 @@ class Scenario:
         notes = []
         old_owner = prop(el, 'strOwner')
         new_region = values.pop('__region', None)
+        move_point = values.pop('__movepoint', None)      # '1': llevar también el punto (vecPosition) dentro de la región
+        if move_point and not new_region and t in ('City', 'Producer'):
+            new_region = prop(self.s.parent.get(el), 'strName')
         if t == 'DipRelInitialValue' and 'nValue' in values:      # antes de cambiar nada: 0 (pésimas) a 1000 (excelentes)
             v = str(values['nValue']).strip()
             if not re.fullmatch(r'-?\d+', v) or not (DIP_MIN <= int(v) <= DIP_MAX):
@@ -550,14 +718,21 @@ class Scenario:
                 if c is not el and c.get('type') in ('City', 'Producer'):
                     self.s.set_prop(c, 'strController', values['strController'])
         if new_region and t in ('City', 'Producer'):
-            reg = next((r for r in self.regions(sea=False) if prop(r, 'strName') == new_region), None)
+            # también de mar: una ciudad puede depender de una región aunque esté lejos (p. ej. bases en la Antártida)
+            reg = next((r for r in self.regions(sea=False) + self.regions(sea=True) if prop(r, 'strName') == new_region), None)
             if reg is None:
                 raise ValueError('no existe la región «%s»' % new_region)
+            if move_point:
+                import scenario_layers
+                x, y = scenario_layers.region_point(self, new_region)
+                self.s.set_prop(el, 'vecPosition', scenario_layers._vec(x, y))
+                notes.append('punto movido dentro de %s (%.3f, %.3f)' % (new_region, x, y))
             if reg is not self.s.parent[el]:
                 self.s.detach(el)
                 self.s.attach(el, reg, path=self.s.doc_of[reg])
-                self.s.set_prop(el, 'strOwner', prop(reg, 'strOwner'))
-                self.s.set_prop(el, 'strController', prop(reg, 'strController'))
+                if prop(reg, 'strOwner'):         # una región de mar no tiene dueño: la ciudad conserva el suyo
+                    self.s.set_prop(el, 'strOwner', prop(reg, 'strOwner'))
+                    self.s.set_prop(el, 'strController', prop(reg, 'strController'))
                 notes.append('movida a la región %s (%s)' % (new_region, os.path.basename(self.s.doc_of[reg])))
         # relación diplomática inicial: la cifra de A→B se copia a B→A (en el player*.xml del otro país) para que coincidan
         if t == 'DipRelInitialValue' and 'nValue' in values:
@@ -618,6 +793,9 @@ class Scenario:
                 issues.append(('error', 'País %s: la capital %s no existe' % (name, cap), self.s.eid(c)))
             elif cap and P(cities[cap][0], 'strOwner') != name:
                 issues.append(('aviso', 'País %s: su capital %s pertenece a %s' % (name, cap, P(cities[cap][0], 'strOwner')), self.s.eid(c)))
+        import scenario_new       # cada nación con territorio: capital propia y habitantes > 2
+        for m in scenario_new.check_nations(self):
+            issues.append(('aviso', m, None))
         units = {norm(P(u, 'strName')) for u in self.all('UnitTemplate')}
         for t in ('Army', 'AirForce', 'Fleet'):
             for g in self.all(t):
@@ -673,7 +851,55 @@ class Scenario:
             for n, k in names.items():
                 if k > 1:
                     issues.append(('error', '%s repetido: %s (%d veces)' % (label, n, k), None))
-        return [{'level': l, 'msg': m, 'id': i} for l, m, i in issues]
+        return [{'level': l, 'msg': m, 'id': i} for l, m, i in issues] + self.load_errors()
+
+    def load_errors(self):
+        """Valores que el juego rechaza al leer el escenario y que impiden crear la partida («Error creating game»):
+        eCountryType fuera de su lista y sidShortDescription de un Player sin texto. Cada uno trae su arreglo."""
+        out = []
+        for d in self.all('ScenarioDisplaySettings'):
+            mp = prop(d, 'strMapName')
+            if mp and not os.path.exists(os.path.join(GAME, 'Modern Europe', 'system', 'DisplayLibraries', 'Maps', mp, 'xml', 'map.xml')):
+                out.append({'level': 'error', 'id': self.s.eid(d),
+                            'msg': 'El regionpack %s no está instalado (falta DisplayLibraries/Maps/%s/xml/map.xml) y la partida no se crea.' % (mp, mp)})
+        for pd in self.all('MEPlayerData'):
+            n = sum(1 for o in objs(pd) if o.get('type') == 'DipRelInitialValue')
+            if n:
+                out.append({'level': 'error', 'id': self.s.eid(pd),
+                            'msg': 'Jugador %s: %d relaciones diplomáticas fuera de su DipRelInitialValueList; el juego descarta el archivo y la partida no se crea (se corrige al guardar).'
+                                   % (prop(pd, 'strOwner') or prop(pd, 'strName'), n)})
+        tree = research_tree(self.dir)
+        for pd in self.all('MEPlayerData'):
+            done = [prop(o, 'strProjectName') for o in objs(pd) if o.get('type') == 'ResearchProjectInitRef' and prop(o, 'eResearchState') == 'RESEARCH_COMPLETED']
+            miss = missing_prereqs(tree, done)
+            if miss:
+                out.append({'level': 'error', 'id': self.s.eid(pd),
+                            'msg': 'Jugador %s: investigaciones completadas sin sus requisitos (%s); la partida no se crea (se corrige al guardar).'
+                                   % (prop(pd, 'strOwner') or prop(pd, 'strName'), ', '.join(miss))})
+        for c in self.all('MECountry'):
+            v = prop(c, 'eCountryType')
+            if v and v not in COUNTRY_TYPE:
+                good = COUNTRY_TYPE_FIX.get(v, 'COUNTRYTYPE_NON_FEATURED')
+                out.append({'level': 'error', 'id': self.s.eid(c),
+                            'msg': 'País %s: eCountryType = %s no existe en el juego y la partida no se crea (válidos: %s).'
+                                   % (prop(c, 'strName'), v, ', '.join(COUNTRY_TYPE)),
+                            'fix': {'kind': 'range', 'id': self.s.eid(c), 'prop': 'eCountryType', 'value': good, 'label': 'Cambiar a %s' % good}})
+        known = set(self.strings)
+        f = os.path.join(GAME, 'system', 'locale', 'en', 'stringTableScenarios.xml')
+        if os.path.exists(f):
+            try:
+                known |= {s.get('id') for s in ET.parse(f).getroot().iter('string')}
+            except ET.ParseError:
+                pass
+        for p in self.all('Player'):
+            sid = prop(p, 'sidShortDescription')
+            if sid and sid not in known:
+                alt = prop(p, 'sidName') if prop(p, 'sidName') in known else None
+                out.append({'level': 'error', 'id': self.s.eid(p),
+                            'msg': 'Jugador %s: el texto %s no existe y la partida no se crea.' % (prop(p, 'strName'), sid),
+                            'fix': {'kind': 'range', 'id': self.s.eid(p), 'prop': 'sidShortDescription', 'value': alt,
+                                    'label': 'Usar %s' % alt} if alt else None})
+        return out
 
 
 def norm(s):
@@ -690,6 +916,37 @@ def load_strings(scen_dir):
                     out[s.get('id')] = s.get('value')
             except ET.ParseError:
                 pass
+    return out
+
+
+def research_tree(scen_dir):
+    """{proyecto: (bCompletedByDefault, [requisitos])} de sharedDataResearch.xml del escenario (o de ScenarioDefaults)."""
+    tree = {}
+    for f in (os.path.join(scen_dir, 'sharedDataResearch.xml'),
+              os.path.join(GAME, 'Modern Europe', 'system', 'ScenarioDefaults', 'sharedDataResearch.xml')):
+        if os.path.exists(f):
+            try:
+                root = ET.parse(f).getroot()
+            except ET.ParseError:
+                continue
+            for o in root.iter('object'):
+                if (o.get('type') or '').startswith('ResearchProj') and prop(o, 'strName'):
+                    tree[prop(o, 'strName')] = (prop(o, 'bCompletedByDefault') == 'true',
+                                                [prop(q, 'strProjectName') for q in o.findall('object') if q.get('type') == 'ResearchProjectPreReq'])
+            break
+    return tree
+
+
+def missing_prereqs(tree, completed):
+    """Requisitos (de todos los niveles) que faltan para que el juego pueda completar 'completed' al empezar: los que no
+    están completados ni tienen bCompletedByDefault. Con alguno, la partida no se crea («pre-reqs never met»)."""
+    have, out, todo = set(completed), [], list(completed)
+    while todo:
+        for q in tree.get(todo.pop(), (False, []))[1]:
+            if q in tree and q not in have and not tree[q][0]:
+                have.add(q)
+                out.append(q)
+                todo.append(q)
     return out
 
 
@@ -774,10 +1031,11 @@ def _events_doc(scen):
     path = os.path.abspath(os.path.join(scen.dir, 'sharedDataEvents.xml'))
     notes = []
     if path not in scen.paths:
-        tree = ET.ElementTree(ET.fromstring('<objects name="Object Load" version="0.1"><object type="MESharedData" name=""></object></objects>'))
-        with open(path, 'w', encoding='utf-8', newline='') as f:       # archivo vacio valido; se rellena al guardar
-            f.write('<?xml version="1.0" encoding="UTF-8"?>\r\n<objects name="Object Load" version="0.1" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">\r\n\t<object type="MESharedData" name="">\r\n\t</object>\r\n</objects>\r\n')
-        st.open(path)
+        if os.path.exists(path):
+            st.open(path)
+        else:       # solo en memoria: el archivo se escribe al «Guardar»
+            st.new_doc(path, '<objects name="Object Load" version="0.1" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">'
+                             '<object type="MESharedData" name=""></object></objects>')
         scen.paths.append(path)
         sx = scen.all('Scenario', lambda f: f == 'scenario.xml')[0]
         refs = [o for o in objs(sx) if o.get('type') == 'SharedDataFileRef']
@@ -1043,6 +1301,10 @@ def add_new_region(scen, name, mother=None, fraction=None, owner=None, terrain=N
         cult = Counter(prop(r, 'strCulture') for r in own if prop(r, 'strCulture')).most_common(1)
         if not cult:
             cult = Counter(prop(r, 'strCulture') for r in land.values() if prop(r, 'strCulture')).most_common(1)
+        if not cult:        # escenario desde cero: la primera cultura de la nación
+            cs = next((k for k in objs(c) if k.get('type') == 'CultureSet'), None)
+            first = next((prop(k, 'strCultureName') for k in objs(cs) if prop(k, 'strCultureName')), None) if cs is not None else None
+            cult = [(first, 1)] if first else []
         new = ET.Element('object', {'type': 'Region', 'name': 'objGOs'})
         for k, v in (('strName', name), ('strOwner', owner), ('strController', owner), ('sidName', sid),
                      ('strTerrain', terrain or 'Plains'), ('nPopulation', str(int(population or 0))),

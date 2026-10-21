@@ -69,7 +69,7 @@
   <span class="title">Imágenes del escenario</span>
   <label>Escenario <select id="scen"></select></label>
   <span style="flex:1"></span>
-  <a href="/escenario" target="_blank">Editor de escenarios ↗</a>
+  <a href="/scenario" target="_blank">Editor de escenarios ↗</a>
   <a href="/" target="_blank">Editor de mapa ↗</a>
 </div>
 <div id="tabs">
@@ -127,6 +127,7 @@
       <div class="sec">
         <h3>Bandera <span class="muted">(obligatoria)</span></h3>
         <div class="drop" id="dflag" data-k="flag">Suelta o elige la imagen de la bandera</div>
+        <div class="row"><input type="url" id="fflagurl" placeholder="…o la URL de la imagen" style="flex:1"><button class="btn small" id="fflagurlgo">Desde URL</button></div>
       </div>
       <div class="sec">
         <h3>Escarapela / emblema <span class="muted">(opcional)</span></h3>
@@ -145,6 +146,8 @@
       <div class="sec">
         <h3>Opciones</h3>
         <div class="grid">
+          <label>Proporción</label>
+          <select id="ffit"><option value="centro">Recortar al centro (hasta 2:1)</option><option value="bordes">Estirar las columnas de los extremos</option><option value="izquierda">Pegada a la izquierda, rellenar desde la columna derecha (tipo Chile)</option><option value="estirar">Deformar hasta 2:1</option></select>
           <label>Cuadrados</label>
           <select id="fcrop"><option value="estirar">Estirar la bandera (como la mayoría)</option><option value="asta">Recortar desde el asta</option><option value="centro">Recortar al centro</option></select>
           <label>Fondo</label>
@@ -400,21 +403,26 @@ function fstate() {
 }
 $('#fcountry').oninput = fstate;
 ['dflag', 'ddecal', 'dleader'].forEach(id => dropZone($('#' + id), () => { $('#fwrite').disabled = true; }));
+$('#fflagurlgo').onclick = async () => {
+  const url = $('#fflagurl').value.trim(); if (!url) return;
+  try { const r = await api('/api/img/fetch', {url}); inputs.flag = r.img; $('#dflag').innerHTML = `${esc(url.split('/').pop().slice(0, 60))}<img src="${r.img}">`; $('#fwrite').disabled = true; note('#fnote', ''); }
+  catch (e) { note('#fnote', e.message, 'err'); }
+};
 $('#cleardecal').onclick = () => { $('#ddecal').clear(); $('#fwrite').disabled = true; };
 $('#clearleader').onclick = () => { $('#dleader').clear(); $('#fwrite').disabled = true; };
-['#fshape', '#fcrop', '#fremovebg'].forEach(s => $(s).onchange = () => { $('#fwrite').disabled = true; });
+['#fshape', '#ffit', '#fcrop', '#fremovebg'].forEach(s => $(s).onchange = () => { $('#fwrite').disabled = true; });
 $('#fcmp').onchange = () => { store('img-cmp', $('#fcmp').value); if (lastFlag) showFlagCards(lastFlag); };
-const flagBody = () => ({flag:inputs.flag, decal:inputs.decal, leader:inputs.leader, shape:$('#fshape').value, crop:$('#fcrop').value, removebg:$('#fremovebg').checked});
+const flagBody = () => ({flag:inputs.flag, decal:inputs.decal, leader:inputs.leader, shape:$('#fshape').value, fit:$('#ffit').value, crop:$('#fcrop').value, removebg:$('#fremovebg').checked});
 async function showFlagCards(r) {
   const cmp = $('#fcmp').value, cmpFiles = {};
   if (cmp) (await api(`/api/img/country?scen=${encodeURIComponent(scen())}&name=${encodeURIComponent(cmp)}`)).files.forEach(f => cmpFiles[f.file] = f);
   const z = w => Math.max(1, Math.min(4, Math.floor(200 / w)));
-  $('#fcards').innerHTML = r.files.map(f => { const o = cmpFiles[f.file], k = z(f.w);
+  $('#fcards').innerHTML = r.files.map(f => { const o = cmpFiles[f.file], k = z(f.w), fl = ['3DFlag.tga', 'decal.tga'].includes(f.file) ? ' style="transform:scaleY(-1)"' : '';
     return `<div class="card"><b>${esc(f.file)}</b><div class="muted">${f.w}×${f.h} · ${esc(f.fmt)}</div><div class="pair">
-      <div><img class="chk" src="${f.png}" style="width:${f.w * k}px"><span class="muted">nuevo</span></div>
-      ${o ? `<div><img class="chk" src="/api/img/raw?rel=${encodeURIComponent(o.rel)}" style="width:${o.w * k}px"><span class="muted">${esc(cmp)}${o.w !== f.w || o.h !== f.h ? ' ⚠ ' + o.w + '×' + o.h : ''}</span></div>` : ''}
+      <div><img class="chk" src="${f.png}" style="width:${f.w * k}px${fl ? ';transform:scaleY(-1)' : ''}"><span class="muted">nuevo</span></div>
+      ${o ? `<div><img class="chk" src="/api/img/raw?rel=${encodeURIComponent(o.rel)}" style="width:${o.w * k}px${fl ? ';transform:scaleY(-1)' : ''}"><span class="muted">${esc(cmp)}${o.w !== f.w || o.h !== f.h ? ' ⚠ ' + o.w + '×' + o.h : ''}</span></div>` : ''}
     </div></div>`; }).join('');
-  $('#fsum').textContent = `${r.files.length} archivos. 3DFlag.tga y decal.tga van invertidos verticalmente, como en el juego.`;
+  $('#fsum').textContent = `${r.files.length} archivos. 3DFlag.tga y decal.tga se muestran al derecho, pero el archivo va invertido verticalmente, como en el juego.`;
 }
 $('#fprev').onclick = async () => {
   if (!inputs.flag) return note('#fnote', 'Falta la imagen de la bandera.', 'err');

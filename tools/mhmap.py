@@ -94,7 +94,7 @@ class Region:
     u_type: int          # 0..4, significado sin confirmar
     u_a: int             # a == b en todo el mapa original
     u_b: int
-    u_flag: int          # siempre 0
+    u_flag: int          # 1 = mar (todas las de mar), 2 = algunas islas, 0 = tierra. Un mar con 0 sale rojo en el juego y lo cierra al hacer clic
     cx: float
     cy: float
     u_z: int             # siempre 0
@@ -127,7 +127,9 @@ def write_regions_bin(regions):
         w.pack('3I', g.u_type, g.u_a, g.u_b)
         w.u32(len(g.name_raw))
         w.raw(g.name_raw)
-        w.pack('I2fI', g.u_flag, g.cx, g.cy, g.u_z)
+        # el mar siempre lleva 1 y la tierra nunca 1 (si no, el juego la pinta en rojo y se cierra al hacer clic en ella)
+        flag = 1 if g.u_type == 0 else (0 if g.u_flag == 1 else g.u_flag)
+        w.pack('I2fI', flag, g.cx, g.cy, g.u_z)
         w.u32(len(g.neighbors))
         w.u32s(g.neighbors)
         w.u32(len(g.points))

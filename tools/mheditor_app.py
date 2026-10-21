@@ -108,7 +108,7 @@ def main():
     menu = [
         Menu(T['editors'], [
             MenuAction(T['map'], go('/')),
-            MenuAction(T['scen'], go('/escenario')),
+            MenuAction(T['scen'], go('/scenario')),
             MenuAction(T['img'], go('/imagenes')),
             MenuSeparator(),
             MenuAction(T['reload'], lambda: leave_ok() and win.evaluate_js('location.reload()')),

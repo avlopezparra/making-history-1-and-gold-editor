@@ -156,3 +156,6 @@ sección final (región → shapes):
 - `mods/Chile Fixes/` y `mods/Chile Fixes 1.0.zip` (12,4 MB, 69 archivos): `mod/` (33 archivos instalados),
   `originales/` (los mismos 33 sin modificar), `LEEME.txt`, `instalar.bat`, `desinstalar.bat`.
 - Corresponde al estado instalado = `mapa_chile3` + texturas de `mapa_chile3/OperationalTerrain` y anteriores.
+
+### `u_flag` de regions.bin (corregido)
+No es «siempre 0»: **1 en todas las regiones de mar**, 2 en algunas islas y 0 en el resto de la tierra (World original: 274 mares con 1; 69 tierras con 2; ninguna tierra con 1). Una región de mar con 0 sale **roja** en el juego y lo **cierra** al hacer clic (caso Caspian Sea en WorldModern, 2026-10-21). El editor escribe ahora 1 en todo mar y nunca 1 en tierra (`mhmap.write_regions_bin`, `new_region.create_region`).

@@ -66,11 +66,20 @@ def norm_entry(e):
     return conv(e)
 
 
-def _geoms(m, renames):
+def _project_geoms(project):
+    """{nombre: (poligono, es_mar)} del proyecto, con los contornos en caché (se vacía al recargar el mapa)."""
+    with project.lock:
+        c = project.outline_cache.get('_geoms')
+        if c is None:
+            c = project.outline_cache['_geoms'] = _geoms(project.m, project.renames, project)
+        return c
+
+
+def _geoms(m, renames, project=None):
     """{nombre: (poligono, es_mar)} del mapa m (contorno principal de cada región)."""
     out = {}
     for g in m['regions']:
-        main, _ = outlines.region_polygons(m, g.index)
+        main, _ = project.outline(g.index)[:2] if project is not None else outlines.region_polygons(m, g.index)
         if not main:
             continue
         try:
@@ -111,8 +120,7 @@ def compare_with_base(project, base='World', lang='es'):
     bdir = os.path.join(editor_core.MAPS, base)
     bm = mhmap.load_map(os.path.join(bdir, 'xml'))
     B = _geoms(bm, editor_core.load_renames(bdir))
-    with project.lock:
-        C = _geoms(project.m, project.renames)
+    C = _project_geoms(project)
     ov_cb = _overlaps(C, B)            # {actual: {base: area}}
     ov_bc = {}
     for c, row in ov_cb.items():
@@ -246,8 +254,7 @@ def borders(project):
 def analyze_shapes(project, shapes):
     """Para cada contorno a importar ({geometry, props}): si ya existe una región con ese nombre y cuánto se parece a ella
     (iou), y de qué regiones del mapa sale su área (porcentaje del contorno y de la región de origen)."""
-    with project.lock:
-        C = _geoms(project.m, project.renames)
+    C = _project_geoms(project)
     names = list(C)
     tree = STRtree([C[n][0] for n in names])
     out = []
@@ -272,3 +279,48 @@ def analyze_shapes(project, shapes):
             iou = round(poly.intersection(C[name][0]).area / u, 4) if u else 0
         out.append({'name': name, 'exists': name in C, 'iou': iou, 'sources': src})
     return out
+
+
+def exclaves(project, polygon, max_pct=0.05):
+    """Trozos sueltos (exclaves) que dejaría recortar un contorno nuevo en las regiones de tierra que toca: partes de una región
+    que quedan separadas de su cuerpo principal y miden menos de max_pct de ella. Para cada uno: la vecina con la que más
+    frontera comparte (best) y cuánta comparte con el contorno nuevo (touch_new). 'merged' es el contorno con todos incluidos."""
+    from shapely.geometry import mapping
+    from shapely.ops import unary_union
+    C = _project_geoms(project)
+    names = list(C)
+    tree = STRtree([C[n][0] for n in names])
+    poly = make_valid(shape(polygon))
+    eps = 1e-6
+    items = []
+    for i in tree.query(poly):
+        r = names[int(i)]
+        gr, sea = C[r]
+        if sea:
+            continue
+        rem = gr.difference(poly)
+        parts = sorted([p for p in getattr(rem, 'geoms', [rem]) if p.geom_type == 'Polygon' and p.area > 1e-9], key=lambda p: -p.area)
+        if len(parts) < 2:
+            continue
+        orig = [p for p in getattr(gr, 'geoms', [gr]) if p.geom_type == 'Polygon']
+        for q in parts[1:]:
+            if q.area > max_pct * gr.area:
+                continue
+            if any(abs(q.area - o.area) <= 1e-6 * o.area and q.intersects(o) for o in orig):
+                continue          # ya era una parte aparte (isla, enclave deliberado): no la genera este recorte
+            ring = q.buffer(eps)
+            best, bl = None, 0.0
+            for j in tree.query(ring):
+                n = names[int(j)]
+                if n == r or C[n][1]:
+                    continue
+                ln = q.boundary.intersection(C[n][0].buffer(eps)).length
+                if ln > bl:
+                    best, bl = n, ln
+            items.append({'region': r, 'area': round(q.area, 6), 'polygon': mapping(q), 'best': best, 'best_len': round(bl, 6),
+                          'touch_new': round(q.boundary.intersection(poly.buffer(eps)).length, 6)})
+    merged = unary_union([poly] + [shape(x['polygon']) for x in items]).buffer(0) if items else poly
+    by_name = {project.rname(g.index): g.index for g in project.m['regions']}
+    for x in items:
+        x['best_index'] = by_name.get(x['best'])
+    return {'items': items, 'merged': mapping(merged)}

@@ -7,6 +7,9 @@
 <style>
   :root { --bg:#f6f5f2; --panel:#fff; --ink:#1d1d1f; --muted:#6b6b70; --line:#e2e0da; --accent:#c2410c; --sel:#dbeafe; --ok:#15803d; --err:#b91c1c; --warn:#a16207; --bar:#111214; --barink:#f1f1f3; }
   @media (prefers-color-scheme: dark) { :root { --bg:#151517; --panel:#1f1f22; --ink:#ececee; --muted:#9a9aa1; --line:#333338; --accent:#fb923c; --sel:#1e3a5f; --ok:#4ade80; --err:#f87171; --warn:#facc15; } }
+  :root { color-scheme: light dark; }          /* los desplegables nativos siguen el tema claro/oscuro */
+  select { color-scheme: light dark; }
+  select option, select optgroup { background-color: var(--panel); color: var(--ink); }
   * { box-sizing:border-box; }
   html, body { margin:0; height:100%; background:var(--bg); color:var(--ink); font:14px/1.4 system-ui, "Segoe UI", sans-serif; }
   #app { display:grid; grid-template-rows:auto auto 1fr; height:100%; }
@@ -87,6 +90,10 @@
 .mtabs button{flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;padding:8px 4px;border:0;border-radius:9px;background:transparent;color:var(--muted);font-size:12.5px;line-height:1.15;cursor:pointer;text-align:center}
 .mtabs button.on{background:var(--bg);color:#3b82f6;font-weight:600;box-shadow:0 0 0 1px rgba(59,130,246,.35)}
 .mtabs svg{width:18px;height:18px}
+.evField{margin:6px 0}.evField label{display:block;font-size:12.5px;margin-bottom:2px}
+.evText{width:100%;min-height:2.6em;resize:vertical;padding:6px 8px;border:1px solid var(--line);border-radius:6px;background:var(--bg);font:inherit;line-height:1.4}
+.colpick{position:fixed;z-index:50;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:8px;box-shadow:0 6px 24px rgba(0,0,0,.3);display:flex;flex-direction:column;gap:6px;font-size:12.5px}
+.colpick input[type=color]{width:180px;height:120px;border:0;padding:0;background:none;cursor:pointer}
 </style>
 <script src="/i18n.js"></script>
 <script src="/busy.js"></script>
@@ -97,14 +104,19 @@
     <span class="title">Editor de escenarios</span>
     <select id="gameSel" title="Carpeta del juego con la que trabajan los editores"></select>
     <select id="scen" title="Escenario"><option value="">Abrir escenario…</option></select>
+    <img id="scenGameIcon" alt="" style="display:none;height:18px;vertical-align:middle">
+    <button id="newScen" type="button" title="Crear un escenario vacío (sin naciones) sobre un regionpack">＋ Nuevo escenario</button>
+    <button id="selRegs" type="button" title="Elegir una o varias regiones en el mapa (clic para añadir o quitar)">▦ Seleccionar regiones</button>
     <label class="pill" title="Regionpack (mapa) del escenario: strMapName de scenario.xml">regionpack <select id="pack" disabled style="padding:0 4px"><option>—</option></select></label>
+    <button id="openScenDir" type="button" title="Abrir la carpeta del escenario en el Explorador">📁 Escenario</button>
+    <button id="openPackDir" type="button" title="Abrir la carpeta del regionpack en el Explorador">📁 Regionpack</button>
     <button class="primary" id="save" disabled>Guardar escenario</button>
     <button id="revert" disabled>Revertir</button>
     <button id="refresh" disabled title="Releer del disco el escenario y su regionpack (por si se cambiaron fuera del editor) y comprobar si son coherentes">Refrescar</button>
     <button id="validate" disabled>Validar</button>
     <label class="pill" title="Levantamientos de partisanos en regiones ocupadas (sharedDataPartisans.xml)"><input type="checkbox" id="partisans" disabled> Partisans</label>
     <label class="pill" title="Inclinación de la cámara al acercarse al mapa 3D en el juego (desactivada = vista siempre desde arriba, cámara WorldUnifiedFlat)"><input type="checkbox" id="tilt" disabled> Inclinar mapa 3D</label>
-    <button id="newwar" disabled>Nueva guerra…</button>
+    <button id="newwar" disabled style="display:none">Nueva guerra…</button>
     <button id="packSync" disabled title="Comparar el escenario con un regionpack: quitar las regiones que el mapa no tiene y añadir las que le faltan">Compatibilidad con el mapa…</button>
     <button id="openfile">Abrir archivo…</button>
     <button id="gjExport" disabled title="Regiones, ciudades, recursos (un archivo por recurso) y unidades en GeoJSON (zip)">Exportar GeoJSON</button>
@@ -112,12 +124,13 @@
     <input type="file" id="gjFile" accept=".geojson,.json" multiple hidden>
     <button id="convert" disabled title="Copia del escenario adaptada al otro juego (MH1 ↔ Gold)">Convertir…</button>
     <span class="pill" id="dirty"></span>
+    <a href="/compare" target="_blank" onclick="this.href='/compare?name='+encodeURIComponent((typeof S !== 'undefined' && S.scen) || '')">Comparar / partidas ↗</a>
     <a href="/" id="maplink" target="_blank">Editor de mapa ↗</a>
   </div>
   <div id="tabs"></div>
   <div id="main">
     <div id="left">
-      <div class="tools"><input id="filter" type="search" placeholder="Filtrar…"><button class="btn primary" id="newObj" style="display:none" title="Crear un objeto nuevo de esta pestaña (como «Add» de ed.exe)">＋ Nuevo</button><span class="muted" id="count"></span></div>
+      <div class="tools"><input id="filter" type="search" placeholder="Filtrar…"><button class="btn primary" id="newObj" style="display:none" title="Crear un objeto nuevo de esta pestaña (como «Add» de ed.exe)">＋ Nuevo</button><button class="btn" id="newFutureWar" style="display:none" title="Guerra que empieza en una fecha o turno (evento)">＋ Nueva guerra futura</button><span class="muted" id="count"></span></div>
       <div id="listwrap"><table id="list"><thead></thead><tbody></tbody></table></div>
     </div>
     <div id="rightwrap" style="display:flex;flex-direction:column;min-height:0">
@@ -136,6 +149,7 @@
         <span class="sep"></span>
         <label><input type="checkbox" data-pt="city"> Ciudades</label><label><input type="checkbox" data-pt="producer"> Recursos</label>
         <label><input type="checkbox" data-pt="army"> Ejércitos</label><label><input type="checkbox" data-pt="air"> Aviación</label><label><input type="checkbox" data-pt="fleet"> Flotas</label>
+        <label title="Muestra en el mapa hasta dónde pueden bombardear las fuerzas aéreas con bombarderos (todas, o solo la elegida)"><input type="checkbox" id="bombRange"> Alcance de bombarderos</label>
         <label title="Arrastra una ciudad o un recurso a otro punto; si cae en otra región, pasa a ella con su dueño"><input type="checkbox" id="dragPts"> Mover ciudades y recursos arrastrando</label>
         <div id="legend" class="muted"></div>
         <div id="multiPanel" style="display:none"></div>
@@ -166,12 +180,21 @@
   <label>Colores</label><select id="convColors"><option value="">conservar los del escenario</option><option value="1">adoptar la paleta del destino (Gold: menos saturada)</option></select>
   <label>Infraestructura (TransportationLevel)</label><select id="convInfra"><option value="auto">automático: ÷10 si hay mucha población y no están ya rebajados</option><option value="si">rebajar nCost y nMaintenanceCost ÷10</option><option value="no">no tocar</option></select>
   <label>Investigación nueva</label><select id="convNew"><option value="1">completar las nuevas cuyos requisitos ya tiene el país</option><option value="">solo las que exigen los proyectos ya completados</option></select>
-  <label>Evento de partisanos de MH1</label><select id="convPart"><option value="1">quitarlo al pasar a Gold (Gold los trae de serie)</option><option value="">mantenerlo</option></select></div>
+  <label>Evento de partisanos de MH1</label><select id="convPart"><option value="1">quitarlo al pasar a Gold (Gold los trae de serie)</option><option value="">mantenerlo</option></select>
+  <label>Imágenes (ui/: banderas, retratos…)</label><select id="convImg"><option value="1">no copiarlas (pesan; el juego usa las suyas)</option><option value="">copiarlas</option></select></div>
   <div class="row"><button class="btn primary" id="convGo">Convertir</button><span class="muted" id="convWait"></span></div>
   <pre id="convRes" style="white-space:pre-wrap;font-size:12px"></pre><div class="row" id="convAfter"></div></div></dialog>
-<dialog id="newObjDlg" style="border:1px solid var(--line);border-radius:10px;background:var(--panel);color:var(--ink);width:min(560px,94vw)">
+<dialog id="newObjDlg" style="border:1px solid var(--line);border-radius:10px;background:var(--panel);color:var(--ink);width:min(560px,94vw);max-height:92vh;overflow:auto">
   <form method="dialog"><h3 id="noTitle" style="margin-top:0"></h3><div id="noBody" class="grid"></div><div id="noInfo" class="muted" style="margin-top:6px"></div>
-    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px"><button value="cancel">Cancelar</button><button value="ok" class="btn primary">Crear</button></div></form>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px"><button value="cancel" class="btn" formnovalidate>Cancelar</button><button value="ok" class="btn primary">Crear</button></div></form>
+</dialog>
+<dialog id="nsDlg" style="border:1px solid var(--line);border-radius:10px;background:var(--panel);color:var(--ink);width:min(480px,94vw)">
+  <form method="dialog"><h3 style="margin-top:0">Nuevo escenario</h3>
+    <div class="grid"><label>Nombre (carpeta)</label><input id="nsName" required placeholder="p. ej. Mi mundo">
+      <label>Nombre visible</label><input id="nsDisp">
+      <label>Regionpack</label><select id="nsPack"></select></div>
+    <p class="muted">Se crea vacío, sin naciones: luego se añaden naciones y se les asignan regiones (aquí o en el editor de regiones).</p>
+    <div style="display:flex;gap:8px;justify-content:flex-end"><button value="cancel" class="btn" formnovalidate>Cancelar</button><button value="ok" class="btn primary">Crear</button></div></form>
 </dialog>
 <dialog id="genDlg" style="border:1px solid var(--line);border-radius:10px;background:var(--panel);color:var(--ink);width:min(640px,94vw)">
   <h3 id="gnTitle" style="margin-top:0"></h3><div id="gnHelp" class="muted"></div><div id="gnBody" class="grid"></div><div id="gnErr" class="err-t" style="margin-top:6px"></div>
@@ -196,7 +219,7 @@
   <div class="muted" id="syncPopNote" style="display:none">La población depende del escenario y de su época: por defecto se divide la que tiene ahora cada región entre ella y las que salen de ella. «Proporciones de MH2» la reparte con los pesos de MH2 pero conserva el total del escenario; «cifra de MH2» pone los habitantes de MH2 (año actual) sin escalar.</div>
   <div id="syncPlan" style="margin-top:8px"></div>
   <div class="row" style="margin-top:8px"><button class="btn primary" id="syncGo" disabled>Aplicar</button></div></div></dialog>
-<dialog id="valDlg"><header><b>Validación</b><span class="muted" id="valsum"></span><button class="btn small" style="margin-left:auto" onclick="valDlg.close()">Cerrar</button></header>
+<dialog id="valDlg"><header><b>Validación</b><span class="muted" id="valsum"></span><button class="btn small" style="margin-left:auto" onclick="gameLogOpen()" title="Si el juego no carga el escenario: registra lo que dice el juego y explica el fallo">🩺 El juego no lo carga…</button><button class="btn small" onclick="valDlg.close()">Cerrar</button></header>
   <div class="body" id="vallist"></div></dialog>
 
 <script>
@@ -210,8 +233,14 @@ const S = { scen: '', tab: null, rows: [], cols: [], sort: [0, 1], opts: {}, obj
 async function init() {
   if (!new URLSearchParams(location.search).get('keep')) await api('/api/scen/discard_all', {});      // al (re)cargar la pagina se lee lo guardado en los archivos (keep=1: venimos del editor de regiones, que puede tener cambios pendientes)
   const r = await api('/api/scen/list');
-  for (const n of r.scenarios) { const o = document.createElement('option'); o.value = o.textContent = n; $('#scen').appendChild(o); }
-  const qs = new URLSearchParams(location.search), want = qs.get('scenario');
+  for (const n of r.scenarios) {
+    const o = document.createElement('option'); o.value = n;
+    const g = (r.games || {})[n];      // juego del escenario según su contenido (MH1 / Gold)
+    o.textContent = g === 'gold' ? n + '  · Gold' : n; $('#scen').appendChild(o);
+  }
+  const qs = new URLSearchParams(location.search);
+  let want = qs.get('scenario');
+  if (!want) { try { const l = JSON.parse(localStorage.getItem('mh-scen-pos') || '{}').__last; if (l && r.scenarios.includes(l)) want = l; } catch (e) {} }
   if (want) {
     $('#scen').value = want; await openScenario(want);
     if (qs.get('obj')) { showRight('obj'); await openObj(+qs.get('obj')); }
@@ -237,31 +266,48 @@ async function openScenario(name) {
   const r = await api('/api/scen/tabs?name=' + encodeURIComponent(name));
   S.opts = await api('/api/scen/options?name=' + encodeURIComponent(name));
   S.pack = r.info.regionpack || 'World'; S.external = r.info.external || [];
+  showScenGame(r.info.game);
   const packs = (r.info.packs || []).includes(S.pack) ? r.info.packs : [S.pack + ' (no instalado)'].concat(r.info.packs || []);
   $('#pack').innerHTML = packs.map(p => `<option value="${esc(p.replace(' (no instalado)', ''))}">${esc(p)}</option>`).join('');
   $('#pack').value = S.pack; $('#pack').disabled = false;
   $('#maplink').href = '/?pack=' + encodeURIComponent(S.pack) + '&scenario=' + encodeURIComponent(name);
   const t = $('#tabs'); t.innerHTML = '';
   const tabs = r.tabs.slice(); tabs.splice(tabs.findIndex(x => x.key === 'nations') + 1, 0, { key: 'surrendered', label: 'Surrendered' });
-  for (const tab of tabs) { const b = document.createElement('button'); b.textContent = tab.label; b.dataset.key = tab.key; b.onclick = () => showTab(tab.key); t.appendChild(b); }
-  LY.data = null; LY.points = null; $('#mapframe').dataset.u = ''; if (rview === 'map') showRight('map');
+  for (const tab of tabs) { const b = document.createElement('button'); b.textContent = TAB_ES[tab.key] || tab.label; b.dataset.key = tab.key; b.onclick = () => showTab(tab.key); t.appendChild(b); }
+  LY.data = null; LY.points = null; BOMB.ranges = null; CI = null; $('#mapframe').dataset.u = ''; if (rview === 'map') showRight('map');
   ['#validate', '#revert', '#partisans', '#newwar', '#gjExport', '#gjImport', '#packSync', '#refresh'].forEach(s => $(s).disabled = false);
   $('#partisans').checked = !!r.info.partisans;
   $('#tilt').disabled = false; $('#tilt').checked = r.info.tilt !== false;
   $('#dl-nations').innerHTML = (S.opts.strOwner || []).map(v => `<option value="${esc(v)}">`).join('');
-  setDirty(r.dirty); await showTab('global');
+  setDirty(r.dirty);
+  const pos = recalled(name);              // volver a donde quedó uno en este escenario
+  await showTab(pos && pos.tab && tabs.some(t => t.key === pos.tab) ? pos.tab : 'global');
+  const row = pos && pos.obj && S.rows.find(r => r.cols.includes(pos.obj));
+  if (row) { if (rview !== 'map') showRight('obj'); await openObj(row.id); }
 }
-const NEW_KINDS = { cities: ['city', 'Nueva ciudad'], producers: ['producer', 'Nuevo recurso'], armies: ['army', 'Nuevo ejército'],
-  nations: ['country', 'Nueva nación'], navies: ['fleet', 'Nueva flota'], alliances: ['alliance', 'Nueva alianza'], wars: ['war', 'Nueva guerra'],
+const TAB_ES = {"global": "Datos generales", "nations": "Naciones", "surrendered": "Rendidas", "regions": "Regiones de tierra", "seas": "Regiones de mar", "cities": "Ciudades", "producers": "Recursos", "armies": "Ejércitos", "airforces": "Fuerzas aéreas", "navies": "Flotas", "govtypes": "Ideologías", "cultures": "Culturas (etnias)", "alliances": "Alianzas", "wars": "Guerras", "trade": "Comercio", "aid": "Ayudas", "access": "Acceso militar", "players": "Jugador / IA", "colors": "Colores", "diplomacy": "Diplomacia", "historic": "Países históricos", "events": "Eventos", "terrains": "Tipos de terreno", "models_land": "Aspecto 3D de unidades por país (tierra)", "models_air": "Aspecto 3D de unidades por país (aire)", "infra": "Infraestructura", "units": "Plantillas de unidad", "outputs": "Producción de fábricas", "research": "Investigación"};   // nombres de las pestañas (en inglés con i18n)
+const NEW_KINDS = { govtypes: ['govtype', 'Nueva ideología'], cities: ['city', 'Nueva ciudad'], producers: ['producer', 'Nuevo recurso'], armies: ['army', 'Nuevo ejército'],
+  nations: ['country', 'Nueva nación'], navies: ['fleet', 'Nueva flota'], airforces: ['airforce', 'Nueva fuerza aérea'], alliances: ['alliance', 'Nueva alianza'], wars: ['war', 'Nueva guerra'],
   trade: ['trade', 'Nuevo comercio'], aid: ['aid', 'Nueva ayuda'], access: ['access', 'Nuevo acceso militar'], diplomacy: ['dip', 'Nueva relación'],
-  events: ['event', 'Nuevo evento'], units: ['copy-units', 'Nueva unidad'], outputs: ['copy-outputs', 'Nueva producción'], research: ['copy-research', 'Nueva investigación'] };
+  events: ['event', 'Nuevo evento'], terrains: ['terrain', 'Nuevo terreno'], cultures: ['culture', 'Nueva cultura'], units: ['copy-units', 'Nueva unidad'], outputs: ['copy-outputs', 'Nueva producción'], research: ['copy-research', 'Nueva investigación'] };
 function syncNewBtn() {
   const k = NEW_KINDS[S.tab]; const b = $('#newObj');
   b.style.display = k && S.mode === 'tab' && S.scen ? '' : 'none';
   if (k) b.textContent = '＋ ' + k[1];
+  $('#newFutureWar').style.display = S.tab === 'events' && S.mode === 'tab' && S.scen ? '' : 'none';     // antes «Nueva guerra…» en la barra
 }
+// dónde quedó uno (por escenario): pestaña, objeto abierto y vista; se recupera al volver a abrir el escenario
+function remember(x) {
+  if (!S.scen) return;
+  try { const all = JSON.parse(localStorage.getItem('mh-scen-pos') || '{}'); all[S.scen] = { ...(all[S.scen] || {}), ...x }; all.__last = S.scen;
+    localStorage.setItem('mh-scen-pos', JSON.stringify(all)); } catch (e) {}
+}
+function recalled(name) { try { return JSON.parse(localStorage.getItem('mh-scen-pos') || '{}')[name] || null; } catch (e) { return null; } }
 async function showTab(key) {
-  S.tab = key; S.mode = 'tab'; syncNewBtn();
+  if (S.tab === 'historic' && key !== 'historic' && $('#layer').value === 'historic') {      // fuera de Países históricos: sin el verde
+    $('#layer').value = 'owner'; $('#layerEdit').checked = false; if (LY.data) { fillLayerValues(); sendOverlay(); }
+  }
+  S.tab = key; S.mode = 'tab'; syncNewBtn(); remember({ tab: key, obj: null });
   document.querySelectorAll('#tabs button').forEach(b => b.classList.toggle('on', b.dataset.key === key));
   if (key === 'surrendered') return showSurrendered();
   const r = await api(`/api/scen/tab?name=${encodeURIComponent(S.scen)}&tab=${key}`);
@@ -282,13 +328,24 @@ function renderList() {
 $('#list').addEventListener('click', e => {
   const th = e.target.closest('th'); if (th) { const i = +th.dataset.i; S.sort = [i, S.sort[0] === i ? -S.sort[1] : 1]; return renderList(); }
   const tr = e.target.closest('tr[data-id]');
-  if (tr && S.mode === 'layer') { $('#layerVal').value = tr.dataset.id; LY.fitHist = $('#layer').value === 'historic'; sendOverlay(); return; }   // lista de valores de la capa (como Region Paint de MH2)
+  if (tr && S.mode === 'layer') {
+    $('#layerVal').value = tr.dataset.id; LY.fitHist = $('#layer').value === 'historic'; sendOverlay();
+    if ($('#layer').value === 'historic') historicPanel(tr.dataset.id);
+    if ($('#layer').value === 'owner' && LY.data) {          // ir a la nación en el mapa
+      const regs = Object.keys(LY.data.regions).filter(k => LY.data.regions[k].owner === tr.dataset.id);
+      if (regs.length) frameMsg({ cmd: 'fit', regions: regs });
+      const c = LY.data.countries[tr.dataset.id]; if (c && c.id != null) openObj(c.id);
+    }
+    return;
+  }   // lista de valores de la capa (como Region Paint de MH2)
   if (tr && S.tab === 'historic') {   // como HistoricNations de MH2: el mapa con sus regiones resaltadas; clic para añadir / quitar
     const row = S.rows.find(r => String(r.id) === tr.dataset.id); if (!row) return;
     $('#layer').value = 'historic'; $('#layerEdit').checked = true; LY.pendingHist = row.cols[0]; LY.fitHist = true;
     if (rview !== 'map') showRight('map'); else if (LY.data) { fillLayerValues(); sendOverlay(); }
+    historicPanel(row.cols[0]);
     return;
   }
+  if (tr && ['nations', 'regions', 'seas'].includes(S.tab) && rview !== 'map') showRight('map');
   if (tr) { if (rview !== 'obj' && rview !== 'map') showRight('obj'); openObj(+tr.dataset.id).then(() => { if (rview === 'map') gotoObject(); }); }
 });
 $('#filter').addEventListener('input', renderList);
@@ -296,9 +353,12 @@ $('#filter').addEventListener('input', renderList);
 // ------------------------------------------------------------------ editar objeto
 async function openObj(id) {
   const d = await api('/api/scen/obj?id=' + id); S.obj = d; renderObj(d);
+  remember({ obj: d.label, objType: d.type });
   document.querySelectorAll('#list tr').forEach(tr => tr.classList.toggle('on', +tr.dataset.id === id));
 }
-const SELECT_FIELDS = new Set(['eInternationalPosition', 'strDipRelProcListName', 'strAITreatyEvalListName', 'strHLPDefLists', 'eCountryType']);
+const SELECT_FIELDS = new Set(['strGovType', 'eInternationalPosition', 'strDipRelProcListName', 'strAITreatyEvalListName', 'strHLPDefLists', 'eCountryType',
+  'strTerrain', 'strCulture', 'strCultureName', 'strResource']);
+const isSelectField = n => SELECT_FIELDS.has(n) || /^e[A-Z]/.test(n);     // los e… son Enum del juego: todos sus valores en un desplegable
 function optionsFor(name) { return S.opts[name] || (S.mode === 'file' ? null : null); }
 function renderObj(d, note) {
   const crumbs = d.crumbs.map(c => `<a data-id="${c.id}">${esc(c.label)}</a>`).join(' › ');
@@ -306,7 +366,8 @@ function renderObj(d, note) {
     <div class="crumbs muted">${crumbs}</div><h2>${esc(d.type)} · ${esc(d.label)}</h2><div class="muted">${esc(d.file)}</div>`;
   html += '<div class="grid" id="form">';
   if (d.extra.region !== undefined) {
-    html += `<label>Ubicación (región)</label><input data-name="__region" data-orig="${esc(d.extra.region)}" value="${esc(d.extra.region)}" list="dl-__region">`;
+    html += `<label>Ubicación (región)</label><input data-name="__region" data-orig="${esc(d.extra.region)}" value="${esc(d.extra.region)}" list="dl-__region">
+      <label>Punto en el mapa</label><select data-name="__movepoint" data-orig=""><option value="">dejarlo donde está (puede quedar fuera de la región)</option><option value="1">moverlo dentro de la región</option></select>`;
   }
   const lists = new Set(d.extra.region !== undefined ? ['__region'] : []);
   for (const p of d.props) {
@@ -314,14 +375,14 @@ function renderObj(d, note) {
     let input;
     if (p.inherit) input = `<input disabled value="${esc(p.inherit)}" title="calculado (inheritFrom/computeFrom)">`;
     else if (p.kind === 'bool') input = `<select data-name="${esc(p.key)}" data-orig="${esc(p.value)}"><option ${p.value === 'true' ? 'selected' : ''}>true</option><option ${p.value === 'false' ? 'selected' : ''}>false</option></select>`;
-    else if (SELECT_FIELDS.has(p.name) && S.opts[p.name]) {      // campos de opciones cerradas: desplegable con todas las que hay
+    else if (isSelectField(p.name) && S.opts[p.name]) {      // campos de opciones cerradas: desplegable con todas las que hay
       const vals = [...new Set([...S.opts[p.name], p.value].filter(x => x !== undefined && x !== null))];
       input = `<select data-name="${esc(p.key)}" data-orig="${esc(p.value)}">${vals.map(v => `<option value="${esc(v)}" ${v === p.value ? 'selected' : ''}>${esc(String(v).replace('PLAYER_INTERNATIONAL_POSITION__', '') || '(ninguno)')}</option>`).join('')}</select>`;
     }
     else {
       const has = S.opts[p.name]; if (has) lists.add(p.name);
       input = `<input data-name="${esc(p.key)}" data-orig="${esc(p.value)}" value="${esc(p.value)}" ${has ? `list="dl-${esc(p.name)}"` : ''} ${p.kind === 'number' ? 'inputmode="decimal"' : ''}>`;
-      if (p.kind === 'color' && /^#?[0-9a-f]{6}/i.test(p.value || '')) input = `<div class="row" style="flex-wrap:nowrap">${input}<span style="width:22px;height:22px;border-radius:4px;border:1px solid var(--line);background:#${(p.value || '').replace('#', '').slice(0, 6)}"></span></div>`;
+      if (p.kind === 'color') input = `<div class="row" style="flex-wrap:nowrap">${input.replace('<input ', '<input data-color="1" ')}<span data-colpick="1" title="Elegir el color" style="width:22px;height:22px;flex:none;cursor:pointer;border-radius:4px;border:1px solid var(--line);background:#${/^#?[0-9a-f]{6}/i.test(p.value || '') ? (p.value || '').replace('#', '').slice(0, 6) : 'fff'}"></span></div>`;
     }
     if (LONG_PROPS.includes(p.name) && !p.inherit) input = `<textarea data-name="${esc(p.key)}" data-orig="${esc(p.value)}" rows="5" style="width:100%;padding:4px 7px;border:1px solid var(--line);border-radius:5px;background:var(--bg)">${esc(p.value)}</textarea>`;
     if (p.name === 'vecPosition' && (d.type === 'City' || d.type === 'Producer') && !p.inherit)
@@ -338,36 +399,62 @@ function renderObj(d, note) {
   html += '</div>';
   for (const n of lists) html += `<datalist id="dl-${esc(n)}">${(S.opts[n] || []).map(v => `<option value="${esc(v)}">`).join('')}</datalist>`;
   html += `<div class="row"><button class="btn primary" id="apply">Aplicar</button><button class="btn" id="undoObj">Revertir objeto</button>
-    <button class="btn" id="dup">Duplicar</button><button class="btn danger" id="del">Quitar</button>
+    ${d.type === 'AllianceMember' ? `<button class="btn" data-almove="${d.id}" data-country="${esc(d.label)}">Mover a otra alianza…</button>` : d.type === 'Alliance' ? '' : '<button class="btn" id="dup">Duplicar</button>'}<button class="btn danger" id="del">Quitar</button>
     ${d.extra.map ? `<a class="btn" target="_blank" href="/?region=${encodeURIComponent(d.extra.map)}">Ver «${esc(d.extra.map)}» en el mapa ↗</a>` : ''}</div>`;
   if (d.children.length) {
     html += `<div class="sec"><h3>Contenido (${d.children.length})</h3><ul class="kids">` + d.children.map(c =>
       `<li><span class="t">${esc(c.type)}</span><span>${esc(c.label)}${c.summary ? ' <span class="muted">' + esc(c.summary) + '</span>' : ''}</span>
-       <span class="a"><button class="btn small" data-open="${c.id}">Abrir</button><button class="btn small" data-dup="${c.id}">Duplicar</button><button class="btn small danger" data-del="${c.id}">Quitar</button></span></li>`).join('') + '</ul></div>';
+       <span class="a"><button class="btn small" data-open="${c.id}">Abrir</button>${c.type === 'AllianceMember'
+         ? `<button class="btn small" data-almove="${c.id}" data-country="${esc(c.label)}">Mover a otra alianza…</button>` : `<button class="btn small" data-dup="${c.id}">Duplicar</button>`}<button class="btn small danger" data-del="${c.id}">Quitar</button></span></li>`).join('') + '</ul></div>';
   }
   $('#right').innerHTML = html;
   $('#right').querySelectorAll('.crumbs a').forEach(a => a.onclick = () => openObj(+a.dataset.id));
   $('#right').querySelectorAll('[data-open]').forEach(b => b.onclick = () => openObj(+b.dataset.open));
   $('#right').querySelectorAll('[data-dup]').forEach(b => b.onclick = () => dupObj(+b.dataset.dup, d.id));
   $('#right').querySelectorAll('[data-del]').forEach(b => b.onclick = () => delObj(+b.dataset.del, d.id));
+  $('#right').querySelectorAll('[data-almove]').forEach(b => b.onclick = () => moveToAlliance(b.dataset.country, b, d));
   $('#form').addEventListener('input', e => { const i = e.target; if (i.dataset.name) i.classList.toggle('changed', i.value !== i.dataset.orig); });
   $('#form').addEventListener('change', e => { const i = e.target; if (i.dataset.name) i.classList.toggle('changed', i.value !== i.dataset.orig); });
   $('#form').addEventListener('input', e => { const i = e.target; if (i.dataset.sid) i.classList.toggle('changed', i.value !== i.dataset.orig); });
   $('#right').querySelectorAll('[data-pickpos]').forEach(b => b.onclick = async () => {
     const pt = await pickOnMap('Haz clic en el mapa para mover «' + d.label + '»'); showRight('obj');
     if (!pt) return;
-    const r = await api('/api/scen/move_point', { name: S.scen, id: d.id, x: pt.x, y: pt.y });
-    if (r.error) return note(r.error, true);
-    setDirty(r.dirty); LY.points = null; await openObj(d.id); note(r.notes.join('; ') + '. Falta «Guardar».');
+    await movePoint(d.id, pt.x, pt.y);          // pregunta si pasa a depender de otra región (como al arrastrar)
+    const keep = $('#legend').innerHTML; await openObj(d.id); $('#legend').innerHTML = keep;
   });
   $('#apply').onclick = applyObj; $('#undoObj').onclick = () => openObj(d.id);
-  $('#dup').onclick = () => dupObj(d.id); $('#del').onclick = () => delObj(d.id);
+  if ($('#dup')) $('#dup').onclick = () => dupObj(d.id);
+  $('#del').onclick = () => delObj(d.id);
   $('#form').addEventListener('input', e => { const i = e.target; if (i.tagName === 'TEXTAREA') i.classList.toggle('changed', i.value !== i.dataset.orig); });
   if (S.scen && d.type === 'ScenarioInfo') playableSection(d);
   if (S.scen && d.type === 'Scenario') regionpackSection();
   if (S.scen && d.type === 'MEPlayerData') aiSection(d);
+  if (S.scen && d.type === 'City') portSection(d);
   if (S.scen && d.type === 'MECountry') countrySection(d);
   if (S.scen && d.type === 'MECountry') { claimsSection(d); traitsSection(d); }
+  if (S.scen && EV_TYPES.includes(d.type)) eventSection(d);
+  if (S.scen && d.type === 'TerrainType') terrainSection(d);
+  if (S.scen && d.type === 'CultureTemplate') cultureSection(d);
+  if (S.scen && $('#bombRange').checked) sendRings();
+}
+// puerto de una ciudad: casilla para activarlo y el mar (vecino de su región o, opcionalmente, uno lejano)
+async function portSection(d) {
+  const r = await api('/api/scen/port_options', { name: S.scen, id: d.id }); if (r.error || !S.obj || S.obj.id !== d.id) return;
+  const box = document.createElement('div'); box.className = 'note'; box.id = 'portBox';
+  const o = xs => xs.map(x => `<option${x === r.port ? ' selected' : ''}>${esc(x)}</option>`).join('');
+  box.innerHTML = `<b>Puerto</b> <label><input type="checkbox" id="pOn" ${r.port ? 'checked' : ''}> Es un puerto</label>
+    <span id="pPick" style="${r.port ? '' : 'display:none'}"> · mar: <select id="pSea">${r.near.length ? `<optgroup label="Vecinos de ${esc(r.region)}">${o(r.near)}</optgroup>` : ''}
+      <optgroup label="Otros (lejanos, opcional)">${o(r.far)}</optgroup></select></span>
+    <button class="btn small" id="pApply">Aplicar puerto</button>
+    ${r.near.length ? '' : '<div class="muted">Su región no toca ningún mar del mapa: elige uno lejano o deja la ciudad sin puerto.</div>'}`;
+  const form = $('#form'); form.parentNode.insertBefore(box, form.nextSibling);
+  $('#pOn').onchange = () => { $('#pPick').style.display = $('#pOn').checked ? '' : 'none'; };
+  $('#pApply').onclick = async () => {
+    const v = $('#pOn').checked ? $('#pSea').value : '';
+    const f = await api('/api/scen/update', { id: d.id, values: { strPortForRegion: v } });
+    if (f.error) return alert(f.error);
+    S.obj = f.detail; renderObj(f.detail, { text: (v ? 'Puerto en ' + v : 'Sin puerto') + '. Falta «Guardar».' }); setDirty(f.detail.dirty);
+  };
 }
 async function applyObj() {
   const values = {};
@@ -524,7 +611,9 @@ function layerList() {
   renderList();
 }
 $('#layer').onchange = () => { fillLayerValues(); sendOverlay(); };
-$('#layerVal').onchange = sendOverlay; $('#layerEdit').onchange = sendOverlay;
+$('#layerVal').onchange = () => { sendOverlay(); if ($('#layer').value === 'historic' && $('#layerVal').value) historicPanel($('#layerVal').value); };
+$('#layerEdit').onchange = sendOverlay;
+$('#bombRange').onchange = sendRings;
 // ------------------------------------------------------------------ selección múltiple (como «Múltiple» de Pax Historia)
 const SEL = { regions: new Set(), countries: new Set(), elements: new Set() };
 const multiOn = () => $('#multi').checked;
@@ -535,21 +624,29 @@ function selectedRegions() {
   if (multiKind() === 'elements') return [];
   return Object.entries(D.regions).filter(([, r]) => SEL.countries.has(r.owner)).map(([n]) => n);
 }
-$('#multi').onchange = () => { $('#multiPanel').style.display = multiOn() ? '' : 'none'; renderMulti(); sendOverlay(); };
+document.addEventListener('click', e => {         // ✕ del panel de selección múltiple
+  if (e.target && e.target.id === 'multiClose') { $('#multi').checked = false; $('#multi').onchange(); $('#selRegs').classList.remove('on'); }
+});
+$('#multi').onchange = () => {
+  SEL.regions.clear(); SEL.countries.clear(); SEL.elements.clear();       // sin restos de la selección anterior
+  $('#multiPanel').style.display = multiOn() ? '' : 'none'; renderMulti(); sendOverlay();
+};
 $('#multiKind').onchange = () => {
   if (multiKind() === 'elements') { document.querySelectorAll('[data-pt]').forEach(x => { x.checked = true; }); sendPoints(); }   // se eligen sobre sus puntos
   renderMulti(); sendOverlay();
 };
-function multiClick(region) {
+async function multiClick(region) {
   if (multiKind() === 'elements') return;           // los elementos se eligen con clic en su punto
-  const D = LY.data, r = D.regions[region];
+  if (!LY.data) await loadLayerData();               // tras recargar el escenario los datos pueden estar vacíos
+  const D = LY.data; if (!D) return;
+  const r = D.regions[region];
   if (multiKind() === 'regions') { SEL.regions.has(region) ? SEL.regions.delete(region) : SEL.regions.add(region); }
   else { if (!r) return; SEL.countries.has(r.owner) ? SEL.countries.delete(r.owner) : SEL.countries.add(r.owner); }
   renderMulti(); sendOverlay();
 }
 // abrir un objeto en su editor, en la pestaña que le corresponde (como ed.exe: lista a la izquierda con su fila elegida y su ficha a la derecha)
 const TAB_OF_TYPE = { City: 'cities', Producer: 'producers', Army: 'armies', AirForce: 'airforces', Fleet: 'navies', MECountry: 'nations',
-  Region: 'regions', Alliance: 'alliances', War: 'wars', ScriptedEventDef: 'events', HistoricCountry: 'historic', MEPlayerData: 'players' };
+  Region: 'regions', Alliance: 'alliances', War: 'wars', ScriptedEventDef: 'events', PlayerDecisionDef: 'events', PlayerDecisionTrigPlayEvent: 'events', DecisionPointDef: 'events', HistoricCountry: 'historic', MEPlayerData: 'players', TerrainType: 'terrains', CultureTemplate: 'cultures' };
 async function openObjectInTab(id) {
   const d = await api('/api/scen/obj?id=' + id);
   const key = d.type === 'Region' && /waterWorld/i.test(d.file || '') ? 'seas' : TAB_OF_TYPE[d.type];
@@ -577,10 +674,16 @@ async function gotoObject() {
     const p = (LY.points || []).find(x => x.id === o.id);
     if (p) { frameMsg({ cmd: 'goto', x: p.x, y: p.y, zoom: 8 }); if (!multiOn()) frameMsg({ cmd: 'selPoints', ids: [o.id] }); }
   } else if (o.type === 'Region') frameMsg({ cmd: 'fit', regions: [o.label] });
+  else if (o.type === 'MECountry') {          // nación: encuadra todo su territorio
+    if (!LY.data) await loadLayerData();
+    const name = (o.props.find(p => p.name === 'strName') || {}).value || o.label;
+    const regs = LY.data ? Object.keys(LY.data.regions).filter(k => LY.data.regions[k].owner === name) : [];
+    if (regs.length) frameMsg({ cmd: 'fit', regions: regs }); else note(name + ': no tiene regiones en el mapa', true);
+  }
 }
 function openElsewhere(id) {
   if (!PANEL) { openObjectInTab(id); return; }
-  window.open('/escenario?keep=1&scenario=' + encodeURIComponent(S.scen) + '&obj=' + id, '_blank');
+  window.open('/scenario?keep=1&scenario=' + encodeURIComponent(S.scen) + '&obj=' + id, '_blank');
 }
 // elementos del mapa (ciudades, recursos, unidades): elegir varios con clic en su punto, borrarlos o editarlos en lote
 const MK_HINT = {
@@ -591,7 +694,7 @@ const MK_HINT = {
 function multiHead(n) {
   const k = multiKind(), ic = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M10 3l6.5 14.5 2-5.8 5.5-1.7z" opacity=".55"/><path d="M3 5l6.5 14.5 2-5.8 5.5-1.7z"/></svg>';
   const tab = (key, label, svg) => `<button type="button" data-mk="${key}" class="${k === key ? 'on' : ''}">${svg}<span>${label}</span></button>`;
-  return `<div class="mhead"><span class="mic">${ic}</span><div><div class="mtitle">${n ? (n === 1 ? '1 seleccionado' : n + ' seleccionados') : 'Selección múltiple'}</div><div class="muted mhint">${MK_HINT[k][n ? 1 : 0]}</div></div></div>
+  return `<div class="mhead"><span class="mic">${ic}</span><div style="flex:1"><div class="mtitle">${n ? (n === 1 ? '1 seleccionado' : n + ' seleccionados') : 'Selección múltiple'}</div><div class="muted mhint">${MK_HINT[k][n ? 1 : 0]}</div></div><button type="button" id="multiClose" class="btn small" title="Cerrar la selección múltiple" style="align-self:flex-start">✕</button></div>
     <div class="mtabs">${tab('regions', 'Regiones', '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3l4 7H8z"/><circle cx="7" cy="17" r="3.5"/><path d="M14 14h6v6h-6z"/></svg>')}` +
     `${tab('elements', 'Elementos del mapa', '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 21s7-6.2 7-11.5A7 7 0 005 9.5C5 14.8 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.5"/></svg>')}` +
     `${tab('countries', 'Entidades políticas', '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M5 21V4M5 4h11l-2 4 2 4H5"/></svg>')}</div>`;
@@ -635,7 +738,8 @@ function renderElements() {
 function renderMulti() {
   const P = $('#multiPanel');
   if (!multiOn() || multiKind() !== 'elements') frameMsg({ cmd: 'selPoints', ids: [] });     // sin elementos elegidos en el mapa
-  if (!multiOn() || !LY.data) { P.innerHTML = ''; return; }
+  if (multiOn() && !LY.data && S.scen && !LY.loading) { LY.loading = true; loadLayerData().finally(() => { LY.loading = false; renderMulti(); sendOverlay(); }); }
+  if (!multiOn() || !LY.data) { P.innerHTML = multiOn() ? '<div class="muted">Cargando…</div>' : ''; return; }
   if (multiKind() === 'elements') return renderElements();
   const D = LY.data, isR = multiKind() === 'regions', set = isR ? SEL.regions : SEL.countries, items = [...set];
   const nations = Object.keys(D.countries).sort(), opt = (xs, sel) => xs.map(x => `<option ${x === sel ? 'selected' : ''}>${esc(x)}</option>`).join('');
@@ -650,7 +754,8 @@ function renderMulti() {
         Cultura <select id="mCul">${opt(D.cultures)}</select><button class="btn small" data-do="cul">Aplicar</button></div>
       <div class="act">Regiones históricas de <select id="mHist">${opt(nations, first.owner)}</select><button class="btn small" data-do="hist">Añadir</button></div>
       <div class="act">Eliminar las ${items.length}: su área pasa a <input id="mDelInto" list="mDelRegs" placeholder="(queda vacía)" style="width:150px" autocomplete="off"><datalist id="mDelRegs">${Object.keys(D.regions).filter(n => !items.includes(n)).sort().map(n => `<option>${esc(n)}</option>`).join('')}</datalist>
-        <button class="btn small" data-do="delregs" style="color:#dc2626" title="Desaparecen del regionpack y de los escenarios que lo usan">Eliminar…</button></div>
+        <button class="btn small" data-do="delregs" style="color:#dc2626" title="Desaparecen del regionpack y de los escenarios que lo usan">Eliminar…</button>
+        <button class="btn small" data-do="gjsel" title="Las regiones elegidas (y sus ciudades, recursos y unidades) en un .zip de GeoJSON">Exportar GeoJSON</button></div>
       ${items.length > 1 ? `<div class="act">Unificar en <select id="mInto">${opt(items)}</select><button class="btn small" data-do="merge" title="Las demás desaparecen del regionpack y de los escenarios; su área, ciudades, población y unidades pasan a la elegida">Unificar…</button></div>` : ''}`;
   }
   if (items.length && !isR) {
@@ -699,6 +804,12 @@ async function mergeRegions(items, into, del = false) {
   if (PANEL) { parent.postMessage({ cmd: 'reloadAll' }, location.origin); await loadLayerData(); renderMulti(); sendOverlay(); }
   const sc = Object.entries(r.scenarios || {}).map(([n, ns]) => n + ': ' + ns.join(', ')).join(' | ');
   note((del ? 'Eliminadas. ' : `Unificadas en ${into}. `) + `${sc} Falta «Instalar» en el editor de regiones para el mapa del juego.`);
+  if (!PANEL) {       // desde aquí no hay «Instalar»: se abre el editor de regiones con la instalación ya pedida
+    const nt = document.querySelector('#legend .ok-t');
+    if (nt && !nt.querySelector('.goInstall')) nt.insertAdjacentHTML('beforeend', ' <button class="btn small primary goInstall">Instalar mapa…</button>');
+    const b = nt && nt.querySelector('.goInstall');
+    if (b) b.onclick = () => { location.href = '/?pack=' + encodeURIComponent(S.pack) + '&scenario=' + encodeURIComponent(S.scen) + '&install=1'; };
+  }
 }
 // estado de las relaciones entre los países elegidos (alianzas, guerras, comercio, ayuda, acuerdos, embargos y eventos)
 async function loadRelations(items) {
@@ -772,7 +883,13 @@ async function multiAction(what, items) {
   if (what === 'warev') Object.assign(body, { action: 'war_event', attacker: $('#mAtt').value, defenders: others(), date: $('#mDate').value.trim(), pct: +$('#mPct').value || 80 });
   if (what === 'trade' || what === 'aid') Object.assign(body, { action: what, origin: $('#mOrg').value, targets: items.filter(x => x !== $('#mOrg').value) });
   if (what === 'embargo') Object.assign(body, { action: 'embargo', origin: $('#mOrg').value, targets: items.filter(x => x !== $('#mOrg').value), turn: +$('#mTurn').value || 1 });
+  if (what === 'gjsel' && !items.length) return note('Elige al menos una región', true);
   if (items.length < (['war', 'warev', 'trade', 'aid', 'embargo', 'merge'].includes(what) ? 2 : 1)) return note(what === 'merge' ? 'Elige al menos dos regiones' : 'Elige al menos dos países', true);
+  if (what === 'gjsel') {          // solo las regiones elegidas, con lo que hay en ellas
+    const a = document.createElement('a');
+    a.href = '/api/scen/geojson_export?name=' + encodeURIComponent(S.scen) + '&regions=' + encodeURIComponent(items.join('|'));
+    a.download = S.scen + ' seleccion.geojson.zip'; a.click(); return;
+  }
   if (what === 'merge') return mergeRegions(items, $('#mInto').value);
   if (what === 'delregs') return mergeRegions(items, ($('#mDelInto').value || '').trim() || null, true);
   const r = await api('/api/scen/bulk', body);
@@ -799,7 +916,10 @@ async function onRegionClick(region, sea) {
     res = await api('/api/scen/claims_set', { name: S.scen, country: cl.country, list: cl.list, regions: next });
     if (!res.error) { cl.regions = next; msg = res.notes[0]; }
   }
-  if (k === 'historic') { res = await api('/api/scen/historic_toggle', { name: S.scen, country: v, region }); msg = res.note; }
+  if (k === 'historic') {
+    if (!v) return note('Elige primero el país en la lista de la izquierda o en el desplegable de la capa', true);
+    res = await api('/api/scen/historic_toggle', { name: S.scen, country: v, region }); msg = res.note;
+  }
   if (k === 'culture' || k === 'terrain') {
     const prop = k === 'culture' ? 'strCulture' : 'strTerrain';
     res = await api('/api/scen/update', { id: r.id, values: { [prop]: v } }); if (res.detail) res.dirty = res.detail.dirty;
@@ -817,6 +937,7 @@ async function onRegionClick(region, sea) {
   LY.data = await api('/api/scen/mapdata?name=' + encodeURIComponent(S.scen)); fillLayerValues(); sendOverlay();
   note(msg + '. Falta «Guardar».');
   if (k === 'owner') frameMsg({ cmd: 'reloadScen' });
+  if (k === 'historic' && S.tab === 'historic') historicPanel(v);
   if (S.mode === 'tab' && S.tab) refreshList();
 }
 function note(text, err) { $('#legend').innerHTML = `<span class="${err ? 'err-t' : 'ok-t'}">${esc(text)}</span><br>` + $('#legend').innerHTML.replace(/^<span class="(ok|err)-t">.*?<\/span><br>/, ''); }
@@ -845,7 +966,7 @@ window.addEventListener('message', e => {
   if (e.origin !== location.origin || !e.data || !e.data.ev) return;
   if (e.data.ev === 'mapPick' && PICK) { const r = PICK; PICK = null; frameMsg({ cmd: 'pick', on: false }); sendOverlay(); r({ x: e.data.x, y: e.data.y }); return; }
   if (e.data.ev === 'pointMoved') { movePoint(e.data.id, e.data.x, e.data.y); return; }
-  if (e.data.ev === 'mapReady') { LY.frameReady = true; sendOverlay(); if (document.querySelector('[data-pt]:checked')) sendPoints(); }
+  if (e.data.ev === 'mapReady') { LY.frameReady = true; sendOverlay(); if (document.querySelector('[data-pt]:checked')) sendPoints(); if ($('#bombRange').checked) sendRings(); }
   if (e.data.ev === 'regionClick') onRegionClick(e.data.region, e.data.sea);
   if (e.data.ev === 'regionDblClick') { openRegionCard(e.data.region, e.data.sea); return; }
   if (e.data.ev === 'pointClick') {
@@ -1037,28 +1158,415 @@ async function countrySection(d) {
   if (sur) h += `<div class="note ${sur.liberable ? '' : 'err'}">${sur.liberable ? `Sin regiones (surrendered) pero <b>se puede liberar</b> durante la partida (capital ${esc(sur.capital)} en ${esc(sur.capital_region)}).`
     : 'Sin regiones (surrendered) y <b>no se puede liberar</b>: ' + esc(sur.reasons.join('; '))}</div>`;
   h += `<div class="row" style="margin-top:6px"><button class="btn small" id="histMap">Editar regiones históricas en el mapa</button><button class="btn small" id="ownMap">Asignarle regiones en el mapa</button></div></div>`;
+  // color del país (está en gamestate.xml, pestaña Colores): muestra y selector visual
+  const cols = await api(`/api/scen/tab?name=${encodeURIComponent(S.scen)}&tab=colors`);
+  const prow = (cols.rows || []).find(x => x.cols[0] === d.label);
+  if (prow) h += `<div class="row" style="margin-top:6px;align-items:center">Color del país: <span id="natSw" title="Cambiar el color" style="display:inline-block;width:28px;height:18px;border:1px solid var(--line);border-radius:4px;cursor:pointer;background:${esc((prow.cols[1] || '#888888').slice(0, 7))}"></span>
+    <input id="natCol" value="${esc(prow.cols[1] || '')}" style="width:100px;padding:2px 5px;border:1px solid var(--line);border-radius:5px;background:var(--bg)"></div>`;
   $('#right').insertAdjacentHTML('beforeend', h);
+  if (prow) {
+    const setCol = async v => {
+      const f = await api('/api/scen/update', { id: prow.id, values: { colCountryColor: v } });
+      if (f.error) return alert(f.error);
+      setDirty(f.detail.dirty); $('#natSw').style.background = v.slice(0, 7); LY.data = null; note('Color de ' + d.label + ': ' + v + '. Falta «Guardar».');
+    };
+    $('#natSw').onclick = () => openColorPicker($('#natCol'), $('#natSw'));
+    $('#natCol').onchange = () => { const v = $('#natCol').value.trim().toUpperCase(); if (/^#[0-9A-F]{6}([0-9A-F]{2})?$/.test(v)) setCol(v.length === 7 ? v + 'FF' : v); else alert('Color no válido: usa #RRGGBB o #RRGGBBAA'); };
+  }
   $('#histMap').onclick = () => { $('#layer').value = 'historic'; showRight('map'); fillLayerValues(); $('#layerVal').value = d.label; sendOverlay(); };
   $('#ownMap').onclick = () => { $('#layer').value = 'owner'; showRight('map'); fillLayerValues(); $('#layerVal').value = d.label; sendOverlay(); };
 }
 async function aiSection(d) {
   const owner = (d.props.find(p => p.name === 'strOwner') || {}).value; if (!owner) return;
   const a = await api(`/api/scen/ai?name=${encodeURIComponent(S.scen)}&country=${encodeURIComponent(owner)}`);
-  if (a.error) return;
+  const info = { countries: [...(S.opts.strOwner || [])] };
+  if (a.error || !$('#right')) return;
+  const box = document.createElement('div'); box.className = 'sec'; box.id = 'aiRules'; $('#right').appendChild(box);
+  await aiRulesRender(box, owner, info);
   const args = x => x.args.length ? '<span class="muted">' + esc(x.args.join(' · ')) + '</span>' : '';
-  let h = `<div class="sec"><h3>Comportamiento de la IA de ${esc(owner)}</h3>
+  let h = `<div class="sec"><h3>Personalidad de la IA de ${esc(owner)}</h3>
     <div class="muted">Posición ${esc((a.traits.eInternationalPosition || '').replace('PLAYER_INTERNATIONAL_POSITION__', ''))} · agresividad ${esc(a.traits.nAggressiveNature)} ·
-    postura militar ${esc(a.traits.nMilitaryPosture)} · implicación internacional ${esc(a.traits.nInternationalInvolvement)}</div>
-    <h3 style="margin-top:8px">Eventos con fecha y probabilidad (${a.events.length})</h3>`;
-  h += a.events.length ? '<table class="mini"><tr><th>Evento</th><th>Desde</th><th>% por turno</th><th>Acciones</th></tr>' + a.events.map(e =>
-    `<tr><td><a href="#" data-open="${e.id}">${esc(e.label)}</a></td><td>${esc(e.date || '')}</td><td>${esc(e.pct ?? '—')}</td><td>${esc(e.actions.join(', '))}</td></tr>`).join('') + '</table>'
-    : '<div class="muted">Ninguno (usa «Nueva guerra…» para crear uno).</div>';
-  h += `<h3 style="margin-top:8px">Reacciones diplomáticas («${esc(a.reactions_list)}»): cuánto cambia la relación cuando…</h3><table class="mini">` +
-    a.reactions.map(x => `<tr><td><a href="#" data-open="${x.id}">${esc(x.event)}</a></td><td>${args(x)}</td></tr>`).join('') + '</table>';
-  h += `<h3 style="margin-top:8px">Tratados y decisiones («${esc(a.treaties_list)}»): se aceptan si la puntuación supera el mínimo</h3><table class="mini">` +
-    a.treaties.map(x => `<tr><td><a href="#" data-open="${x.id}">${esc(x.type.replace('AI_', '').replace('TreatyDef', ''))}</a></td><td>mín. ${esc(x.min ?? '—')}</td><td>${args(x)}</td></tr>`).join('') + '</table></div>';
+    postura militar ${esc(a.traits.nMilitaryPosture)} · implicación internacional ${esc(a.traits.nInternationalInvolvement)}</div>`;
+  h += `<details><summary><b>Reacciones diplomáticas («${esc(a.reactions_list)}»): cuánto cambia la relación cuando…</b></summary><table class="mini">` +
+    a.reactions.map(x => `<tr><td><a href="#" data-open="${x.id}">${esc(x.event)}</a></td><td>${args(x)}</td></tr>`).join('') + '</table></details>';
+  h += `<details><summary><b>Tratados y decisiones («${esc(a.treaties_list)}»): se aceptan si la puntuación supera el mínimo</b></summary><table class="mini">` +
+    a.treaties.map(x => `<tr><td><a href="#" data-open="${x.id}">${esc(x.type.replace('AI_', '').replace('TreatyDef', ''))}</a></td><td>mín. ${esc(x.min ?? '—')}</td><td>${args(x)}</td></tr>`).join('') + '</table></details></div>';
   $('#right').insertAdjacentHTML('beforeend', h);
   $('#right').querySelectorAll('a[data-open]').forEach(x => x.onclick = ev => { ev.preventDefault(); openObj(+x.dataset.open); });
+}
+let CI = null;           // listas del escenario para los formularios de eventos (países, ideologías, recursos…)
+const optList = (xs, sel, blank) => (blank != null ? `<option value="">${esc(blank)}</option>` : '') + xs.map(x => `<option${x === sel ? ' selected' : ''}>${esc(x)}</option>`).join('');
+const csel = (id, sel, blank, info) => `<select id="${id}">${optList((info || CI).countries, sel, blank)}</select>`;
+// reglas de la IA en palabras: metas (ayudar a un país si le atacan…), planes de guerra, presión diplomática, embargos y guerras por evento
+async function aiRulesRender(box, owner, info) {
+  const cs_ = (id, sel, blank) => csel(id, sel, blank, info);
+  const r = await api(`/api/scen/ai_rules?name=${encodeURIComponent(S.scen)}&country=${encodeURIComponent(owner)}`);
+  if (r.error) { box.innerHTML = `<div class="muted">${esc(r.error)}</div>`; return; }
+  const row = (txt, id, extra = '') => `<li><span>${esc(txt)}</span><span class="a">${extra}<button class="btn small" data-aopen="${id}" title="Ver el objeto en el archivo">XML</button><button class="btn small danger" data-adel="${id}">Quitar</button></span></li>`;
+  const ops = r.warplans.flatMap(w => w.ops);
+  let h = `<h3>Qué hace la IA de ${esc(owner)} (player${esc(owner)}.xml)</h3>
+    <div class="muted">Reglas que sigue la IA cuando ${esc(owner)} no lo juega una persona. Los cambios quedan en memoria hasta «Guardar».</div>
+    <h3 style="margin-top:8px">Reacciona si invaden o atacan a otro país (${r.triggers.length})</h3>
+    <div class="muted">TriggerCountry de country${esc(owner)}.xml: contra el agresor declara la guerra o un embargo; la sensibilidad (0–100) es lo dispuesto que está (más alta, más probable).</div><ul class="kids">` +
+    r.triggers.map(t => row(t.text, t.id, `<button class="btn small" data-tedit="${t.id}">Cambiar</button>`)).join('') +
+    `</ul><div class="row" style="margin-top:4px">Si ${cs_('aiTc', '', '(país)')} <select id="aiTt"><option value="invasion">es invadido</option><option value="war">entra en guerra</option></select>,
+      ${esc(owner)}: guerra <input id="aiTw" type="number" min="0" max="100" value="50" style="width:55px"> embargo <input id="aiTe" type="number" min="0" max="100" value="75" style="width:55px">
+      <button class="btn small primary" id="aiTGo">Añadir</button></div>
+    <h3 style="margin-top:8px">Metas: ayudar si atacan a otro país (${r.goals.filter(g => g.type === 'HGoalHelpCountryWinWar').length})</h3><ul class="kids">` +
+    r.goals.filter(g => g.type === 'HGoalHelpCountryWinWar').map(g => row(g.text, g.id, `<button class="btn small" data-gedit="${g.id}" data-a="${esc(g.a)}" data-b="${esc(g.b)}">Cambiar</button>`)).join('') +
+    `</ul><div class="row" style="margin-top:4px">Si ${cs_('aiB', '', '(agresor)')} ataca a ${cs_('aiA', '', '(país protegido)')}, ${esc(owner)} lo ayuda
+      <button class="btn small primary" id="aiHelp">Añadir</button></div>
+    <h3 style="margin-top:8px">Otras metas (${r.goals.filter(g => g.type !== 'HGoalHelpCountryWinWar').length})</h3><ul class="kids">` +
+    r.goals.filter(g => g.type !== 'HGoalHelpCountryWinWar').map(g => row(g.text, g.id)).join('') + `</ul>
+    <div class="row" style="margin-top:4px">${esc(owner)} quiere conquistar ${cs_('aiConq', '', '(país)')} <button class="btn small" id="aiConqGo">Añadir</button></div>
+    <h3 style="margin-top:8px">Planes de guerra (${ops.length})</h3><ul class="kids">` +
+    ops.map(o => row(o.text, o.id, `<button class="btn small" data-oedit="${o.id}">Cambiar</button>`)).join('') + `</ul>
+    <div class="grid" id="aiOpForm" style="margin-top:4px"><label>Atacar a</label><select id="aiOpT" multiple size="4">${optList(info.countries)}</select>
+      <label>Solo cuando</label><div class="row">${cs_('aiOpA', '', '(cualquiera)')} esté en guerra con ${cs_('aiOpB', '', '(cualquiera)')}</div>
+      <label>Desde (MM/DD/AAAA)</label><input id="aiOpD" placeholder="(desde el inicio)"><label>Hasta (MM/DD/AAAA)</label><input id="aiOpE" placeholder="(sin fin)">
+      <label></label><div class="row"><button class="btn small primary" id="aiOpGo">Añadir plan</button><span class="muted" id="aiOpEditing"></span></div></div>` +
+    (r.allegiance.length ? `<h3 style="margin-top:8px">Presión diplomática (${r.allegiance.length})</h3><ul class="kids">` + r.allegiance.map(x => row(x.text, x.id)).join('') + '</ul>' : '') +
+    `<h3 style="margin-top:8px">Embargos y guerras por evento (${r.events.length})</h3><ul class="kids">` +
+    r.events.map(e => `<li><span>${esc(e.text)}</span><span class="a"><input data-ewhen="${e.id}" value="${esc(e.when.date || e.when.turn || '')}" placeholder="turno o fecha" style="width:92px">
+      <button class="btn small" data-ewgo="${e.id}" title="Escribe un turno (p. ej. 12) o una fecha MM/DD/AAAA: así un embargo pasa a ser futuro">Cambiar cuándo</button>
+      <button class="btn small" data-eopen="${e.id}">Ver</button><button class="btn small danger" data-edel="${e.id}">Quitar</button></span></li>`).join('') + `</ul>
+    <div class="row" style="margin-top:4px">${esc(owner)} embarga a ${cs_('aiEmb', '', '(país)')}
+      <select id="aiEmbW"><option value="start">al empezar (turno 1)</option><option value="turn">en el turno…</option><option value="date">desde la fecha…</option></select>
+      <input id="aiEmbV" style="width:100px;display:none"><button class="btn small primary" id="aiEmbGo">Añadir embargo</button></div>
+    <div class="muted">No hay escenario que empiece con un embargo ya declarado: el juego guarda los embargos durante la partida. Lo más parecido es un embargo en el turno 1.
+      Para reaccionar con guerra o embargo si atacan a un aliado, usa también ＋ Nuevo evento › Protección de un aliado.</div>`;
+  box.innerHTML = h;
+  const done = async (x, keepOp) => {
+    if (x.error) return alert(x.error);
+    setDirty(x.dirty); note((x.notes || []).join('; ') + '. Falta «Guardar».');
+    await aiRulesRender(box, owner, info);
+  };
+  const post = (body) => api('/api/scen/ai_rule', { name: S.scen, country: owner, ...body });
+  let editTrig = null;
+  $('#aiTGo').onclick = async () => {
+    if (!$('#aiTc').value) return alert('Elige el país');
+    done(await post({ op: 'trigger', id: editTrig, target: $('#aiTc').value, type: $('#aiTt').value, war: $('#aiTw').value, embargo: $('#aiTe').value }));
+  };
+  box.querySelectorAll('[data-tedit]').forEach(b => b.onclick = () => {
+    const t = r.triggers.find(x => x.id === +b.dataset.tedit); editTrig = t.id;
+    $('#aiTc').value = t.country; $('#aiTt').value = t.type; $('#aiTw').value = t.war; $('#aiTe').value = t.embargo; $('#aiTGo').textContent = 'Guardar cambio';
+  });
+  box.querySelectorAll('[data-adel]').forEach(b => b.onclick = async () => { if (confirm('¿Quitar esta regla de la IA?')) done(await post({ op: 'delete', id: +b.dataset.adel })); });
+  box.querySelectorAll('[data-aopen],[data-eopen]').forEach(b => b.onclick = () => openObj(+(b.dataset.aopen || b.dataset.eopen)));
+  box.querySelectorAll('[data-edel]').forEach(b => b.onclick = async () => { if (confirm('¿Quitar este evento (con su ventana)?')) done(await api('/api/scen/event_remove', { name: S.scen, id: +b.dataset.edel })); });
+  box.querySelectorAll('[data-ewgo]').forEach(b => b.onclick = async () => {
+    const v = box.querySelector(`[data-ewhen="${b.dataset.ewgo}"]`).value.trim();
+    const body = /^\d+$/.test(v) ? { turn: +v } : { date: v };
+    done(await api('/api/scen/event_when', { name: S.scen, id: +b.dataset.ewgo, ...body }));
+  });
+  $('#aiHelp').onclick = async () => { const A = $('#aiA').value, B = $('#aiB').value; if (!A || !B) return alert('Elige el país protegido y el agresor'); done(await post({ op: 'goal', goal_type: 'HGoalHelpCountryWinWar', a: A, b: B })); };
+  $('#aiConqGo').onclick = async () => { const B = $('#aiConq').value; if (!B) return; done(await post({ op: 'goal', goal_type: 'HGoalConquerCountry', a: owner, b: B })); };
+  box.querySelectorAll('[data-gedit]').forEach(b => b.onclick = () => {
+    $('#aiA').value = b.dataset.a; $('#aiB').value = b.dataset.b; $('#aiHelp').textContent = 'Guardar cambio';
+    $('#aiHelp').onclick = async () => done(await post({ op: 'goal', goal_type: 'HGoalHelpCountryWinWar', a: $('#aiA').value, b: $('#aiB').value, id: +b.dataset.gedit }));
+  });
+  let editOp = null;
+  box.querySelectorAll('[data-oedit]').forEach(b => b.onclick = () => {
+    const o = ops.find(x => x.id === +b.dataset.oedit); editOp = o.id;
+    [...$('#aiOpT').options].forEach(x => x.selected = o.targets.includes(x.value));
+    $('#aiOpA').value = o.trig_a[0] || ''; $('#aiOpB').value = o.trig_b[0] || ''; $('#aiOpD').value = o.date; $('#aiOpE').value = o.expires;
+    $('#aiOpGo').textContent = 'Guardar cambio'; $('#aiOpEditing').textContent = 'cambiando «' + o.name + '»' + (o.region_list ? ' (lista de regiones ' + o.region_list + ')' : '');
+    $('#aiOpForm').scrollIntoView({ block: 'center' });
+  });
+  $('#aiOpGo').onclick = async () => {
+    const o = editOp && ops.find(x => x.id === editOp);
+    const body = { op: 'operation', id: editOp, targets: [...$('#aiOpT').selectedOptions].map(x => x.value), region_list: o ? o.region_list : '',
+      trig_a: $('#aiOpA').value ? [$('#aiOpA').value] : [], trig_b: $('#aiOpB').value ? [$('#aiOpB').value] : [], date: $('#aiOpD').value.trim(), expires: $('#aiOpE').value.trim() };
+    done(await post(body));
+  };
+  $('#aiEmbW').onchange = () => { const w = $('#aiEmbW').value; $('#aiEmbV').style.display = w === 'start' ? 'none' : ''; $('#aiEmbV').placeholder = w === 'turn' ? 'turno' : 'MM/DD/AAAA'; };
+  $('#aiEmbGo').onclick = async () => {
+    const to = $('#aiEmb').value, w = $('#aiEmbW').value, v = $('#aiEmbV').value.trim(); if (!to) return alert('Elige el país embargado');
+    const when = w === 'start' ? { turn: 1 } : w === 'turn' ? { turn: +v || 1 } : { date: v };
+    done(await api('/api/scen/event_template', { name: S.scen, kind: 'embargo', owner, effect: { to }, ...when }));
+  };
+}
+
+// ------------------------------------------------------------------ eventos en palabras (pestaña Eventos)
+const EV_TYPES = ['ScriptedEventDef', 'PlayerDecisionDef', 'PlayerDecisionTrigPlayEvent', 'DecisionPointDef'];
+async function eventSection(d) {
+  const e = await api('/api/scen/event_info?id=' + d.id);
+  if (e.error || !$('#right')) return;
+  const acts = list => list.map(x => `<li>${esc(x)}</li>`).join('');
+  const effs = es => es.length ? es.map(x => `<ul style="margin:2px 0 2px 18px;padding:0">${acts(x.actions)}</ul>`).join('') : '<span class="muted">sin efectos</span>';
+  // textos de la ventana: cajas anchas de varias líneas (título arriba, caja debajo a todo el ancho)
+  const area = (t, ph, rows) => !t ? '<div class="muted">—</div>' : t.editable
+    ? `<textarea class="evText" data-arg="${t.id}" data-orig="${esc(t.text)}" rows="${rows}" placeholder="${esc(ph)}">${esc(t.text)}</textarea>`
+    : `<div>${esc(t.text)} <span class="muted">(texto del juego ${esc(t.sid || '')})</span></div>`;
+  const field = (label, t, ph, rows) => `<div class="evField"><label class="muted">${esc(label)}</label>${area(t, ph, rows)}</div>`;
+  let h = `<div class="sec" id="evCard"><h3>${esc(e.kind)} en palabras</h3>
+    <div class="note" style="margin:4px 0"><b>${esc(e.class)}</b>${e.class_expl ? ': ' + esc(e.class_expl) : ''} · <span class="muted">${e.generic ? 'genérico del juego (ScenarioDefaults)' : 'propio del escenario'}</span></div>
+    <div class="grid" style="margin:4px 0">
+    ${e.who ? `<label>Lo recibe</label><div>${esc(e.who)}</div>` : ''}${e.trigger ? `<label>Se dispara</label><div>${esc(e.trigger)}</div>` : ''}`;
+  if (e.when.date || e.when.turn) h += `<label>Cuándo</label><div class="row"><input id="evWhen" value="${esc(e.when.date || e.when.turn)}" style="width:110px" title="Turno (número) o fecha MM/DD/AAAA">
+      <button class="btn small" id="evWhenGo">Cambiar</button><span class="muted">turno (p. ej. 12) o fecha MM/DD/AAAA</span></div>`;
+  h += '</div>';
+  if (e.conditions.length) h += '<b>Condiciones (todas a la vez)</b><ul style="margin:2px 0 6px 18px;padding:0">' + e.conditions.map(c => `<li>${esc(c.rules.join(' y ') || c.label)}</li>`).join('') + '</ul>';
+  if (e.effects.length) h += '<b>Efectos</b>' + effs(e.effects);
+  if (e.outcome && e.outcome.length) h += '<b>Al responder su ventana</b><ul style="margin:2px 0 6px 18px;padding:0">' + acts(e.outcome) + '</ul>';
+  if (e.type === 'PlayerDecisionDef') {
+    h += `<b>Ventana que ve el jugador</b>${field('Título', e.title, 'Título', 2)}${field('Texto', e.desc, 'Texto', 8)}`;
+    h += '<b>Elecciones</b>' + e.choices.map((c, i) => `<div class="sec" style="margin:4px 0"><div class="row"><b>${i + 1}.</b> ${c.ai ? `<span class="pill" style="color:inherit" title="Lo que elige la IA">IA ${esc(e.ai.pct || '')} %</span>` : ''}
+      ${c.player_default ? '<span class="pill" style="color:inherit" title="La elección por defecto del jugador">por defecto</span>' : ''}<span class="muted">${esc(c.label)}</span></div>
+      ${field('Botón', c.title, 'Texto del botón', 2)}${field('Explicación', c.desc, 'Explicación', 3)}${effs(c.effects)}</div>`).join('');
+    if (e.choices.length > 1) h += `<div class="row">La IA elige <select id="evAi">${e.choices.map(c => `<option ${c.ai ? 'selected' : ''} value="${esc(c.label)}">${esc((c.title || {}).text || c.label)}</option>`).join('')}</select>
+      con <input id="evAiPct" value="${esc(e.ai.pct || '100')}" style="width:50px"> % de probabilidad</div>`;
+  }
+  if (e.links.length) h += '<b>Cadena</b><ul style="margin:2px 0 6px 18px;padding:0">' + e.links.map(l => `<li>${esc(l.rel)}: <a href="#" data-evl="${l.id}">${esc(l.kind)} «${esc(l.label)}»</a></li>`).join('') + '</ul>';
+  // añadir propiedades: un efecto (al evento o a una elección) o una condición
+  const targets = (e.type === 'PlayerDecisionDef' ? e.choices.map((c, i) => [c.id, `Elección ${i + 1}: ${(c.title || {}).text || c.label}`]) : [['', 'El evento']]);
+  h += `<div class="sec" id="evAddBox"><b>＋ Añadir al evento</b><div class="grid" style="margin-top:4px">
+      <label>Qué</label><select id="evAddWhat"><option value="effect">Un efecto (lo que pasa)</option><option value="condition">Una condición (cuándo pasa)</option></select>
+      <label class="evEff">A</label><select class="evEff" id="evAddTo">${targets.map(([v, t]) => `<option value="${v}">${esc(t)}</option>`).join('')}</select>
+      <label class="evEff">Efecto</label><select class="evEff" id="evAddType">${EFF_TYPES.filter(x => x[0] !== 'none').map(([v, t]) => `<option value="${v}">${esc(t)}</option>`).join('')}</select>
+      <div class="evEff grid" id="evAddF" style="grid-column:1/-1;margin:0"></div>
+      <label class="evCond">Condición</label><select class="evCond" id="evCondType"><option value="exists">Estos países existen</option><option value="when">Desde una fecha o turno</option>
+        <option value="chance">Probabilidad por turno</option><option value="notwar">Dos países no están en guerra</option></select>
+      <div class="evCond grid" id="evCondF" style="grid-column:1/-1;margin:0"></div></div>
+      <button class="btn small primary" id="evAddGo">Añadir</button></div>`;
+  h += `<div class="row"><button class="btn primary" id="evSave">Aplicar textos</button><button class="btn danger" id="evDel">Quitar el evento con su cadena</button></div></div>`;
+  $('#right').querySelector('h2').nextElementSibling.insertAdjacentHTML('afterend', h);
+  $('#right').querySelectorAll('[data-evl]').forEach(a => a.onclick = ev => { ev.preventDefault(); openObj(+a.dataset.evl); });
+  const reload = async (x) => { if (x.error) return alert(x.error); setDirty(x.dirty || (x.detail || {}).dirty); const nd = await api('/api/scen/obj?id=' + d.id); S.obj = nd; renderObj(nd, { text: (x.notes || []).join('; ') + '. Falta «Guardar».' }); };
+  if ($('#evWhenGo')) $('#evWhenGo').onclick = async () => { const v = $('#evWhen').value.trim(); reload(await api('/api/scen/event_when', { name: S.scen, id: d.id, ...(/^\d+$/.test(v) ? { turn: +v } : { date: v }) })); };
+  if (!CI || CI.scen !== S.scen) { CI = await api('/api/scen/create_info', { name: S.scen }); CI.scen = S.scen; }
+  const condF = () => {
+    const k = $('#evCondType').value;
+    $('#evCondF').innerHTML = k === 'exists' ? `<label>Países (separados por coma)</label><input id="evCc" list="dl-nations" placeholder="p. ej. Russia, Ukraine">`
+      : k === 'when' ? `<label>Fecha MM/DD/AAAA o turno</label><input id="evCw" placeholder="p. ej. 03/01/2024 o 12">`
+      : k === 'chance' ? `<label>Probabilidad (%)</label><input id="evCp" type="number" min="1" max="99" value="50">`
+      : `<label>País A</label>${csel('evCa')}<label>País B</label>${csel('evCb')}`;
+  };
+  const whatF = () => { const eff = $('#evAddWhat').value === 'effect';
+    document.querySelectorAll('#evAddBox .evEff').forEach(x => { x.style.display = eff ? '' : 'none'; });
+    document.querySelectorAll('#evAddBox .evCond').forEach(x => { x.style.display = eff ? 'none' : ''; }); };
+  $('#evAddType').onchange = () => { $('#evAddF').innerHTML = effFields('evA_', $('#evAddType').value); };
+  $('#evCondType').onchange = condF; $('#evAddWhat').onchange = whatF;
+  $('#evAddType').onchange(); condF(); whatF();
+  $('#evAddGo').onclick = async () => {
+    let body;
+    if ($('#evAddWhat').value === 'effect') body = { what: 'effect', spec: effRead('evA_', $('#evAddType').value), choice: $('#evAddTo').value ? +$('#evAddTo').value : null };
+    else {
+      const k = $('#evCondType').value, w = ($('#evCw') || {}).value || '';
+      body = { what: 'condition', spec: k === 'exists' ? { type: k, countries: $('#evCc').value.split(',').map(x => x.trim()).filter(Boolean) }
+        : k === 'when' ? (/^\d+$/.test(w.trim()) ? { type: k, turn: +w } : { type: k, date: w.trim() })
+        : k === 'chance' ? { type: k, pct: +$('#evCp').value } : { type: k, a: $('#evCa').value, b: $('#evCb').value } };
+    }
+    reload(await api('/api/scen/event_add', { name: S.scen, id: d.id, ...body }));
+  };
+  $('#evSave').onclick = async () => {
+    let n = 0, last = {};
+    for (const i of document.querySelectorAll('#evCard [data-arg]')) if (i.value !== i.dataset.orig) { last = await api('/api/scen/update', { id: +i.dataset.arg, values: { strValue: i.value } }); if (last.error) return alert(last.error); n++; }
+    if ($('#evAi') && ($('#evAi').value !== e.ai.choice || $('#evAiPct').value !== (e.ai.pct || ''))) {
+      last = await api('/api/scen/update', { id: d.id, values: { strDefaultChoice: $('#evAi').value, nDefaultChoicePercent: String(parseInt($('#evAiPct').value, 10) || 0) } }); if (last.error) return alert(last.error); n++;
+    }
+    if (!n) return note('Sin cambios');
+    reload({ notes: [`${n} cambio(s) aplicados`], detail: last.detail });
+  };
+  $('#evDel').onclick = async () => {
+    if (!confirm('¿Quitar este evento y los objetos de su cadena (disparador y ventana)?')) return;
+    const x = await api('/api/scen/event_remove', { name: S.scen, id: d.id }); if (x.error) return alert(x.error);
+    setDirty(x.dirty); refreshList(); $('#right').innerHTML = `<div class="note">${esc(x.notes.join('; '))}. Falta «Guardar».</div>`;
+  };
+}
+// efectos de las plantillas: tipo + sus datos
+const EFF_TYPES = [['war', 'Declarar la guerra'], ['embargo', 'Embargo comercial'], ['lift', 'Levantar un embargo'], ['gov', 'Cambiar la ideología'],
+  ['resource', 'Dar recursos (ayuda)'], ['independence', 'Crear o liberar un país'], ['annex', 'Anexionar un país'], ['units', 'Crear unidades'],
+  ['dip', 'Cambiar las relaciones'], ['culture', 'Cambiar la cultura de regiones (experimental)'], ['none', 'Nada']];
+function effFields(p, type) {
+  const own = '(el país del evento)', I = CI;
+  const F = {
+    war: () => `<label>Contra</label>${csel(p + 'to')}`,
+    embargo: () => `<label>A</label>${csel(p + 'to')}`, lift: () => `<label>A</label>${csel(p + 'to')}`,
+    gov: () => `<label>País</label>${csel(p + 'country', '', own)}<label>Ideología</label><select id="${p}gov">${optList(I.govs)}</select>`,
+    resource: () => `<label>Recibe</label>${csel(p + 'country', '', own)}<label>Recurso</label><input id="${p}resource" list="${p}resDl"><datalist id="${p}resDl">${optList(I.resources)}</datalist>
+      <label>Cantidad</label><input id="${p}amount" type="number" value="100"><label>Lo da (se le resta)</label>${csel(p + 'from', '', '(nadie)')}`,
+    independence: () => `<label>Lo concede</label>${csel(p + 'from', '', own)}<label>País que aparece</label>${csel(p + 'to')}`,
+    annex: () => `<label>Se rinde</label>${csel(p + 'loser')}<label>Lo anexiona</label>${csel(p + 'winner', '', own)}`,
+    units: () => `<label>País</label>${csel(p + 'country', '', own)}<label>Unidad</label><select id="${p}template">${optList(I.units)}</select>
+      <label>Cantidad</label><input id="${p}n" type="number" value="1" min="1"><label>Región</label><input id="${p}region" list="${p}regDl"><datalist id="${p}regDl">${optList(I.land)}</datalist>
+      <label>Nombre del grupo</label><input id="${p}name" value="New Army">`,
+    dip: () => `<label>Con</label>${csel(p + 'b')}<label>Cambio (−1000 a 1000)</label><input id="${p}amount" type="number" value="100">`,
+    culture: () => `<label>Regiones</label><input id="${p}regions" list="${p}regDl" placeholder="Región1, Región2"><datalist id="${p}regDl">${optList(I.land)}</datalist>
+      <label>Cultura</label><select id="${p}culture">${optList(I.cultures || [])}</select><div class="hint muted">El juego no tiene una acción para esto: se usa ActAlterProperty sobre strCulture. Pruébalo en el juego.</div>`,
+    none: () => '',
+  };
+  return (F[type] || F.none)();
+}
+function effRead(p, type) {
+  const v = k => { const el = document.getElementById(p + k); return el ? el.value.trim() : undefined; };
+  const o = { type };
+  for (const k of ['to', 'country', 'gov', 'resource', 'amount', 'from', 'loser', 'winner', 'template', 'n', 'region', 'name', 'b', 'culture']) { const x = v(k); if (x !== undefined && x !== '') o[k] = x; }
+  if (type === 'culture') o.regions = (v('regions') || '').split(',').map(x => x.trim()).filter(Boolean);
+  return o;
+}
+function whenFields(defTurn = '') {
+  return `<label>Cuándo</label><div class="row"><select id="gnWm"><option value="date">desde la fecha</option><option value="turn">desde el turno</option></select>
+    <input id="gnWv" placeholder="MM/DD/AAAA" value="${esc(defTurn)}" style="width:110px"></div>
+    <label>Probabilidad por turno (%)</label><input id="gnPct" type="number" min="1" max="100" value="100">`;
+}
+function whenRead() { const m = $('#gnWm').value, v = $('#gnWv').value.trim(); return m === 'turn' ? { turn: +v || 1 } : { date: v }; }
+function bindWhen() { $('#gnWm').onchange = () => { $('#gnWv').placeholder = $('#gnWm').value === 'turn' ? 'turno' : 'MM/DD/AAAA'; }; }
+
+// ------------------------------------------------------------------ regiones históricas de un país: panel a la derecha (además del clic en el mapa)
+async function historicPanel(country) {
+  if (!LY.data) LY.data = await api('/api/scen/mapdata?name=' + encodeURIComponent(S.scen));
+  if (!$('#right')) return;
+  const hs = (LY.data.historic[country] || []).slice().sort((a, b) => a.localeCompare(b));
+  const land = Object.keys(LY.data.regions).sort((a, b) => a.localeCompare(b));
+  $('#right').innerHTML = `<h2>Regiones históricas de ${esc(country)} · ${hs.length}</h2>
+    <div class="muted">Regiones que ${esc(country)} considera suyas (sharedDataHistoricCountries.xml): sirven para liberarlo y para su IA.
+      Añádelas aquí o con clic en el mapa (capa «Regiones históricas», «clic modifica» marcado).</div>
+    <div class="chips" style="margin:8px 0;display:flex;flex-wrap:wrap;gap:4px">${hs.map(x => `<span class="chip">${esc(x)}<button data-hr="${esc(x)}" title="Quitar">×</button></span>`).join('') || '<span class="muted">Ninguna</span>'}</div>
+    <div class="row"><input id="hrAdd" list="hrDl" placeholder="región…" autocomplete="off" style="width:220px"><datalist id="hrDl">${land.filter(x => !hs.includes(x)).map(x => `<option>${esc(x)}</option>`).join('')}</datalist>
+      <button class="btn small primary" id="hrAddGo">Añadir</button><button class="btn small" id="hrFit">Encuadrar en el mapa</button></div>`;
+  const toggle = async region => {
+    const r = await api('/api/scen/historic_toggle', { name: S.scen, country, region }); if (r.error) return alert(r.error);
+    setDirty(r.dirty); LY.data = await api('/api/scen/mapdata?name=' + encodeURIComponent(S.scen)); fillLayerValues(); sendOverlay();
+    note(r.note + '. Falta «Guardar».'); historicPanel(country);
+  };
+  $('#right').querySelectorAll('[data-hr]').forEach(b => b.onclick = () => toggle(b.dataset.hr));
+  $('#hrAddGo').onclick = () => { const v = $('#hrAdd').value.trim(); if (!v) return; if (!LY.data.regions[v]) return alert(v + ': no es una región de tierra del escenario'); if (!hs.includes(v)) toggle(v); };
+  $('#hrAdd').onkeydown = e => { if (e.key === 'Enter') $('#hrAddGo').click(); };
+  $('#hrFit').onclick = () => { if (hs.length) frameMsg({ cmd: 'fit', regions: hs }); };
+}
+
+// ------------------------------------------------------------------ alianzas: pasar un país a otra alianza (o a una nueva)
+async function moveToAlliance(country, btn, d) {
+  if (!LY.data) LY.data = await api('/api/scen/mapdata?name=' + encodeURIComponent(S.scen));
+  document.querySelectorAll('.almove').forEach(x => x.remove());
+  const cur = (LY.data.alliances || []).find(a => a.members.includes(country));
+  const others = (LY.data.alliances || []).filter(a => a !== cur);
+  const box = document.createElement('div'); box.className = 'row almove'; box.style.cssText = 'margin:4px 0;padding:6px;border:1px solid var(--line);border-radius:6px';
+  box.innerHTML = `<span>${esc(country)} pasa a</span><select>${others.map(a => `<option value="${a.id}">${esc(a.name)} (${a.members.length})</option>`).join('')}<option value="new">(alianza nueva…)</option></select>
+    <input placeholder="nombre de la alianza nueva" style="display:${others.length ? 'none' : ''};width:180px"><button class="btn small primary">Mover</button><button class="btn small">Cancelar</button>`;
+  btn.closest('li, .row').after(box);
+  const [sel, inp, ok, cancel] = [box.querySelector('select'), box.querySelector('input'), ...box.querySelectorAll('button')];
+  sel.onchange = () => { inp.style.display = sel.value === 'new' ? '' : 'none'; if (sel.value === 'new') inp.focus(); };
+  cancel.onclick = () => box.remove();
+  ok.onclick = async () => {
+    const body = sel.value === 'new' ? { new_name: inp.value.trim() } : { alliance: +sel.value };
+    if (sel.value === 'new' && !body.new_name) return inp.focus();
+    const r = await api('/api/scen/bulk', { name: S.scen, action: 'alliance', countries: [country], ...body });
+    if (r.error) return alert(r.error);
+    setDirty(r.dirty); LY.data = null; refreshList();
+    const parent = d.type === 'AllianceMember' ? (d.crumbs[d.crumbs.length - 1] || {}).id : d.id;
+    const nd = await api('/api/scen/obj?id=' + parent); if (nd.error) { $('#right').innerHTML = `<div class="note">${esc(r.notes.join('; '))}. Falta «Guardar».</div>`; return; }
+    S.obj = nd; renderObj(nd, { text: r.notes.join('; ') + '. Falta «Guardar».' });
+  };
+}
+
+// ------------------------------------------------------------------ selector de color visual para los valores #RRGGBBAA del juego
+function openColorPicker(inp, anchor) {
+  document.querySelectorAll('.colpick').forEach(x => x.remove());
+  const m = /^#?([0-9a-f]{6})([0-9a-f]{2})?$/i.exec((inp.value || '').trim()), rgb = '#' + (m ? m[1] : 'ffffff').toLowerCase(), a = m && m[2] ? parseInt(m[2], 16) : 255;
+  const box = document.createElement('div'); box.className = 'colpick';
+  box.innerHTML = `<input type="color" value="${rgb}"><label>Opacidad <input type="range" min="0" max="255" value="${a}" style="width:110px"> <span></span></label>
+    <input class="hex" value="${esc(inp.value)}" style="width:110px;padding:2px 5px;border:1px solid var(--line);border-radius:5px;background:var(--bg)">
+    <div class="row"><button type="button" class="btn small primary">Aceptar</button><button type="button" class="btn small">Cancelar</button></div>`;
+  document.body.appendChild(box);
+  const r = (anchor || inp).getBoundingClientRect();
+  box.style.left = Math.min(r.left, innerWidth - 220) + 'px'; box.style.top = Math.min(r.bottom + 4, innerHeight - 230) + 'px';
+  const [col, rng] = box.querySelectorAll('input'), hex = box.querySelector('.hex'), pct = box.querySelector('span');
+  const val = () => (col.value + (+rng.value).toString(16).padStart(2, '0')).toUpperCase();
+  const show = () => { hex.value = val(); pct.textContent = Math.round(rng.value / 2.55) + ' %'; };
+  col.oninput = rng.oninput = show; show();
+  hex.oninput = () => { const k = /^#?([0-9a-f]{6})([0-9a-f]{2})?$/i.exec(hex.value.trim()); if (k) { col.value = '#' + k[1].toLowerCase(); rng.value = k[2] ? parseInt(k[2], 16) : 255; pct.textContent = Math.round(rng.value / 2.55) + ' %'; } };
+  const [ok, cancel] = box.querySelectorAll('button');
+  ok.onclick = () => {
+    const v = /^#[0-9a-f]{8}$/i.test(hex.value.trim()) ? hex.value.trim().toUpperCase() : val();
+    inp.value = v; inp.dispatchEvent(new Event('input', { bubbles: true })); inp.dispatchEvent(new Event('change', { bubbles: true }));
+    const sw = inp.parentElement && inp.parentElement.querySelector('[data-colpick]'); if (sw) sw.style.background = v.slice(0, 7);
+    box.remove();
+  };
+  cancel.onclick = () => box.remove();
+}
+document.addEventListener('click', e => {
+  const sw = e.target.closest('[data-colpick]');
+  if (sw) { const inp = sw.parentElement.querySelector('input[data-color], input'); if (inp && !inp.disabled) openColorPicker(inp, sw); return; }
+  const inp = e.target.closest('input[data-color]'); if (inp && !inp.disabled) openColorPicker(inp);
+});
+
+// ------------------------------------------------------------------ tipos de terreno (TerrainType de sharedData)
+const TERR_FIELDS = [['nFoodProductionPenaltyPct', 'Penalización a la comida (%)'], ['nMoveSpeedPenaltyPct', 'Penalización al movimiento (%)'], ['nCombatDefenderResistBonus', 'Bonificación al defensor']];
+const SEASON_ES = { Spring: 'Primavera', Summer: 'Verano', Fall: 'Otoño', Winter: 'Invierno' };
+async function terrainSection(d) {
+  const [r, tc] = await Promise.all([api('/api/scen/terrains?name=' + encodeURIComponent(S.scen)), api('/api/scen/terrain_colors?name=' + encodeURIComponent(S.scen))]);
+  const t = (r.terrains || []).find(x => x.id === d.id); if (!t || !$('#right')) return;
+  const tcol = (tc.colors || {})[t.name] || '';
+  const others = r.terrains.filter(x => x.id !== t.id).map(x => x.name);
+  const cell = (k, f, v) => `<td><input data-tf="${k}|${f}" data-orig="${esc(v)}" value="${esc(v)}" type="number" style="width:70px"></td>`;
+  let h = `<div class="sec" id="terrSec"><h3>Terreno ${esc(t.name)} · ${t.regions} regiones</h3>
+    ${t.shared ? '<div class="note err">Este terreno está en un archivo compartido de ScenarioDefaults: al guardar se te preguntará si cambiar los defaults o guardar como escenario nuevo.</div>' : ''}
+    <div class="grid"><label>Nombre visible</label><input id="tDisp" value="${esc(t.display)}" data-orig="${esc(t.display)}">
+    <label>Penalización a mejorar la región</label><input id="tUp" type="number" value="${esc(t.upgrade_penalty)}" data-orig="${esc(t.upgrade_penalty)}">
+    <label>Color en el mapa «Terreno»</label>${tc.active ? `<div class="row" style="flex-wrap:nowrap"><input id="tCol" data-color="1" value="${esc(tcol)}" placeholder="#RRGGBBAA" style="width:120px">
+      <span data-colpick="1" style="width:22px;height:22px;flex:none;cursor:pointer;border-radius:4px;border:1px solid var(--line);background:${esc(tcol.slice(0, 7) || '#fff')}"></span>
+      <button class="btn small" id="tColGo" title="Escribe ahora DisplayLibraries/MapViews/UnifiedMapViews.xml del juego">Guardar en el juego</button></div>` : '<div class="muted">—</div>'}
+    <div class="hint muted">${esc(tc.note || '')}</div></div>
+    <table class="mini"><tr><th></th><th>Siempre</th>${Object.keys(SEASON_ES).map(s => `<th>${SEASON_ES[s]}</th>`).join('')}</tr>` +
+    TERR_FIELDS.map(([f, l]) => `<tr><td>${esc(l)}</td>${cell('base', f, (t.base || {})[f] ?? '0')}${Object.keys(SEASON_ES).map(s => cell(s, f, ((t.seasons || {})[s] || {})[f] ?? '0')).join('')}</tr>`).join('') +
+    `</table><div class="muted">«Siempre»: datos base del terreno (TerrainBaseData); cada estación tiene los suyos (TerrainSeasonData). Las regiones usan el terreno por su nombre (strTerrain).</div>
+    <div class="row" style="margin-top:6px"><button class="btn primary" id="tApply">Aplicar</button>
+      <span class="muted">Quitar y pasar sus regiones a</span><select id="tTo">${optList(others, others.includes('Plains') ? 'Plains' : others[0])}</select><button class="btn danger" id="tDel">Quitar terreno</button></div></div>`;
+  $('#right').querySelector('h2').nextElementSibling.insertAdjacentHTML('afterend', h);
+  $('#tApply').onclick = async () => {
+    const data = { id: d.id, base: {}, seasons: {} };
+    document.querySelectorAll('#terrSec [data-tf]').forEach(i => { if (i.value !== i.dataset.orig) { const [k, f] = i.dataset.tf.split('|'); if (k === 'base') data.base[f] = i.value; else (data.seasons[k] = data.seasons[k] || {})[f] = i.value; } });
+    if ($('#tDisp').value !== $('#tDisp').dataset.orig) data.display = $('#tDisp').value;
+    if ($('#tUp').value !== $('#tUp').dataset.orig) data.upgrade_penalty = $('#tUp').value;
+    const x = await api('/api/scen/terrain', { name: S.scen, ...data }); if (x.error) return alert(x.error);
+    setDirty(x.dirty); refreshList(); const nd = await api('/api/scen/obj?id=' + d.id); S.obj = nd; renderObj(nd, { text: x.notes.join('; ') + '. Falta «Guardar».' });
+  };
+  if ($('#tColGo')) $('#tColGo').onclick = async () => {
+    const c = $('#tCol').value.trim();
+    if (!confirm(`¿Guardar el color ${c} de ${t.name} en el archivo del juego UnifiedMapViews.xml? Afecta a todos los escenarios.`)) return;
+    const x = await api('/api/scen/terrain_color', { name: S.scen, terrain: t.name, color: c }); if (x.error) return alert(x.error);
+    note(x.notes.join('; '));
+  };
+  $('#tDel').onclick = async () => {
+    if (!confirm(`¿Quitar el terreno ${t.name}?` + (t.regions ? ` Sus ${t.regions} regiones pasan a ${$('#tTo').value}.` : ''))) return;
+    const x = await api('/api/scen/terrain_delete', { name: S.scen, id: d.id, to: $('#tTo').value }); if (x.error) return alert(x.error);
+    setDirty(x.dirty); refreshList(); LY.data = null; $('#right').innerHTML = `<div class="note">${esc(x.notes.join('; '))}. Falta «Guardar».</div>`;
+  };
+}
+
+// ------------------------------------------------------------------ culturas (CultureTemplate)
+async function cultureSection(d) {
+  const r = await api('/api/scen/cultures?name=' + encodeURIComponent(S.scen));
+  const c = (r.cultures || []).find(x => x.id === d.id); if (!c || !$('#right')) return;
+  const others = r.cultures.filter(x => x.id !== c.id).map(x => x.name);
+  $('#right').querySelector('h2').nextElementSibling.insertAdjacentHTML('afterend', `<div class="sec" id="culSec"><h3>Cultura ${esc(c.name)} · ${c.regions} regiones</h3>
+    <div>Naciones que la tienen en su conjunto de culturas: ${esc(c.nations.join(', ') || '—')}</div>
+    ${c.shared ? '<div class="note err">Está en un archivo compartido de ScenarioDefaults: al guardar se te preguntará si cambiar los defaults o guardar como escenario nuevo.</div>' : ''}
+    <div class="row" style="margin-top:6px"><button class="btn small" id="culMap">Ver en el mapa</button>
+      <span class="muted">Quitar y pasar sus regiones a</span><select id="culTo">${optList(others, others[0])}</select><button class="btn danger" id="culDel">Quitar cultura</button></div></div>`);
+  $('#culMap').onclick = () => { $('#layer').value = 'culture'; showRight('map'); setTimeout(() => { fillLayerValues(); $('#layerVal').value = c.name; sendOverlay(); }, 300); };
+  $('#culDel').onclick = async () => {
+    if (!confirm(`¿Quitar la cultura ${c.name}?` + (c.regions ? ` Sus ${c.regions} regiones pasan a ${$('#culTo').value}.` : ''))) return;
+    const x = await api('/api/scen/culture_delete', { name: S.scen, id: d.id, to: $('#culTo').value }); if (x.error) return alert(x.error);
+    setDirty(x.dirty); refreshList(); LY.data = null; $('#right').innerHTML = `<div class="note">${esc(x.notes.join('; '))}. Falta «Guardar».</div>`;
+  };
+}
+
+// ------------------------------------------------------------------ alcance de los bombarderos en el mapa
+const BOMB = { ranges: null };
+async function sendRings() {
+  if (!$('#bombRange').checked) return frameMsg({ cmd: 'rings', rings: [] });
+  if (!BOMB.ranges) BOMB.ranges = (await api('/api/scen/air_ranges?name=' + encodeURIComponent(S.scen))).ranges || [];
+  if (!LY.points) LY.points = (await api('/api/scen/points?name=' + encodeURIComponent(S.scen))).points || [];
+  const pos = new Map(LY.points.filter(p => p.kind === 'air').map(p => [p.id, p]));
+  const sel = S.obj && S.obj.type === 'AirForce' ? S.obj.id : null;
+  const list = BOMB.ranges.filter(r => pos.has(r.id) && (!sel || r.id === sel));
+  const rings = list.map(r => { const p = pos.get(r.id); return { x: p.x, y: p.y, miles: r.range, label: `${p.label}: ${r.range} millas (${r.units.join(', ')})`, strong: r.id === sel }; });
+  frameMsg({ cmd: 'rings', rings });
+  const air = document.querySelector('[data-pt="air"]'); if (air && !air.checked) { air.checked = true; sendPoints(); }
+  note(sel ? (list.length ? `Alcance de bombardeo: ${rings[0].label}` : 'Esta fuerza aérea no tiene bombarderos') : `${rings.length} fuerzas aéreas con bombarderos (elige una para ver solo la suya)`);
 }
 
 // ------------------------------------------------------------------ crear ciudad / recurso / ejército (como «Add» de ed.exe)
@@ -1073,28 +1581,39 @@ async function newObject(kind, preset = {}) {
     <label>Nombre visible</label><input id="noDisplay" placeholder="p. ej. Villa Cisneros">
     <label>IPUs</label><input id="noIpus" type="number" min="0" value="1">
     <label>Población</label><input id="noPop" type="number" min="0" value="10000">${pos}
-    <label>Puerto (mar)</label><select id="noPort"><option value="">(sin puerto)</option>${opts(info.sea)}</select>`;
+    <label>Capital</label><label><input type="checkbox" id="noCap"> Es la capital de su país</label>
+    <label>Puerto (mar)</label><select id="noPort"><option value="">(sin puerto)</option>${opts(info.sea)}</select>
+    <label>Región</label><select id="noCityReg"><option value="">(la que contiene el punto)</option><optgroup label="Tierra">${opts(info.land)}</optgroup><optgroup label="Mar">${opts(info.sea)}</optgroup></select>
+    <label>País</label><select id="noCityOwner"><option value="">(dueño de la región)</option>${opts(info.countries)}</select>`;
   if (kind === 'producer') body.innerHTML = `<label>Nombre</label><input id="noName" placeholder="p. ej. Anatolia Mines">
     <label>Recurso</label><select id="noRes">${opts(info.resources)}</select>
     <label>Producción base</label><input id="noOut" type="number" min="0" value="3">${pos}`;
+  const armyUnits = info.army && info.army.length ? info.army : info.units;   // solo unidades terrestres
   if (kind === 'army') body.innerHTML = `<label>País</label><select id="noOwner">${opts(info.countries)}</select>
     <label>Nombre</label><input id="noName" placeholder="p. ej. 2nd Army">
     <label>Región</label><input id="noRegion" list="noRegions" placeholder="región de tierra o de mar"><datalist id="noRegions">${opts(info.land.concat(info.sea))}</datalist>
     <label>Unidades</label><div id="noUnits"></div>`;
   const addRow = (t, n) => { const d = document.createElement('div'); d.className = 'row'; d.style.flexWrap = 'nowrap';
-    d.innerHTML = `<select>${opts(info.units)}</select><input type="number" min="1" value="${n || 1}" style="width:70px"><button type="button" class="btn small">×</button>`;
+    d.innerHTML = `<select>${opts(armyUnits)}</select><input type="number" min="1" value="${n || 1}" style="width:70px"><button type="button" class="btn small">×</button>`;
     if (t) d.querySelector('select').value = t; d.querySelector('button').onclick = () => d.remove(); $('#noUnits').appendChild(d); };
   if (kind === 'army') { addRow(); const b = document.createElement('button'); b.type = 'button'; b.className = 'btn small'; b.textContent = '＋ Añadir unidad'; b.onclick = () => addRow(); $('#noUnits').after(b); }
-  const FIELDS = ['noName', 'noDisplay', 'noIpus', 'noPop', 'noOut'];
+  const FIELDS = ['noName', 'noDisplay', 'noIpus', 'noPop', 'noOut', 'noCityReg', 'noCityOwner'];
+  if (kind === 'city') {         // el nombre visible copia el interno mientras no se cambie a mano
+    $('#noName').oninput = () => { if (!$('#noDisplay').dataset.touched) $('#noDisplay').value = $('#noName').value; };
+    $('#noDisplay').oninput = () => { $('#noDisplay').dataset.touched = $('#noDisplay').value && $('#noDisplay').value !== $('#noName').value ? '1' : ''; };
+    $('#noPop').title = 'Habitantes de la ciudad (los de la región son aparte: nPopulation de la región)';
+  }
   for (const id of FIELDS) if ($('#' + id) && preset['_' + id] != null) $('#' + id).value = preset['_' + id];   // lo ya escrito antes de elegir el punto
   const upd = async () => {
     if (kind === 'army') return;
     const x = $('#noX').value, y = $('#noY').value; if (x === '' || y === '') { $('#noInfo').textContent = ''; return; }
     const r = await api('/api/scen/region_at', { name: S.scen, x, y });
-    $('#noInfo').innerHTML = r.error ? `<span class="err-t">${esc(r.error)}</span>` : `Región: <b>${esc(r.region)}</b> · país: <b>${esc(r.owner)}</b>`;
+    const chosen = ($('#noCityReg') || {}).value;
+    $('#noInfo').innerHTML = (r.error ? `<span class="err-t">${esc(r.error)}</span>` : `Región: <b>${esc(r.region)}</b> · país: <b>${esc(r.owner)}</b>`)
+      + (chosen && chosen !== r.region ? ` <span class="err-t">· el punto queda fuera de ${esc(chosen)} (se permite)</span>` : '');
   };
   if (kind !== 'army') {
-    $('#noX').oninput = $('#noY').oninput = upd;
+    $('#noX').oninput = $('#noY').oninput = upd; if ($('#noCityReg')) $('#noCityReg').onchange = upd;
     $('#noPick').onclick = () => {
       for (const id of FIELDS) if ($('#' + id)) preset['_' + id] = $('#' + id).value;
       dlg.close('pick');
@@ -1109,7 +1628,8 @@ async function newObject(kind, preset = {}) {
   }
   if (ok !== 'ok') return;
   const b = { name: S.scen, kind, obj_name: ($('#noName') || {}).value };
-  if (kind === 'city') Object.assign(b, { x: $('#noX').value, y: $('#noY').value, ipus: +$('#noIpus').value || 0, population: +$('#noPop').value || 0, display: $('#noDisplay').value, port: $('#noPort').value });
+  if (kind === 'city') Object.assign(b, { x: $('#noX').value, y: $('#noY').value, ipus: +$('#noIpus').value || 0, population: +$('#noPop').value || 0, display: $('#noDisplay').value, port: $('#noPort').value,
+    region: $('#noCityReg').value, owner: $('#noCityOwner').value, capital: $('#noCap').checked });
   if (kind === 'producer') Object.assign(b, { x: $('#noX').value, y: $('#noY').value, resource: $('#noRes').value, output: +$('#noOut').value || 0 });
   if (kind === 'army') Object.assign(b, { owner: $('#noOwner').value, region: $('#noRegion').value.trim(),
     units: [...$('#noUnits').querySelectorAll('.row')].map(r => ({ type: r.querySelector('select').value, n: +r.querySelector('input').value || 0 })) });
@@ -1141,18 +1661,32 @@ async function newGeneric(kind) {
   let help = '', build, after = () => {};
   const title = NEW_KINDS[S.tab][1];
   if (kind === 'country') {
-    help = 'Crea countryNombre.xml y playerNombre.xml copiando una nación pequeña como plantilla, los registra en game.xml y añade su jugador a gamestate.xml. Sin regiones queda como nación rendida.';
+    help = 'Crea countryNombre.xml y playerNombre.xml con los valores de una nación nueva (o copiando otra como plantilla), los registra en game.xml y añade su jugador a gamestate.xml. Sin regiones queda como nación rendida.';
     B.innerHTML = `<label>Nombre del país</label><input id="gnName" placeholder="p. ej. Patagonia">
-      <label>Plantilla (nación sin regiones ni unidades)</label><select id="gnTpl">${o(info.templates, info.templates.includes('Tibet') ? 'Tibet' : info.templates[0])}</select>
+      <label>Plantilla</label><select id="gnTpl"><option value="" selected>(ninguna: nación nueva por defecto)</option>${o(info.templates)}</select>
       <label>Tipo</label><select id="gnType"><option value="Minor">Menor (no jugable)</option><option value="Major">Mayor (no jugable)</option><option value="Playable">Jugable</option></select>
-      <label>Gobierno</label><select id="gnGov"><option value="">(el de la plantilla)</option>${o(info.govs)}</select>
+      <label>Gobierno</label><select id="gnGov">${o(info.govs, 'Democratic')}</select>
       <label>Color</label><input id="gnColor" type="color" value="#4a90d9">
-      <label>Bandera (CountryArt)</label><input id="gnFlag" placeholder="(la de la plantilla)">
+      <label>Bandera (CountryArt)</label><input id="gnFlag" placeholder="(el nombre del país)">
       <label>Regiones que recibe</label><input id="gnRegs" list="gnRegDl" placeholder="Región1, Región2 (opcional)"><datalist id="gnRegDl">${o(info.land)}</datalist>
-      <label>Capital (ciudad)</label><input id="gnCap" list="gnCapDl" placeholder="(opcional)"><datalist id="gnCapDl">${info.cities.map(c => `<option>${esc(c.name)}</option>`).join('')}</datalist>
+      <label>Capital</label><div><label><input type="radio" name="gnCapMode" value="new" checked> Crear ciudad nueva</label>
+        <label><input type="radio" name="gnCapMode" value="old"> Ciudad existente</label> <label><input type="radio" name="gnCapMode" value="none"> Sin capital</label></div>
+      <label class="gnCapOld">Ciudad</label><input class="gnCapOld" id="gnCap" list="gnCapDl" placeholder="nombre de una ciudad del escenario"><datalist id="gnCapDl">${info.cities.map(c => `<option>${esc(c.name)}</option>`).join('')}</datalist>
+      <label class="gnCapNew">Nombre interno</label><input class="gnCapNew" id="gnCapName" placeholder="p. ej. Pristina">
+      <label class="gnCapNew">Nombre visible</label><input class="gnCapNew" id="gnCapDisp" placeholder="(el nombre interno)">
+      <label class="gnCapNew">Región de la capital</label><input class="gnCapNew" id="gnCapReg" list="gnRegDl" placeholder="(la primera de las que recibe)">
+      <label class="gnCapNew">Población / IPUs</label><div class="gnCapNew row" style="flex-wrap:nowrap"><input id="gnCapPop" type="number" min="3" value="100000" style="width:60%"><input id="gnCapIpus" type="number" min="0" value="5" style="width:40%"></div>
       <label>Descripción</label><textarea id="gnDesc" rows="3" placeholder="Texto de la nación en el menú (opcional)"></textarea>`;
+    const capMode = () => document.querySelector('input[name=gnCapMode]:checked').value;
+    const capShow = () => { B.querySelectorAll('.gnCapOld').forEach(e => { e.style.display = capMode() === 'old' ? '' : 'none'; });
+      B.querySelectorAll('.gnCapNew').forEach(e => { e.style.display = capMode() === 'new' ? '' : 'none'; }); };
+    B.querySelectorAll('input[name=gnCapMode]').forEach(r => { r.onchange = capShow; }); capShow();
+    $('#gnCapName').oninput = () => { $('#gnCapDisp').placeholder = $('#gnCapName').value || '(el nombre interno)'; };
+    $('#gnName').oninput = () => { $('#gnFlag').placeholder = $('#gnName').value || '(el nombre del país)'; };     // bandera = nombre del país
     build = () => ['/api/scen/create', { kind: 'country', obj_name: v('gnName'), template: v('gnTpl'), ctype: v('gnType'), gov: v('gnGov'), color: v('gnColor'),
-      flag: v('gnFlag'), regions: csv($('#gnRegs').value), capital: v('gnCap'), description: $('#gnDesc').value }];
+      flag: v('gnFlag') || v('gnName'), regions: csv($('#gnRegs').value), capital: capMode() === 'old' ? v('gnCap') : '', description: $('#gnDesc').value,
+      new_capital: capMode() === 'new' && v('gnCapName') ? { name: v('gnCapName'), display: v('gnCapDisp') || v('gnCapName'), region: v('gnCapReg'),
+        population: +$('#gnCapPop').value || 100000, ipus: +$('#gnCapIpus').value || 0 } : null }];
     after = async () => { S.opts = await api('/api/scen/options?name=' + encodeURIComponent(S.scen)); $('#dl-nations').innerHTML = (S.opts.strOwner || []).map(x => `<option value="${esc(x)}">`).join(''); };
   } else if (kind === 'fleet') {
     help = 'Flota en una región de mar o en puerto (región de tierra del mismo dueño con una ciudad con puerto). Solo unidades navales.';
@@ -1161,6 +1695,19 @@ async function newGeneric(kind) {
       <label>Unidades</label>${unitsHtml}`;
     unitRow(info.navy); $('#gnAddU').onclick = () => unitRow(info.navy);
     build = () => ['/api/scen/create', { kind: 'fleet', owner: v('gnOwner'), obj_name: v('gnName'), region: v('gnReg'), units: units() }];
+  } else if (kind === 'airforce') {
+    help = 'Fuerza aérea en una región de tierra o de mar. Solo unidades aéreas.';
+    B.innerHTML = `<label>País</label>${cs('gnOwner')}<label>Nombre</label><input id="gnName" placeholder="p. ej. 2nd Air Force">
+      <label>Región</label><input id="gnReg" list="gnRegDl" placeholder="región de tierra o de mar"><datalist id="gnRegDl">${o(info.land.concat(info.sea))}</datalist>
+      <label>Unidades</label>${unitsHtml}`;
+    unitRow(info.air); $('#gnAddU').onclick = () => unitRow(info.air);
+    build = () => ['/api/scen/create', { kind: 'airforce', owner: v('gnOwner'), obj_name: v('gnName'), region: v('gnReg'), units: units() }];
+  } else if (kind === 'govtype') {
+    help = 'Ideología nueva: copia las reglas de otra y cambia nombre, color e icono. El nombre visible va al stringTable del escenario.';
+    B.innerHTML = `<label>Nombre interno</label><input id="gnName" placeholder="p. ej. Monarchist"><label>Nombre visible</label><input id="gnDisp">
+      <label>Color</label><input id="gnCol" type="color" value="#9966cc"><label>Icono (strIconName)</label><input id="gnIcon" placeholder="(el de la ideología copiada)">
+      <label>Copiar reglas de</label><select id="gnBase">${o(info.govs)}</select>`;
+    build = () => ['/api/scen/create', { kind: 'govtype', obj_name: v('gnName'), display: v('gnDisp'), color: v('gnCol'), icon: v('gnIcon'), base: v('gnBase') }];
   } else if (kind === 'alliance') {
     help = 'Alianza nueva con su líder y sus miembros (un país solo puede estar en una alianza: sale de la anterior).';
     B.innerHTML = `<label>Nombre</label><input id="gnName" placeholder="p. ej. Pacto del Pacífico"><label>Líder</label>${cs('gnLead')}<label>Miembros</label><div>${multi('gnMem')}</div>`;
@@ -1185,28 +1732,75 @@ async function newGeneric(kind) {
     B.innerHTML = `<label>País A</label>${cs('gnA')}<label>País B</label>${cs('gnB')}<label>Valor</label><input id="gnVal" type="number" min="0" max="1000" value="500">`;
     build = () => (v('gnA') === v('gnB') ? null : ['/api/scen/bulk', { action: 'dip', pairs: [{ a: v('gnA'), b: v('gnB'), value: v('gnVal') }] }]);
   } else if (kind === 'event') {
-    help = 'Evento de sharedDataEvents.xml (se crea si no existe).';
-    B.innerHTML = `<label>Tipo</label><select id="gnEv"><option value="war">Guerra por fecha</option><option value="embargo">Embargo comercial</option><option value="protect">Protección de un aliado</option></select>
+    help = 'Plantillas de eventos (se guardan en sharedDataEvents.xml). Los de una sola vez abren una ventana: la IA elige sola y el jugador ve el título y los botones.';
+    CI = info; CI.scen = S.scen;
+    B.innerHTML = `<label>Plantilla</label><select id="gnEv">
+        <option value="decision">Decisión con elecciones (ventana con botones)</option>
+        <option value="gov">Cambiar la ideología de un país</option><option value="resource">Ayuda de recursos</option>
+        <option value="embargo">Embargo comercial</option><option value="war1">Guerra programada (una vez; el jugador elige en una ventana)</option>
+        <option value="independence">Crear o liberar un país</option><option value="units">Crear unidades</option>
+        <option value="liberate">Estado aliado de la misma ideología (al conquistar)</option><option value="culture">Cambiar la cultura étnica de regiones (experimental)</option>
+        <option value="war">Guerra por fecha (se repite hasta que haya guerra)</option><option value="protect">Protección de un aliado (si lo atacan, guerra o embargo)</option></select>
       <div id="gnEvF" style="grid-column:1/-1" class="grid"></div>`;
+    const nCh = () => $('#gnChoices').children.length;
+    const addChoice = () => {
+      const i = nCh() + 1, p = 'gnC' + i + '_', d = document.createElement('div'); d.className = 'sec'; d.style.gridColumn = '1/-1';
+      d.innerHTML = `<b>Elección ${i}</b><div class="grid"><label>Botón</label><input id="${p}title" placeholder="p. ej. Aceptar el ultimátum"><label>Explicación</label><input id="${p}desc">
+        <label>Efecto</label><select id="${p}type">${EFF_TYPES.map(([k, l]) => `<option value="${k}">${esc(l)}</option>`).join('')}</select><div id="${p}f" class="grid" style="grid-column:1/-1;margin:0"></div></div>`;
+      $('#gnChoices').appendChild(d);
+      const sync = () => { $('#' + p + 'f').innerHTML = effFields(p, $('#' + p + 'type').value); }; $('#' + p + 'type').onchange = sync; sync();
+      $('#gnAiC').innerHTML = [...Array(nCh())].map((_, k) => `<option value="${k}">elección ${k + 1}</option>`).join('');
+    };
     const draw = () => {
-      const k = v('gnEv'), F = $('#gnEvF');
+      const k = v('gnEv'), F = $('#gnEvF'), owner = `<label>País del evento</label>${cs('gnOwner')}`;
+      const texts = '<label>Título de la ventana</label><input id="gnTitle" placeholder="(automático)"><label>Texto</label><textarea id="gnText" rows="2" placeholder="(opcional)"></textarea>';
+      const fixed = { gov: 'gov', resource: 'resource', embargo: 'embargo', war1: 'war', independence: 'independence', units: 'units', culture: 'culture' }[k];
       if (k === 'war') F.innerHTML = `<label>Atacante</label>${cs('gnAtt')}<label>Objetivos</label><div>${multi('gnTo')}</div><label>Fecha (MM/DD/AAAA)</label><input id="gnDate" placeholder="03/01/1940"><label>Probabilidad por turno (%)</label><input id="gnPct" type="number" value="80">`;
-      if (k === 'embargo') F.innerHTML = `<label>Origen</label>${cs('gnAtt')}<label>Objetivos</label><div>${multi('gnTo')}</div><label>Turno</label><input id="gnTurn" type="number" min="1" value="1">`;
-      if (k === 'protect') F.innerHTML = `<label>Protector</label>${cs('gnPro')}<label>Protegido</label>${cs('gnPrd')}<label>Agresor</label>${cs('gnAgg')}<label>Reacción</label><select id="gnRea"><option value="war">declarar la guerra</option><option value="embargo">embargar</option></select><label>Probabilidad por turno (%)</label><input id="gnPct" type="number" value="30">`;
+      else if (k === 'protect') F.innerHTML = `<label>Protector</label>${cs('gnPro')}<label>Protegido</label>${cs('gnPrd')}<label>Agresor</label>${cs('gnAgg')}<label>Reacción</label><select id="gnRea"><option value="war">declarar la guerra</option><option value="embargo">embargar</option></select><label>Probabilidad por turno (%)</label><input id="gnPct" type="number" value="30">`;
+      else if (k === 'liberate') F.innerHTML = `<label>Ideología</label><select id="gnGov">${o(info.govs)}</select><div class="hint muted">Copia la decisión «GENERIC_DemocraticLiberateCountryDecision»: al conquistar la capital histórica de un país liberable, un país de esta ideología puede crearlo como aliado con su misma ideología.</div>`;
+      else if (k === 'decision') {
+        F.innerHTML = owner + texts + whenFields() + `<div id="gnChoices" style="grid-column:1/-1"></div><label></label><button type="button" class="btn small" id="gnAddC">＋ Añadir elección</button>
+          <label>La IA elige</label><div class="row"><select id="gnAiC"></select> con <input id="gnAiP" type="number" value="100" style="width:60px"> %</div>`;
+        $('#gnAddC').onclick = () => { if (nCh() < 4) addChoice(); }; addChoice(); addChoice();
+      } else F.innerHTML = owner + `<div class="grid" id="gnEff" style="grid-column:1/-1;margin:0">${effFields('gnE_', fixed)}</div>` + whenFields() + texts +
+        (k === 'war1' || k === 'embargo' ? `<label>Si lo juega una persona</label><label><input type="checkbox" id="gnAsk" checked> preguntarle en una ventana si lo hace (botones Sí / No)</label>
+          <label>Si lo juega la IA</label><div class="row">lo hace con <input id="gnAskP" type="number" min="0" max="100" value="100" style="width:60px"> % de probabilidad</div>` : '');
+      if ($('#gnWm')) bindWhen();
     };
     $('#gnEv').onchange = draw; draw();
     build = () => {
       const k = v('gnEv');
       if (k === 'war') return ['/api/scen/bulk', { action: 'war_event', attacker: v('gnAtt'), defenders: sel('gnTo'), date: v('gnDate'), pct: +v('gnPct') || 80 }];
-      if (k === 'embargo') return ['/api/scen/bulk', { action: 'embargo', origin: v('gnAtt'), targets: sel('gnTo'), turn: +v('gnTurn') || 1 }];
-      return ['/api/scen/bulk', { action: 'protect', protector: v('gnPro'), protected: v('gnPrd'), aggressor: v('gnAgg'), reaction: v('gnRea'), pct: +v('gnPct') || 30 }];
+      if (k === 'protect') return ['/api/scen/bulk', { action: 'protect', protector: v('gnPro'), protected: v('gnPrd'), aggressor: v('gnAgg'), reaction: v('gnRea'), pct: +v('gnPct') || 30 }];
+      if (k === 'liberate') return ['/api/scen/event_template', { kind: 'liberate', gov: v('gnGov') }];
+      const base = { owner: v('gnOwner'), title: v('gnTitle'), text: $('#gnText').value, pct: +v('gnPct') || 100, ...whenRead() };
+      if (k === 'decision') return ['/api/scen/event_template', { kind: 'decision', ...base, ai_choice: +v('gnAiC') || 0, ai_pct: +v('gnAiP') || 0,
+        choices: [...Array(nCh())].map((_, i) => { const p = 'gnC' + (i + 1) + '_'; return { title: v(p + 'title'), desc: v(p + 'desc'), effects: [effRead(p, v(p + 'type'))] }; }) }];
+      const kind = k === 'war1' ? 'war' : k;
+      const ask = $('#gnAsk') && $('#gnAsk').checked ? { ask: true, ai_pct: +v('gnAskP') } : {};
+      return ['/api/scen/event_template', { kind, ...base, ...ask, effect: effRead('gnE_', kind) }];
     };
+  } else if (kind === 'culture') {
+    help = 'Cultura (etnia) nueva: CultureTemplate de sharedDataCultureTemplates.xml; el nombre visible va al stringTable del escenario. Después asígnala a regiones (capa «Etnia» del mapa o la ficha de la región).';
+    B.innerHTML = `<label>Nombre interno</label><input id="gnName" placeholder="p. ej. Patagonian"><label>Nombre visible</label><input id="gnDisp" placeholder="p. ej. Patagónica">`;
+    build = () => ['/api/scen/culture', { culture: v('gnName'), display: v('gnDisp') || v('gnName') }];
+    after = async () => { S.opts = await api('/api/scen/options?name=' + encodeURIComponent(S.scen)); };
+  } else if (kind === 'terrain') {
+    help = 'Tipo de terreno nuevo (TerrainType de sharedData.xml): copia las penalizaciones de otro; después ajústalas por estación en su ficha. El nombre visible va al stringTable del escenario.';
+    B.innerHTML = `<label>Nombre interno</label><input id="gnName" placeholder="p. ej. Swamp"><label>Nombre visible</label><input id="gnDisp" placeholder="p. ej. Pantano">
+      <label>Copiar de</label><select id="gnBase">${o(info.terrains || [], 'Forest')}</select>`;
+    build = () => ['/api/scen/terrain', { terrain: v('gnName'), display: v('gnDisp') || v('gnName'), copy_from: v('gnBase') }];
   } else if (kind.startsWith('copy-')) {
     const what = kind.slice(5), list = { units: info.units, outputs: info.outputs, research: info.research }[what];
     help = { units: 'Copia una plantilla de unidad con otro nombre. Si lo marcas, copia también su producción, su proyecto de investigación y sus sprites; después edítala en la pestaña.',
       outputs: 'Copia una producción de fábrica con otro nombre; después edítala en la pestaña.', research: 'Copia un proyecto de investigación con otro nombre; después edítalo en la pestaña.' }[what];
     B.innerHTML = `<label>Copiar de</label><select id="gnSrc">${o(list)}</select><label>Nombre nuevo (sin espacios)</label><input id="gnName" placeholder="p. ej. HeavyMilitia">
       <label>Texto visible</label><input id="gnDisp" placeholder="(igual que el nombre)">` + (what === 'units' ? '<label>Producción, investigación y sprites</label><label><input type="checkbox" id="gnBun" checked> copiarlos también</label>' : '');
+    if (what === 'units') {      // primero el tipo de unidad (terrestre, naval, aérea): la lista «Copiar de» muestra solo las de ese tipo
+      B.insertAdjacentHTML('afterbegin', `<label>Tipo de unidad</label><select id="gnUType"><option value="army">Terrestre (ejército)</option><option value="navy">Naval (flota)</option><option value="air">Aérea (fuerza aérea)</option></select>`);
+      $('#gnUType').onchange = () => { const xs = info[$('#gnUType').value] || []; $('#gnSrc').innerHTML = o(xs.length ? xs : info.units); };
+      $('#gnUType').onchange();
+    }
     build = () => ['/api/scen/create', { kind: 'copy', what, source: v('gnSrc'), obj_name: v('gnName'), display: v('gnDisp'), bundle: what === 'units' ? $('#gnBun').checked : false }];
   }
   $('#gnTitle').textContent = title; $('#gnHelp').textContent = help; $('#gnErr').textContent = '';
@@ -1228,8 +1822,15 @@ async function newGeneric(kind) {
   note((done.notes || []).join('; ') + '. Falta «Guardar».');
 }
 
-async function movePoint(id, x, y) {
-  const r = await api('/api/scen/move_point', { name: S.scen, id, x, y });
+async function movePoint(id, x, y, keep) {
+  const r = await api('/api/scen/move_point', { name: S.scen, id, x, y, keep });
+  if (r.ask) {      // el punto cae en otra región: ¿pasa a depender de ella?
+    const a = r.ask, go = confirm(`El punto cae en «${a.to}»${a.owner ? ' (' + a.owner + ')' : ''}.
+
+Aceptar: la ciudad pasa a depender de «${a.to}».
+Cancelar: sigue dependiendo de «${a.from}» aunque esté fuera.`);
+    return movePoint(id, x, y, !go);
+  }
   if (r.error) { note(r.error, true); }
   else { setDirty(r.dirty); note(r.notes.join('; ') + '. Falta «Guardar».'); }
   LY.points = null; sendPoints();
@@ -1237,6 +1838,25 @@ async function movePoint(id, x, y) {
 
 // ------------------------------------------------------------------ guardar, revertir, validar
 $('#scen').onchange = e => e.target.value && openScenario(e.target.value);
+$('#openScenDir').onclick = async () => { if (!S.scen) return alert('Abre un escenario primero'); const r = await api('/api/scen/open_folder', { scenario: S.scen }); if (r.error) alert(r.error); };
+$('#openPackDir').onclick = async () => { const r = await api('/api/scen/open_folder', { pack: S.pack || $('#pack').value }); if (r.error) alert(r.error); };
+$('#selRegs').onclick = async () => {      // selección de regiones en el mapa (una o varias)
+  if (!S.scen) return alert('Abre un escenario primero');
+  if ($('#multi').checked) { $('#multi').checked = false; $('#multi').onchange(); $('#selRegs').classList.remove('on'); return; }   // segundo clic: cerrar
+  if (rview !== 'map') showRight('map');
+  if (!LY.data) await loadLayerData();
+  $('#multiKind').value = 'regions'; $('#multi').checked = true; $('#multi').onchange(); $('#selRegs').classList.add('on');
+};
+$('#newScen').onclick = async () => {
+  const info = await api('/api/pack/info'), dlg = $('#nsDlg');
+  $('#nsPack').innerHTML = (info.packs || [info.pack]).map(p => `<option>${esc(p)}</option>`).join(''); $('#nsPack').value = S.pack || info.pack;
+  const ok = await new Promise(res => { dlg.onclose = () => res(dlg.returnValue === 'ok'); dlg.returnValue = ''; dlg.showModal(); });
+  if (!ok || !$('#nsName').value.trim()) return;
+  const r = await api('/api/scen/new_scratch', { name: $('#nsName').value.trim(), pack: $('#nsPack').value, display: $('#nsDisp').value.trim() || null });
+  if (r.error) return alert(r.error);
+  const o = document.createElement('option'); o.value = o.textContent = r.name; $('#scen').appendChild(o);
+  $('#scen').value = r.name; await openScenario(r.name); note(`Escenario «${r.name}» creado sobre ${$('#nsPack').value}. Añade naciones con «＋ Nuevo» en la pestaña Naciones.`);
+};
 // si las regiones del escenario no cuadran con su regionpack, el juego no lo carga: ofrecer adecuarlo antes de guardar
 async function saveScen(body) {
   let r = await api('/api/scen/save', body);
@@ -1280,7 +1900,7 @@ $('#defGo').onclick = async () => {
   defDlg.close();
   if (mode === 'new') {
     alert(`Escenario nuevo «${r.scenario}» creado (${r.written.length} archivo(s) con tus cambios). El original queda sin cambios.`);
-    location.href = '/escenario?scenario=' + encodeURIComponent(r.scenario); return;
+    location.href = '/scenario?scenario=' + encodeURIComponent(r.scenario); return;
   }
   $('#right').insertAdjacentHTML('afterbegin', `<div class="note">Guardado (defaults incluidos): ${esc(r.written.join(', ') || 'nada')}${r.history ? ' · copia en backup/historial/' + r.history : ''}</div>`);
   const t = await api('/api/scen/tabs?name=' + encodeURIComponent(S.scen)); setDirty(t.dirty);
@@ -1308,7 +1928,9 @@ $('#validate').onclick = async () => {
       <button class="btn small primary" id="fixAllCap">Asignar capital a todas</button></div>` : '') +
     (r.issues.length ? r.issues.map((i, n) => `<div class="issue ${i.level}" data-id="${i.id ?? ''}"><b>${i.level}</b> ${esc(i.msg)}
       ${i.fix && i.fix.kind === 'capital' ? `<br><button class="btn small" data-fixcap="${esc(i.fix.country)}">Asignar capital: ${esc(i.fix.city)} (${esc(i.fix.region)})</button>` : ''}
-      ${i.fix && i.fix.kind === 'range' ? `<br><button class="btn small" data-fixrange='${esc(JSON.stringify({ id: i.fix.id, value: i.fix.value }))}'>${esc(i.fix.label)}</button>` : ''}
+      ${i.fix && i.fix.kind === 'range' ? `<br><button class="btn small" data-fixrange='${esc(JSON.stringify({ id: i.fix.id, prop: i.fix.prop, value: i.fix.value }))}'>${esc(i.fix.label)}</button>` : ''}
+      ${i.fix && i.fix.kind === 'dupe' ? '<br>' + i.fix.choices.map(c => `<button class="btn small" data-fixdupe='${esc(JSON.stringify(c))}'>${esc(c.label)}</button>`).join(' ') : ''}
+      ${i.fix && i.fix.kind === 'nation' ? '<br>' + i.fix.choices.map(c => `<button class="btn small" data-fixnat='${esc(JSON.stringify({ items: i.fix.items, ...c }))}'>${esc(c.label)}</button>`).join(' ') : ''}
       ${i.fix && i.fix.kind === 'dip' ? '<br>' + (i.fix.choices || [{ use: i.fix.use, label: i.fix.label }]).map(c => `<button class="btn small" data-fixdip='${esc(JSON.stringify({ a: i.fix.a, b: i.fix.b, use: c.use }))}'>${esc(c.label)}</button>`).join(' ') : ''}</div>`).join('') : '<div class="note">Sin problemas.</div>');
   $('#vallist').querySelectorAll('.issue[data-id]').forEach(d => d.onclick = ev => { if (ev.target.closest('button')) return; if (d.dataset.id) { valDlg.close(); openObj(+d.dataset.id); } });
   const fixCaps = async only => {
@@ -1324,15 +1946,54 @@ $('#validate').onclick = async () => {
     setDirty(f.dirty); $('#validate').click(); note(f.notes.slice(0, 6).join('; ') + (f.notes.length > 6 ? '…' : '') + '. Falta «Guardar».');
   };
   $('#vallist').querySelectorAll('[data-fixrange]').forEach(b => b.onclick = async () => {
-    const x = JSON.parse(b.dataset.fixrange), f = await api('/api/scen/update', { id: x.id, values: { nValue: x.value } });
+    const x = JSON.parse(b.dataset.fixrange), f = await api('/api/scen/update', { id: x.id, values: { [x.prop || 'nValue']: x.value } });
     if (f.error) return alert(f.error);
     if (f.detail) setDirty(f.detail.dirty);
     $('#validate').click(); note('Relación ajustada a ' + x.value + '. Falta «Guardar».');
   });
   $('#vallist').querySelectorAll('[data-fixdip]').forEach(b => b.onclick = () => fixDips([JSON.parse(b.dataset.fixdip)]));
-  if (dips.length > 1) $('#vallist').insertAdjacentHTML('afterbegin', `<div class="note"><b>${dips.length}</b> relación(es) diplomática(s) con cifras distintas entre dos países:
-      <button class="btn small primary" id="fixAllDip">Igualar todas (promedio)</button></div>`);
-  $('#fixAllDip') && ($('#fixAllDip').onclick = () => fixDips(dips.map(d => ({ a: d.fix.a, b: d.fix.b, use: 'avg' }))));
+  const pairs = dips.filter(d => d.fix.choices);       // las dos direcciones definidas con cifras distintas
+  if (dips.length) $('#vallist').insertAdjacentHTML('afterbegin', `<div class="note"><b>${dips.length}</b> relación(es) diplomática(s) que no coinciden entre dos países. Igualar todas:
+      ${pairs.length ? `<button class="btn small primary" data-dipall="max">Cifra más alta</button> <button class="btn small" data-dipall="min">Cifra más baja</button> <button class="btn small" data-dipall="avg">Promedio</button>` : ''}
+      ${dips.length > pairs.length ? `<button class="btn small" data-dipall="a">Completar las que faltan</button>` : ''}</div>`);
+  $('#vallist').querySelectorAll('[data-dipall]').forEach(b => b.onclick = () => {
+    const use = b.dataset.dipall;
+    fixDips((use === 'a' ? dips.filter(d => !d.fix.choices) : dips).map(d => ({ a: d.fix.a, b: d.fix.b, use: d.fix.choices ? use : 'a' })));
+  });
+  // todo lo que tiene arreglo automático de una vez: capitales, diplomacia (cifra más alta) y nombres de nación
+  const auto = r.issues.filter(i => i.fix && (['capital', 'dip', 'range'].includes(i.fix.kind) || (i.fix.kind === 'nation' && i.fix.choices.length && i.fix.choices[0].value)));   // nombres mal escritos: no borra nada
+  if (auto.length > 1) {
+    $('#vallist').insertAdjacentHTML('afterbegin', `<div class="note"><b>${auto.length}</b> problema(s) con arreglo automático.
+      <button class="btn small primary" id="fixEverything">Arreglar todo</button>
+      <span class="muted">(capitales, relaciones con la cifra más alta y nombres de nación mal escritos)</span></div>`);
+    $('#fixEverything').onclick = async () => {
+      if (!confirm(`Se aplicarán ${auto.length} arreglos (sin guardar todavía). ¿Seguir?`)) return;
+      const notes = [], run = async (u, b) => { const f = await api(u, b); if (f.error) notes.push('ERROR: ' + f.error); else notes.push(...(f.notes || [])); return f; };
+      if (auto.some(i => i.fix.kind === 'capital')) await run('/api/scen/fix_capitals', { name: S.scen, countries: null });
+      for (const i of auto.filter(i => i.fix.kind === 'range')) await run('/api/scen/update', { id: i.fix.id, values: { [i.fix.prop || 'nValue']: i.fix.value } });
+      for (const i of auto.filter(i => i.fix.kind === 'nation')) {
+        const c = i.fix.choices[0];
+        await run('/api/scen/fix_nation_refs', { name: S.scen, items: i.fix.items, delete: !!c.delete, value: c.value });
+      }
+      const d = auto.filter(i => i.fix.kind === 'dip');
+      if (d.length) await run('/api/scen/fix_diplomacy', { name: S.scen, items: d.map(x => ({ a: x.fix.a, b: x.fix.b, use: x.fix.choices ? 'max' : 'a' })) });
+      const st = await api('/api/scen/tabs?name=' + encodeURIComponent(S.scen));     // archivos sin guardar
+      setDirty(st.dirty);
+      $('#validate').click(); note(notes.slice(0, 8).join('; ') + (notes.length > 8 ? '…' : '') + '. Falta «Guardar».');
+    };
+  }
+  $('#vallist').querySelectorAll('[data-fixdupe]').forEach(b => b.onclick = async () => {
+    const x = JSON.parse(b.dataset.fixdupe);
+    const f = await api('/api/scen/fix_dupes', { name: S.scen, remove: x.remove, remove_dupes: x.remove_dupes });
+    if (f.error) return alert(f.error);
+    setDirty(f.dirty); $('#validate').click(); note(f.notes.join('; ') + '. Falta «Guardar».');
+  });
+  $('#vallist').querySelectorAll('[data-fixnat]').forEach(b => b.onclick = async () => {
+    const x = JSON.parse(b.dataset.fixnat);
+    const f = await api('/api/scen/fix_nation_refs', { name: S.scen, items: x.items, delete: !!x.delete, value: x.value });
+    if (f.error) return alert(f.error);
+    setDirty(f.dirty); $('#validate').click(); note(f.notes.join('; ') + '. Falta «Guardar».');
+  });
   $('#vallist').querySelectorAll('[data-fixcap]').forEach(b => b.onclick = () => fixCaps([b.dataset.fixcap]));
 };
 
@@ -1346,7 +2007,7 @@ $('#tilt').onchange = async e => {
   if (r.error) { alert(r.error); e.target.checked = !e.target.checked; return; }
   setDirty(r.dirty); $('#right').insertAdjacentHTML('afterbegin', `<div class="note">${esc(r.notes.join('; '))}. Falta «Guardar».</div>`);
 };
-$('#newwar').onclick = () => warDlg.showModal();
+$('#newwar').onclick = $('#newFutureWar').onclick = () => warDlg.showModal();
 // ------------------------------------------------------------------ compatibilidad con un regionpack
 $('#packSync').onclick = () => {
   $('#syncPack').innerHTML = [...$('#pack').options].map(o => `<option value="${esc(o.value)}">${esc(o.textContent)}</option>`).join('');
@@ -1479,6 +2140,15 @@ async function gameInit() {
   $('#gameSel').innerHTML = G.info.games.map(g => `<option value="${g.key}"${g.installed ? '' : ' disabled'}>${esc(g.short)}${g.installed ? '' : ' (no instalado)'}</option>`).join('');
   $('#gameSel').value = G.info.current;
   $('#gameSel').title = G.info.games.find(g => g.key === G.info.current).path;
+  $('#convert').textContent = G.info.current === 'mh1' ? 'Exportar a Gold…' : 'Exportar a MH1…';
+}
+// juego del escenario abierto según su contenido (icono de GameBanana de MH1 o Gold)
+function showScenGame(g) {
+  const img = $('#scenGameIcon');
+  if (!g || !g.game) { img.style.display = 'none'; return; }
+  img.src = '/icon_' + g.game + '.png'; img.style.display = '';
+  img.title = (g.game === 'gold' ? 'Escenario de Making History Gold' : 'Escenario de MH1 (The Calm and The Storm)') + ': ' + (g.reasons || []).join('; ')
+    + (g.mismatch ? ' — está en la carpeta del otro juego: conviértelo con «Convertir…» del editor de escenarios' : '');
 }
 // si el juego cambia desde otra pestaña o ventana, esta página quedaría con datos del otro juego: recargar
 window.addEventListener('focus', async () => {
@@ -1491,7 +2161,7 @@ window.addEventListener('focus', async () => {
 $('#gameSel').onchange = async e => {
   const r = await api('/api/game/select', { game: e.target.value });
   if (r.error) { alert(r.error); $('#gameSel').value = G.info.current; return; }
-  location.href = '/escenario';
+  location.href = '/scenario';
 };
 $('#scen').addEventListener('change', () => { $('#convert').disabled = !$('#scen').value; });
 $('#convert').onclick = () => {
@@ -1506,7 +2176,7 @@ $('#convGo').onclick = async () => {
   const to = $('#convTo').value;
   $('#convGo').disabled = true; $('#convWait').textContent = 'Convirtiendo… (puede tardar un minuto)';
   const r = await api('/api/scen/convert', { name: S.scen, to, out: $('#convOut').value.trim(), colors: !!$('#convColors').value,
-    infra: $('#convInfra').value, units_only: !!$('#convUnits').value, complete_new: !!$('#convNew').value, remove_partisan_event: !!$('#convPart').value });
+    infra: $('#convInfra').value, units_only: !!$('#convUnits').value, complete_new: !!$('#convNew').value, remove_partisan_event: !!$('#convPart').value, skip_images: !!$('#convImg').value });
   $('#convGo').disabled = false; $('#convWait').textContent = '';
   if (r.error) { $('#convRes').textContent = 'ERROR: ' + r.error; return; }
   $('#convRes').textContent = r.resumen;
@@ -1515,7 +2185,7 @@ $('#convGo').onclick = async () => {
   $('#convOpen').onclick = async () => {
     const s = await api('/api/game/select', { game: to });
     if (s.error) { alert(s.error); return; }
-    location.href = '/escenario?scenario=' + encodeURIComponent(name);
+    location.href = '/scenario?scenario=' + encodeURIComponent(name);
   };
 };
 gameInit();
@@ -1530,5 +2200,50 @@ async function openTree(rel, id) {
 }
 init();
 </script>
+<dialog id="glDlg" style="max-width:820px"><header><b>Registro del juego</b><span class="muted" id="glFile"></span><button class="btn small" style="margin-left:auto" onclick="glDlg.close()">Cerrar</button></header>
+  <div class="body">
+  <p>Si el juego da «Error creating game» o no carga el escenario, sus mensajes internos dicen por qué. Pasos:</p>
+  <ol><li>Pulsa <b>Empezar a registrar</b>.</li>
+    <li>Abre el juego e intenta cargar el escenario hasta que falle.</li>
+    <li>Cierra el juego y termina el registro: <span id="glStopHow"></span></li>
+    <li>Pulsa <b>Leer el último registro</b>: aquí se explica dónde está el fallo.</li></ol>
+  <div class="row"><button class="btn primary" id="glStart">Empezar a registrar</button> <button class="btn" id="glStop" style="display:none">Terminar el registro</button>
+    <button class="btn" id="glRead">Leer el último registro</button></div>
+  <div class="note" id="glState" style="display:none"></div>
+  <div id="glOut" style="margin-top:8px"></div></div></dialog>
+<script>
+// registro del juego: abre Game Log.bat (o escucha desde el editor, en el .exe) y explica el último logs/juego_*.log
+const GL_WINDOW = 'en la <b>ventana negra</b> que se abrió, pulsa <b>Ctrl+C</b> (si pregunta «¿Desea terminar el trabajo por lotes (S/N)?», responde S) o simplemente ciérrala.';
+function gameLogOpen() { $('#glStopHow').innerHTML = GL_WINDOW; glDlg.showModal(); }
+$('#glStart').onclick = async () => {
+  const r = await api('/api/gamelog/start', {});
+  if (r.error) return alert(r.error);
+  $('#glState').style.display = '';
+  if (r.mode === 'window') {
+    $('#glStopHow').innerHTML = GL_WINDOW;
+    $('#glState').innerHTML = 'Se abrió la ventana del registro. Déjala abierta mientras pruebas el juego; luego pulsa Ctrl+C en ella o ciérrala.';
+  } else {
+    $('#glStopHow').innerHTML = 'pulsa <b>Terminar el registro</b> aquí.';
+    $('#glStop').style.display = '';
+    $('#glState').innerHTML = 'El editor está registrando los mensajes del juego. Prueba el juego y luego pulsa «Terminar el registro».';
+    setTimeout(async () => { const st = await api('/api/gamelog/status'); if (st.error) $('#glState').innerHTML = 'No se pudo escuchar: ' + esc(st.error) + ' (¿hay otra ventana del registro o DebugView abierta?)'; }, 1500);
+  }
+};
+$('#glStop').onclick = async () => { await api('/api/gamelog/stop', {}); $('#glStop').style.display = 'none'; $('#glState').innerHTML = 'Registro terminado.'; $('#glRead').click(); };
+$('#glRead').onclick = async () => {
+  const r = await api('/api/gamelog/report');
+  if (r.error) return alert(r.error);
+  $('#glFile').textContent = r.file ? 'logs/' + r.file : '';
+  if (!r.file) { $('#glOut').innerHTML = '<div class="note">Todavía no hay ningún registro (carpeta logs).</div>'; return; }
+  if (!r.attempts.length) { $('#glOut').innerHTML = '<div class="note">El registro no tiene ningún intento de cargar un escenario. ¿Se abrió el juego mientras registraba?</div>'; return; }
+  const list = xs => xs.length ? ' <span class="muted">(' + xs.slice(0, 12).map(esc).join(', ') + (xs.length > 12 ? ', …' : '') + ')</span>' : '';
+  $('#glOut').innerHTML = r.attempts.map(a => `<div class="issue ${a.result === 'ok' ? 'aviso' : 'error'}" style="margin-bottom:6px">
+      <b>${esc(a.scenario || '(escenario sin carpeta ui en el registro)')}</b>: ${a.result === 'ok' ? 'cargó bien' : 'no se creó la partida'}${a.stage ? ' <span class="muted">(falló en ' + esc(a.stage) + ')</span>' : ''}
+      ${a.problems.map(p => `<div style="margin:4px 0 0 12px">• ${p.why ? `<b>${esc(p.why)}</b><br><span class="muted">Qué hacer:</span> ${esc(p.todo)}` : esc(p.msg)}
+        ${p.count > 1 ? ` <span class="muted">×${p.count}</span>` : ''}${list(p.files)}${list(p.items)}
+        ${p.why ? `<br><span class="muted" style="font-size:11px">${esc(p.msg)}</span>` : ''}</div>`).join('')}</div>`).join('');
+};
+</script>
+<script src="/escenario_imagenes.js"></script>
 </body>
 </html>

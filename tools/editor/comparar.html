@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Comparar escenarios · Making History</title>
+<style>
+  :root { --bg:#f6f5f2; --panel:#fff; --ink:#1d1d1f; --muted:#6b6b70; --line:#e2e0da; --accent:#c2410c; --ok:#15803d; --err:#b91c1c; --bar:#111214; --barink:#f1f1f3; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#151517; --panel:#1f1f22; --ink:#ececee; --muted:#9a9aa1; --line:#333338; --accent:#fb923c; --ok:#4ade80; --err:#f87171; } }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:14px/1.4 system-ui, "Segoe UI", sans-serif; }
+  #bar { background:var(--bar); color:var(--barink); display:flex; flex-wrap:wrap; gap:8px; align-items:center; padding:6px 10px; position:sticky; top:0; z-index:5; }
+  #bar a { color:#93c5fd; }
+  #tabs { display:flex; gap:2px; padding:6px 10px 0; background:var(--panel); border-bottom:1px solid var(--line); }
+  #tabs button { border:1px solid var(--line); border-bottom:0; background:var(--bg); border-radius:6px 6px 0 0; padding:5px 12px; cursor:pointer; color:var(--ink); }
+  #tabs button.on { background:var(--panel); font-weight:600; }
+  .page { display:none; padding:12px 16px; } .page.on { display:block; }
+  .sec { border:1px solid var(--line); border-radius:8px; padding:8px 10px; margin:0 0 10px; background:var(--panel); }
+  .sec h3 { margin:0 0 6px; font-size:13.5px; }
+  .row { display:flex; gap:6px; flex-wrap:wrap; align-items:center; margin:4px 0; }
+  .muted { color:var(--muted); font-size:12.5px; }
+  .btn { border:1px solid var(--line); background:var(--bg); color:var(--ink); border-radius:6px; padding:4px 10px; cursor:pointer; }
+  .btn.primary { background:var(--accent); color:#fff; border-color:var(--accent); }
+  select, input { font:inherit; color:var(--ink); background:var(--bg); border:1px solid var(--line); border-radius:5px; padding:3px 6px; max-width:100%; }
+  table { border-collapse:collapse; width:100%; font-size:13px; }
+  td, th { padding:3px 6px; border-bottom:1px solid var(--line); text-align:left; vertical-align:top; }
+  .scroll { max-height:420px; overflow:auto; }
+  .note { padding:6px 10px; border-radius:6px; margin:8px 0; font-size:13px; background:color-mix(in srgb, var(--ok) 14%, transparent); white-space:pre-wrap; }
+  .note.err { background:color-mix(in srgb, var(--err) 14%, transparent); }
+</style>
+<script src="/i18n.js"></script>
+<script src="/busy.js"></script>
+</head>
+<body>
+<div id="bar">
+  <b>Comparar escenarios</b>
+  <span style="flex:1"></span>
+  <a href="/scenario" target="_blank">Editor de escenarios ↗</a>
+</div>
+<div id="tabs">
+  <button data-p="cmp" class="on">Comparar y traspasar</button>
+  <button data-p="save">Partida guardada → escenario</button>
+</div>
+
+<div class="page on" id="p-cmp">
+  <div class="sec">
+    <div class="row"><label>Destino (se edita) <select id="tgt"></select></label>
+      <label>Origen (solo lectura) <select id="src"></select></label>
+      <button class="btn primary" id="go">Comparar</button>
+      <button class="btn" id="save">Guardar destino</button>
+      <span class="muted" id="dirty"></span></div>
+    <div class="muted">Lo traspasado queda en memoria hasta pulsar Guardar. Se evitan duplicados por nombre o cercanía (≈25 km).</div>
+  </div>
+  <div id="msg"></div>
+  <div id="out"></div>
+</div>
+
+<div class="page" id="p-save">
+  <div class="sec">
+    <div class="row"><label>Partida <select id="sv" style="min-width:320px"></select></label>
+      <label>Escenario base <select id="sbase"></select></label>
+      <button class="btn primary" id="sgo">Analizar</button></div>
+    <div class="muted" id="sroot"></div>
+  </div>
+  <div id="smsg"></div>
+  <div id="sout"></div>
+</div>
+
+<script>
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const T = s => (window.mhTr ? mhTr(s) : s);
+async function api(path, body) {
+  const r = await fetch(path, body ? {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)} : {});
+  return r.json();
+}
+function note(el, text, err) { $(el).innerHTML = text ? `<div class="note${err ? ' err' : ''}">${esc(text)}</div>` : ''; }
+document.querySelectorAll('#tabs button').forEach(b => b.onclick = () => {
+  document.querySelectorAll('#tabs button,.page').forEach(x => x.classList.remove('on'));
+  b.classList.add('on'); $('#p-' + b.dataset.p).classList.add('on');
+});
+
+let DIFF = null;
+async function init() {
+  const r = await api('/api/cmp/sources');
+  const q = new URLSearchParams(location.search);
+  $('#tgt').innerHTML = r.scenarios.map(n => `<option>${esc(n)}</option>`).join('');
+  if (q.get('name')) $('#tgt').value = q.get('name');
+  $('#src').innerHTML = r.sources.map(s => `<option value="${esc(s.dir)}">${esc(s.short)} · ${esc(s.name)}</option>`).join('');
+  $('#sbase').innerHTML = $('#tgt').innerHTML;
+  const sv = await api('/api/save/list');
+  $('#sroot').textContent = T('Carpeta de partidas: ') + sv.root + T(' (solo se leen; nunca se modifican)');
+  $('#sv').innerHTML = sv.saves.map(s => `<option value="${esc(s.path)}" data-scen="${esc(s.scenario || '')}">${esc(s.player)} / ${esc(s.file)} — ${esc(s.scenario || '?')}, ${T('turno')} ${s.turn ?? '?'}</option>`).join('');
+  $('#sv').onchange = () => { const o = $('#sv').selectedOptions[0]; if (o && sv.scenarios.includes(o.dataset.scen)) $('#sbase').value = o.dataset.scen; };
+  $('#sv').onchange();
+}
+
+function table(kind, rows, cols, selectable) {
+  if (!rows.length) return `<div class="muted">${T('Sin diferencias')}</div>`;
+  const head = (selectable ? `<th><input type="checkbox" data-all="${kind}"></th>` : '') + cols.map(c => `<th>${T(c[0])}</th>`).join('');
+  const body = rows.map(r => `<tr>${selectable ? `<td>${selectable(r) ? `<input type="checkbox" data-k="${kind}" value="${esc(r.key)}">` : ''}</td>` : ''}${cols.map(c => `<td>${esc(c[1](r))}</td>`).join('')}</tr>`).join('');
+  return `<div class="scroll"><table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>`;
+}
+const units = u => Object.entries(u || {}).map(([k, v]) => v + '× ' + k).join(', ');
+
+function render(d) {
+  const st = r => T(r.status);
+  const cities = d.cities.filter(r => r.status !== 'igual');
+  const forces = d.forces.filter(r => r.status !== 'igual');
+  const events = d.events.filter(r => r.status !== 'igual');
+  const sec = (title, kind, html) => `<div class="sec"><h3>${T(title)}</h3>${html}${kind ? `<div class="row"><button class="btn primary" data-t="${kind}">${T('Traspasar lo marcado')}</button></div>` : ''}</div>`;
+  $('#out').innerHTML =
+    sec('Naciones', null, `<div>${T('Solo en el origen')}: ${esc(d.nations.only_source.join(', ') || '—')}</div><div>${T('Solo en el destino')}: ${esc(d.nations.only_target.join(', ') || '—')}</div><div class="muted">${T('En los dos')}: ${d.nations.both}</div>`) +
+    sec('Ciudades', 'cities', table('cities', cities, [['Estado', st], ['Ciudad', r => r.name], ['Región', r => r.region], ['País', r => r.owner], ['IPUs', r => r.ipus], ['En el destino', r => r.match ? `${r.match} (${r.t_owner}, ${r.t_ipus} IPUs; ${T('por')} ${T(r.how)})` : '']], r => r.status === 'nueva')) +
+    sec('Unidades militares', 'forces', table('forces', forces, [['Estado', st], ['Tipo', r => r.kind], ['Nombre', r => r.name], ['País', r => r.owner + (r.owner_ok ? '' : ' ✗')], ['Región', r => r.region + (r.region_ok ? '' : ' ✗')], ['Unidades', r => units(r.units)]], r => r.status === 'nueva' && r.owner_ok && r.region_ok)) +
+    sec('Eventos', 'events', table('events', events, [['Tipo', r => r.type], ['Evento', r => r.label], ['Archivo', r => r.file]], r => true)) +
+    sec('Regiones: dueño / controlador', 'regions', table('regions', d.regions, [['Región', r => r.region], ['Origen', r => r.owner + ' / ' + r.controller], ['Destino', r => r.t_owner + ' / ' + r.t_controller]], r => r.ok) +
+      `<div class="muted">${T('Regiones solo en el origen')}: ${d.regions_only_source.length} · ${T('solo en el destino')}: ${d.regions_only_target.length}</div>`) +
+    sec('Diplomacia (relación inicial)', 'diplomacy', table('diplomacy', d.diplomacy, [['País', r => r.a], ['Con', r => r.b], ['Origen', r => r.value], ['Destino', r => r.t_value ?? '—']], r => true)) +
+    sec('Alianzas y guerras', null, `<div>${T('Alianzas solo en el origen')}: ${esc(d.alliances.only_source.join(', ') || '—')}</div><div>${T('Guerras solo en el origen')}: ${esc(d.wars.only_source.join(', ') || '—')}</div>`);
+  document.querySelectorAll('[data-all]').forEach(a => a.onchange = () => document.querySelectorAll(`[data-k="${a.dataset.all}"]`).forEach(c => c.checked = a.checked));
+  document.querySelectorAll('[data-t]').forEach(b => b.onclick = () => transfer(b.dataset.t));
+  $('#dirty').textContent = d.dirty && d.dirty.length ? T('Sin guardar: ') + d.dirty.join(', ') : '';
+}
+async function compare() {
+  note('#msg', T('Comparando…'));
+  const d = await api('/api/cmp/diff', {target: $('#tgt').value, source: $('#src').value});
+  if (d.error) return note('#msg', d.error, true);
+  note('#msg', ''); DIFF = d; render(d);
+}
+async function transfer(kind) {
+  const keys = [...document.querySelectorAll(`[data-k="${kind}"]:checked`)].map(c => c.value);
+  if (!keys.length) return note('#msg', T('No hay nada marcado'), true);
+  const r = await api('/api/cmp/transfer', {target: $('#tgt').value, source: $('#src').value, items: {[kind]: keys}});
+  if (r.error) return note('#msg', r.error, true);
+  await compare();
+  note('#msg', [...r.notes, ...r.skipped.map(s => T('omitido: ') + s)].join('\n') || T('Nada que traspasar'), false);
+}
+$('#go').onclick = compare;
+$('#save').onclick = async () => {
+  let r = await api('/api/scen/save', {name: $('#tgt').value});
+  if (r.needs_fit) {
+    const diff = [r.missing.length ? T('faltan: ') + r.missing.join(', ') : '', r.extra.length ? T('sobran: ') + r.extra.join(', ') : ''].filter(Boolean).join('; ');
+    if (!confirm(T('Las regiones del escenario no coinciden con su regionpack ') + r.pack + ' (' + diff + T('). El juego podría no cargarlo. ¿Guardar igualmente?'))) return;
+    r = await api('/api/scen/save', {name: $('#tgt').value, ignore_pack: true});
+  }
+  if (r.error) return note('#msg', r.error, true);
+  if (r.needs_choice) return note('#msg', T('Hay datos compartidos de ScenarioDefaults sin guardar: guarda desde el editor de escenarios para elegir qué hacer con ellos.'), true);
+  note('#msg', T('Guardado: ') + (r.written || []).join(', '));
+  $('#dirty').textContent = '';
+};
+
+async function analyze() {
+  note('#smsg', T('Leyendo la partida…'));
+  const r = await api('/api/save/plan', {scenario: $('#sbase').value, path: $('#sv').value});
+  if (r.error) return note('#smsg', r.error, true);
+  note('#smsg', '');
+  const p = r.plan, h = r.summary.header;
+  const okF = p.forces_new.filter(f => f.ok).length;
+  const k = r.pack, al = Object.entries(k.alias || {});
+  const packSec = `<div class="sec"><h3>${T('Regionpack')} ${esc(k.pack || '?')}</h3>` + (
+    k.status === 'ok' ? `<div>${T('La partida cuadra con el regionpack actual: el juego debería cargarla.')}</div>` :
+    k.status === 'sin_mapa' ? `<div class="muted">${T('No se encontró el regionpack del escenario: no se puede comprobar.')}</div>` :
+    `<div class="note err">${T('La partida no cuadra con el regionpack actual: el juego no la cargará.')}
+${k.missing.length ? T('Regiones de la partida que el mapa ya no tiene: ') + k.missing.join(', ') + '\n' : ''}${k.added.length ? T('Regiones nuevas del mapa: ') + k.added.join(', ') + '\n' : ''}${k.shifted.length ? T('Regiones con otro número en el mapa: ') + k.shifted.length + '\n' : ''}${T('No es posible editar la partida (.mlc) para adaptarla: guarda el número de cada región del mapa en muchos objetos y, al quitar o añadir regiones, cambian. Alternativa: crear un escenario nuevo desde la partida, adecuado al regionpack (como «Adecuar»), y empezar ahí una partida nueva.')}</div>` +
+    (al.length ? `<div class="muted">${T('Según el changelog: ')}${esc(al.map(([a, b]) => a + ' → ' + b).join(', '))}</div>` : '')) +
+    `<label><input type="checkbox" id="o4" ${k.status === 'sin_mapa' ? '' : 'checked'}> ${T('Adecuar el escenario nuevo al regionpack actual')}</label></div>`;
+  $('#sout').innerHTML = packSec + `<div class="sec"><h3>${esc(h.nombre)} — ${esc(h.escenario)}, ${T('turno')} ${h.turno}</h3>
+    <label><input type="checkbox" id="o1" checked> ${T('Dueños y controladores de regiones')} (${p.owners.filter(o => o.ok).length})</label><br>
+    <label><input type="checkbox" id="o2" checked> ${T('IPUs de las ciudades')} (${p.cities.length})</label><br>
+    <label><input type="checkbox" id="o3" checked> ${T('Unidades militares: se sustituyen las')} ${p.forces_old} ${T('del escenario por')} ${okF} ${T('de la partida (con su posición)')}</label>
+    <div class="muted">${T('Países sin territorio en la partida')}: ${esc(p.gone.join(', ') || '—')}</div>
+    ${p.missing_countries.length ? `<div class="muted">${T('Países de la partida que no existen en el escenario')}: ${esc(p.missing_countries.join(', '))}</div>` : ''}
+    <div class="row"><label>${T('Nombre de la carpeta nueva')} <input id="nn" value="${esc($('#sbase').value + ' ' + T('turno') + ' ' + h.turno)}" size="40"></label>
+    <button class="btn primary" id="screate">${T('Crear escenario nuevo')}</button></div>
+    <div class="muted">${T('Se copia la versión guardada en disco del escenario base; el original no se toca.')}</div></div>
+    <div class="sec"><h3>${T('Regiones que cambian')}</h3>${table('o', p.owners, [['Región', o => o.region], ['Antes', o => o.from.join(' / ')], ['Después', o => o.to.join(' / ') + (o.ok ? '' : ' ✗')]])}</div>
+    <div class="sec"><h3>${T('Unidades de la partida')}</h3>${table('f', p.forces_new, [['Tipo', f => f.kind], ['Nombre', f => f.name], ['País', f => f.owner], ['Región', f => f.region || '?'], ['Unidades', f => units(f.units)], ['', f => f.ok ? '' : f.why]])}</div>`;
+  $('#screate').onclick = async () => {
+    const name = $('#nn').value.trim();
+    if (!name || !confirm(T('¿Crear la carpeta de escenario nueva «') + name + '»?')) return;
+    const c = await api('/api/save/create', {scenario: $('#sbase').value, path: $('#sv').value, new_name: name,
+      owners: $('#o1').checked, ipus: $('#o2').checked, forces: $('#o3').checked, adapt: $('#o4').checked});
+    if (c.error) return note('#smsg', c.error, true);
+    note('#smsg', T('Escenario creado: ') + c.scenario + '\n' + c.notes.join('\n'));
+  };
+}
+$('#sgo').onclick = analyze;
+init();
+</script>
+</body>
+</html>

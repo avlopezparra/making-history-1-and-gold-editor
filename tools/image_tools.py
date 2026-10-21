@@ -105,8 +105,12 @@ def to_data_url(img):
     return 'data:image/png;base64,' + base64.b64encode(b.getvalue()).decode('ascii')
 
 
-def png_bytes(path, maxside=None):
+def png_bytes(path, maxside=None, crop=False):
     img = Image.open(path).convert('RGBA')
+    if crop:    # miniatura: sin el margen transparente
+        bb = img.getchannel('A').point(lambda v: 255 if v > 16 else 0).getbbox()
+        if bb:
+            img = img.crop(bb)
     if maxside and max(img.size) > maxside:
         img.thumbnail((maxside, maxside))
     b = io.BytesIO()
@@ -325,12 +329,52 @@ def gray(img, a=1.0, b=0.0):
     return Image.merge('RGBA', (l, l, l, al))
 
 
-def flag_set(flag, decal=None, shape='escudo', removebg=True, leader=None, crop='estirar', only=None):
+FLAG_FITS = ('centro', 'bordes', 'izquierda', 'estirar')
+
+
+def fit_flag(img, mode='centro', aspect=2.0):
+    """Lleva una bandera de otra proporcion a la del juego (2:1).
+    centro: recorta al centro · bordes: estira la primera y la ultima columna (o fila) de pixeles hasta rellenar ·
+    izquierda: la bandera pegada a la izquierda y se rellena repitiendo su ultima columna (banderas tipo Chile) ·
+    estirar: deforma la imagen hasta 2:1."""
+    w, h = img.size
+    if mode == 'estirar' or abs(w / h - aspect) < 0.01:
+        return img
+    if mode == 'centro':
+        if w / h > aspect:
+            cw = round(h * aspect)
+            return img.crop(((w - cw) // 2, 0, (w - cw) // 2 + cw, h))
+        ch = round(w / aspect)
+        return img.crop((0, (h - ch) // 2, w, (h - ch) // 2 + ch))
+    if w / h < aspect:          # falta ancho
+        W = round(h * aspect)
+        out = Image.new(img.mode, (W, h))
+        x0 = 0 if mode == 'izquierda' else (W - w) // 2
+        out.paste(img, (x0, 0))
+        right = img.crop((w - 1, 0, w, h))
+        if x0 > 0:
+            out.paste(img.crop((0, 0, 1, h)).resize((x0, h)), (0, 0))
+        if W - x0 - w > 0:
+            out.paste(right.resize((W - x0 - w, h)), (x0 + w, 0))
+        return out
+    H = round(w / aspect)       # falta alto: se estiran la fila de arriba y la de abajo
+    out = Image.new(img.mode, (w, H))
+    y0 = 0 if mode == 'izquierda' else (H - h) // 2
+    out.paste(img, (0, y0))
+    if y0 > 0:
+        out.paste(img.crop((0, 0, w, 1)).resize((w, y0)), (0, 0))
+    if H - y0 - h > 0:
+        out.paste(img.crop((0, h - 1, w, h)).resize((w, H - y0 - h)), (0, y0 + h))
+    return out
+
+
+def flag_set(flag, decal=None, shape='escudo', removebg=True, leader=None, crop='estirar', only=None, fit_mode='centro'):
     """Genera {archivo: imagen} con todos los archivos de la carpeta de un pais.
 
     crop: como entra la bandera en los huecos casi cuadrados (diplomatic, flag-16/19, 48h-64w, multichat):
     'estirar' (lo mas comun en el juego), 'asta' (recorte desde el lado del asta) o 'centro'.
-    only: None (todo), 'flag' (sin escarapelas ni lider) o 'decal' (solo escarapelas; flag puede faltar)."""
+    only: None (todo), 'flag' (sin escarapelas ni lider) o 'decal' (solo escarapelas; flag puede faltar).
+    fit_mode: como pasar la bandera a 2:1 (fit_flag)."""
     if only == 'decal':
         if decal is None:
             raise ValueError('falta la imagen de la escarapela')
@@ -338,8 +382,8 @@ def flag_set(flag, decal=None, shape='escudo', removebg=True, leader=None, crop=
     flag = flag.convert('RGBA')
     bg = Image.new('RGBA', flag.size, (255, 255, 255, 255))
     bg.alpha_composite(flag)
-    flag = bg.convert('RGB')        # las banderas son opacas
-    big = flag.resize((512, 256), Image.LANCZOS) if flag.width < 512 else flag
+    flag = fit_flag(bg.convert('RGB'), fit_mode or 'centro')        # las banderas son opacas
+    big = flag.resize((512, 256), Image.LANCZOS) if flag.width < 512 else flag.resize((flag.width, flag.width // 2), Image.LANCZOS)
     rs = lambda w, h: big.resize((w, h), Image.LANCZOS)
 
     def rs_box(w, h):
@@ -446,9 +490,30 @@ def country_files(scen, name):
     return out
 
 
+_FLAGNAMES = {}
+
+
+def flag_folder(scen, country):
+    """Carpeta de banderas de un pais: strFlagName de su Player en gamestate.xml (o el nombre del pais)."""
+    gs = os.path.join(scen_dir(scen), 'gamestate.xml')
+    key = (gs, os.path.getmtime(gs) if os.path.exists(gs) else 0)
+    if key not in _FLAGNAMES:
+        m = {}
+        if os.path.exists(gs):
+            x = open(gs, encoding='utf-8', errors='replace').read()
+            for b in re.finditer(r'<object type="Player"[^>]*>(.*?)(?=<object type="Player"|</objects>)', x, re.S):
+                n = re.search(r'name="strName" value="([^"]*)"', b.group(1))
+                f = re.search(r'name="strFlagName" value="([^"]*)"', b.group(1))
+                if n and f:
+                    m[n.group(1)] = f.group(1)
+        _FLAGNAMES.clear()
+        _FLAGNAMES[key] = m
+    return _FLAGNAMES[key].get(country) or country
+
+
 def flag_png(scen, name, files=('flag-16-16.tga', 'flag-19-19.tga', 'diplomatic-flag.tga', 'flag-68-34.tga')):
     """PNG de la bandera pequena de un pais (o None si no tiene carpeta)."""
-    d = os.path.join(countries_dir(scen), safe_name(name))
+    d = os.path.join(countries_dir(scen), safe_name(flag_folder(scen, name)))
     for f in files:
         p = os.path.join(d, f)
         if os.path.exists(p):
@@ -475,7 +540,7 @@ def flag_inputs(p):
     if flag is None and p.get('only') != 'decal':
         raise ValueError('falta la imagen de la bandera')
     return flag_set(flag, from_data_url(p.get('decal')), p.get('shape', 'escudo'), bool(p.get('removebg', True)),
-                    from_data_url(p.get('leader')), p.get('crop', 'estirar'), p.get('only'))
+                    from_data_url(p.get('leader')), p.get('crop', 'estirar'), p.get('only'), p.get('fit', 'centro'))
 
 
 def flag_preview(p):
@@ -754,3 +819,47 @@ def icon_write(p):
     rep['notes'] = notes
     rep['filebase'] = filebase
     return rep
+
+
+def fetch_url(url, limit=15 * 1024 * 1024):
+    """Descarga una imagen de una URL (http/https) que da el usuario y la devuelve como data URL."""
+    import urllib.request
+    from urllib.parse import urlparse
+    u = urlparse((url or '').strip())
+    if u.scheme not in ('http', 'https') or not u.netloc:
+        raise ValueError('la URL debe empezar por http:// o https://')
+    req = urllib.request.Request(url.strip(), headers={'User-Agent': 'Mozilla/5.0 (MH Editor)'})
+    with urllib.request.urlopen(req, timeout=20) as r:
+        data = r.read(limit + 1)
+    if len(data) > limit:
+        raise ValueError('la imagen pesa demasiado (más de 15 MB)')
+    if data[:5] == b'<?xml' or b'<svg' in data[:1000]:
+        raise ValueError('es un SVG: descárgalo como PNG (por ejemplo, la versión «PNG» de Wikimedia Commons)')
+    try:
+        im = Image.open(io.BytesIO(data))
+        im.load()
+    except Exception:
+        raise ValueError('lo descargado no es una imagen (PNG, JPG, GIF, BMP, TGA, WebP)')
+    return {'img': to_data_url(im.convert('RGBA')), 'w': im.width, 'h': im.height}
+
+
+def nation_status(scen):
+    """{nacion: {'color': bool, 'flag': bool, 'folder': strFlagName}} de los Player de gamestate.xml."""
+    gs = os.path.join(scen_dir(scen), 'gamestate.xml')
+    out = {}
+    if not os.path.exists(gs):
+        return out
+    x = open(gs, encoding='utf-8', errors='replace').read()
+    base = countries_dir(scen)
+    for b in re.finditer(r'<object type="Player"[^>]*>(.*?)(?=<object type="Player"|</objects>)', x, re.S):
+        body = b.group(1)
+        n = re.search(r'name="strName" value="([^"]*)"', body)
+        if not n:
+            continue
+        f = re.search(r'name="strFlagName" value="([^"]*)"', body)
+        c = re.search(r'name="colCountryColor" value="([^"]*)"', body)
+        folder = f.group(1) if f else n.group(1)
+        d = os.path.join(base, folder)
+        out[n.group(1)] = {'color': bool(c and c.group(1).strip()), 'folder': folder,
+                           'flag': os.path.isfile(os.path.join(d, 'flag-16-16.tga')) or os.path.isfile(os.path.join(d, 'flag-19-19.tga'))}
+    return out

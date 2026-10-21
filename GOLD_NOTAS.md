@@ -19,7 +19,23 @@ Carpeta: `C:\Program Files (x86)\Steam\steamapps\common\Making History Gold` (mi
 - Interfaz: cambios en `system\ui\art\2D`, `Modern Europe\system\UI\Lobbies` y 68 archivos nuevos en `Modern Europe\system\UI\art`.
 - Gold no trae `system\locale\esp` (solo inglés).
 
-Pendiente (sesión «Soporte para Making History Gold»): detalle de las definiciones del motor, unidades nuevas,
-colores, costes de infraestructura, conversor de escenarios MH1↔Gold, exportar a Gold desde el editor e identificar
-escenarios MH1/Gold con los iconos de GameBanana (Gold: https://images.gamebanana.com/img/ico/ModCategory/5e933a6fd0cd2.png,
-MH1: https://images.gamebanana.com/img/ico/ModCategory/5e933e39235bc.png).
+## Hecho (21/10/2026)
+- **Texturas**: las de Gold son las de MH1 con otro color, píxel a píxel (tabla de color con error medio < 1/255).
+  `tools/port_tiles.py` traslada cambios de texturas de MH1 a Gold; `tools/port_regionpack.py` copia un regionpack
+  (binarios de MH1 + texturas de Gold con los cambios trasladados). `tools/game_palette.py`: el editor de mapa muestra
+  las texturas con la paleta del juego del escenario abierto (`/tile/...?pal=gold`).
+- **Unidades**: Gold añade `nLandDefenseHitPercent` a todas las de tierra y cambia golpes/velocidades; unidades nuevas con
+  sus `ResearchProjFactoryOutput` y `FactoryOutputUnit`; `LightBombers`/`BattleCruisers`/`ElectricDieselSubmarines`
+  pasan a requerir `EarlyBombers`/`EarlyCruisers`/`EarlySubmarines`. Partisans de serie (`CombatSystemParams`
+  `nBasePartisanPercent`, `strPartisanUnitType`). Las tablas MKD de sprites del escenario (`DisplayLibraries\`) también cambian.
+- **Economía**: Gold rebalancea `sharedData.xml` (TransportationLevel nCost 1M fijo, mantenimiento la mitad, nSteps 5–25…),
+  `sharedDataFactories.xml` y puntos de investigación.
+- **Colores**: los 91 colores de MH1 de los escenarios oficiales tienen cada uno su color de Gold (tabla); para otros, ajuste lineal.
+- **Conversor** `tools/convert_scenario.py` (botón «Exportar a Gold…/MH1…» del editor de escenarios): fusión a tres bandas
+  (`tools/xmlmerge.py`) de los sharedData*.xml y MKD*.xml, escalado de las unidades nuevas como el escenario (p. ej. ÷10),
+  investigación inicial, partisanos, colores, infraestructura (auto), y «sin imágenes» (no copia `ui\`).
+- **Detección MH1/Gold** (`gamepaths.scenario_game`): por el contenido de su sharedDataUnitTemplates.xml (nLandDefenseHitPercent
+  o unidades exclusivas de Gold); sin archivo propio, el juego donde está. Iconos de GameBanana en `tools/editor/icon_*.png`.
+- **The Modern World** convertido en `Making History Gold\...\scenarios\The Modern World` (sin imágenes, 18 MB) con el regionpack
+  `WorldModern` trasladado a Gold. Validación: los mismos avisos que el original de MH1. Falta probarlo en el juego.
+- **Chile Fixes 1.2**: `mod_gold` / `originales_gold` e instalador para los dos juegos.

@@ -51,8 +51,9 @@ NEEDS_SCEN = {'ciudades', 'unidades', 'minerales', 'naciones'}
 ALIAS = {'strOwner': 'owner', 'strController': 'controller', 'strTerrain': 'terrain', 'strCulture': 'culture', 'nPopulation': 'population'}
 
 
-def _region_features(s, project, sea, colors=False):
+def _region_features(s, project, sea, colors=False, ncolors=False):
     P = prop
+    ncol = {P(p, 'strName'): '#' + (P(p, 'colCountryColor') or '888888').lstrip('#')[:6] for p in s.all('Player')} if (s is not None and ncolors) else {}
     data = {P(r, 'strName'): r for r in s.regions()} if s is not None else {}
     if colors:
         import terrain_colors
@@ -75,6 +76,8 @@ def _region_features(s, project, sea, colors=False):
                 props[k] = v
                 if k in ALIAS:
                     props[ALIAS[k]] = int(v) if k == 'nPopulation' and str(v).isdigit() else v
+        if ncol.get(props.get('strOwner')):      # estilo «simplestyle» (geojson.io, QGIS): color de la nación dueña
+            props.update({'fill': ncol[props['strOwner']], 'stroke': '#222222', 'fill-opacity': 0.6, 'stroke-width': 1})
         if colors:     # tipo de terreno y su color (mar en celeste); los huecos sin región van en blanco en la leyenda
             props['terrain'] = terr.get(name)
             props['color'] = terrain_colors.color_of(terr.get(name))
@@ -82,7 +85,7 @@ def _region_features(s, project, sea, colors=False):
     return out
 
 
-def export(s, project, sel=None, minerals_split=False, base='World', lang='es', scen_name=None, colors=False):
+def export(s, project, sel=None, minerals_split=False, base='World', lang='es', scen_name=None, colors=False, ncolors=False):
     """{nombre de archivo: FeatureCollection o dict}. sel: conjunto de ALL_FILES a incluir (por defecto, todo lo posible; sin
     escenario (s=None) se omiten los que lo necesitan)."""
     import geojson_compare as gc
@@ -92,9 +95,9 @@ def export(s, project, sel=None, minerals_split=False, base='World', lang='es', 
         sel -= NEEDS_SCEN
     out = {}
     if 'regiones_tierra' in sel:
-        out['regiones_tierra.geojson'] = _fc(_region_features(s, project, False, colors))
+        out['regiones_tierra.geojson'] = _fc(_region_features(s, project, False, colors, ncolors))
     if 'regiones_mar' in sel:
-        out['regiones_mar.geojson'] = _fc(_region_features(s, project, True, colors))
+        out['regiones_mar.geojson'] = _fc(_region_features(s, project, True, colors, ncolors))
     if colors:
         import terrain_colors
         out['leyenda_terreno.json'] = terrain_colors.legend()
@@ -146,10 +149,17 @@ def export(s, project, sel=None, minerals_split=False, base='World', lang='es', 
     return out
 
 
-def export_zip(s, project, sel=None, minerals_split=False, base='World', lang='es', scen_name=None, colors=False):
+def export_zip(s, project, sel=None, minerals_split=False, base='World', lang='es', scen_name=None, colors=False, ncolors=False, only=None):
+    """only: nombres de región (p. ej. la selección múltiple): solo las regiones y los elementos que caen en ellas."""
     buf = io.BytesIO()
+    only = set(only) if only else None
+    keep = lambda f: any((f.get('properties') or {}).get(k) in only for k in ('name', 'region', 'strName', 'strRegion'))
     with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as z:
-        for name, fc in export(s, project, sel, minerals_split, base, lang, scen_name, colors).items():
+        for name, fc in export(s, project, sel, minerals_split, base, lang, scen_name, colors, ncolors).items():
+            if only and isinstance(fc, dict) and isinstance(fc.get('features'), list):
+                fc = dict(fc, features=[f for f in fc['features'] if keep(f)])
+                if not fc['features']:
+                    continue
             z.writestr(name, json.dumps(fc, ensure_ascii=False, indent=1 if name.endswith('.json') else None))
     return buf.getvalue()
 

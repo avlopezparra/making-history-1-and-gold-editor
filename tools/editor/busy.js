@@ -27,7 +27,7 @@
     shown = Math.max(shown, Math.min(99, Math.round(pct)));
     const b = el();
     b.querySelector('.fill').style.width = shown + '%';
-    b.querySelector('.lbl').textContent = (EN() ? 'Now loading… ' : 'Cargando… ') + (label || (EN() ? 'applying changes' : 'aplicando cambios'));
+    b.querySelector('.lbl').textContent = (EN() ? 'Now loading… ' : 'Cargando… ') + (label || '');   // sin texto propio: solo «Cargando…» (muchas peticiones no cambian nada)
     b.querySelector('.pct').textContent = shown + ' %';
   }
   async function ask() {

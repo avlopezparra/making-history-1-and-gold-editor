@@ -382,4 +382,27 @@ def apply_transfers(m, transfers, islands, P, cache=None):
         print('vecindades eliminadas:', [(R[x].name, R[y].name) for x, y in gone])
     print('vecindades nuevas:', [(R[x].name, R[y].name) for x, y in new_pairs])
 
+    # lo que se borra de la textura es ancho (ERASE_WIDTH): se lleva también trozos de fronteras que siguen existiendo
+    # (p. ej. al borrar una región y sumarla a otra). Esas fronteras vivas se repintan donde cae el borrado.
+    if erase:
+        eu = unary_union([x for _, x in erase]).buffer(0.13)
+        have = unary_union([x for _, x in paint]).buffer(1e-4) if paint else None
+        for b in m['borders']:
+            if len(b.regions) != 2:
+                continue
+            ra, rb = b.regions
+            if (R[ra].u_type == SEA) != (R[rb].u_type == SEA):
+                continue                                  # las costas no se pintan
+            kind = 'sea' if R[ra].u_type == SEA else 'land'
+            for f, pts in b.segments:
+                if len(pts) < 2:
+                    continue
+                ln = LineString(pts)
+                if not ln.intersects(eu):
+                    continue
+                part = ln.intersection(eu)
+                if have is not None:
+                    part = part.difference(have)
+                paint += [(kind, x) for x in lines(part)]
+
     return erase, paint, new_pairs

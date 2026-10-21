@@ -8,6 +8,7 @@ Se crea copiando el estado actual del juego. Nada toca el juego hasta "instalar"
 """
 import json
 import os
+import re
 import shutil
 import struct
 import threading
@@ -21,6 +22,7 @@ from shapely.validation import explain_validity
 import mhmap
 import outlines
 from move_border import signed_area
+import changelog_keys
 from transfer import apply_transfers, SEA
 import new_region
 from paint_changes import paint_tiles
@@ -77,7 +79,10 @@ class Project:
             print('AVISO: %s decía regionpack %s; se usa %s (el de la carpeta)' % (pf, meta['pack'], pack))
             meta['decided'] = False
         self.decided = meta.get('decided', False)              # ya se pregunto donde instalar
-        self.map_dir = os.path.join(MAPS, self.pack)
+        # regionpack nuevo desde cero (new_pack.py): aun no existe en el juego; lo que toma de World vive en <proyecto>/base
+        self.virtual = bool(meta.get('nuevo')) and not os.path.isdir(os.path.join(MAPS, self.pack))
+        self.base = os.path.join(folder, 'base')
+        self.map_dir = self.base if self.virtual else os.path.join(MAPS, self.pack)
         self.backup_dir = os.path.join(backup_dir, self.pack) if self.pack != 'World' else backup_dir
         self.xml = os.path.join(folder, 'xml')
         self.tiles = os.path.join(folder, 'tiles')
@@ -104,6 +109,8 @@ class Project:
         """Compara la copia del proyecto con el regionpack instalado en el juego.
         'same': iguales; 'pending': cambios del proyecto sin instalar; 'changed': el del juego cambió fuera del editor."""
         import filecmp
+        if self.virtual:
+            return 'pending'
         files = list(XML_FILES) + (['map.xml'] if os.path.exists(os.path.join(self.xml, 'map.xml')) else [])
         same = all(filecmp.cmp(os.path.join(self.xml, f), os.path.join(self.map_dir, 'xml', f), shallow=False) for f in files)
         if same:
@@ -128,8 +135,8 @@ class Project:
                 e['traspasos'] = [t for t in e.get('traspasos', []) if t.get('de') not in g and t.get('a') not in g]
                 e['vecindades_nuevas'] = [v for v in e.get('vecindades_nuevas', []) if not g & set(v)]
             cl = [e for e in cl if e.get('regiones_nuevas') or e.get('regiones_eliminadas') or e.get('traspasos')
-                  or e.get('centros') or e.get('vecindades_nuevas') or e.get('renombradas')]
-            json.dump(cl, open(self.changelog_path(), 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
+                  or e.get('centros') or e.get('vecindades_nuevas') or e.get('renombradas') or e.get('canales')]
+            changelog_keys.dump(cl, self.changelog_path())
             log('changelog: quitadas regiones que no están en el mapa: %s' % ', '.join(gone))
         return gone
 
@@ -194,7 +201,7 @@ class Project:
                 e['traspasos'] = [t for t in e.get('traspasos', []) if t.get('de') not in gone and t.get('a') not in gone]
                 e['vecindades_nuevas'] = [v for v in e.get('vecindades_nuevas', []) if not gone & set(v)]
             cl = [e for e in cl if e.get('regiones_nuevas') or e.get('regiones_eliminadas') or e.get('traspasos')
-                  or e.get('centros') or e.get('vecindades_nuevas') or e.get('renombradas')]
+                  or e.get('centros') or e.get('vecindades_nuevas') or e.get('renombradas') or e.get('canales')]
             news = []
             for n in add or []:
                 r = rows.get(n)
@@ -206,7 +213,7 @@ class Project:
             if news:
                 cl.append({'fecha': time.strftime('%Y-%m-%d %H:%M:%S'), 'regionpack': self.pack, 'instalado': same,
                            'operaciones': ['revision_changelog'], 'regiones_nuevas': news})
-            json.dump(cl, open(self.changelog_path(), 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
+            changelog_keys.dump(cl, self.changelog_path())
             if same:
                 shutil.copy2(self.changelog_path(), os.path.join(self.map_dir, 'changelog.json'))
             return {'removed': sorted(gone), 'added': [x['nombre'] for x in news], 'game_updated': same}
@@ -240,9 +247,13 @@ class Project:
                 t = t[:m.start()] + ('' if new == raw else block) + t[m.end():]
             elif new != raw:
                 last = list(re.finditer(r'<object type="RegionRename"[^>]*>.*?</object>[ \t]*\r?\n?', t, flags=re.S))
-                if not last:
-                    raise ValueError('map.xml no tiene lista de RegionRename donde añadirlo')
-                t = t[:last[-1].end()] + block + t[last[-1].end():]
+                if last:
+                    t = t[:last[-1].end()] + block + t[last[-1].end():]
+                else:        # regionpack nuevo: sin entradas todavia; va dentro del AreaMap, antes de su cierre
+                    k = t.rfind('</object>')
+                    if k < 0:
+                        raise ValueError('map.xml no tiene un AreaMap donde añadirlo')
+                    t = t[:k].rstrip(' \t') + block + '\t' + t[k:]
             open(mp, 'w', encoding='utf-8', newline='').write(t)
             cl = self.changelog()
             for e in cl:
@@ -251,12 +262,160 @@ class Project:
                         x['nombre'] = new
             cl.append({'fecha': time.strftime('%Y-%m-%d %H:%M:%S'), 'regionpack': self.pack, 'instalado': False,
                        'operaciones': ['renombrar'], 'renombradas': [{'de': old, 'a': new, 'texto': text or new, 'interno': raw}]})
-            json.dump(cl, open(self.changelog_path(), 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
+            changelog_keys.dump(cl, self.changelog_path())
             self.reload()
             return {'raw': raw}
 
+    # ------------------------------------------------------------------ navegacion de las regiones de mar (canales)
+    # map.xml: <object type="CanalRegions"> (strCanalRegionName = mar, strCanalZoneRegionName = region con dueno ligada al canal)
+    # cierra la navegacion de esa region de mar; <object type="FoggingLinkedRegions"> (strRegionNameLinkedTo / LinkedFrom) por si
+    # solo enlaza la niebla y deja la navegacion libre (asi lo hace el regionpack WorldPublicPanamaCanalAndSuez).
+    _CANAL_RE = re.compile(r'[ \t]*<object type="CanalRegions"[^>]*>\s*<property name="strCanalRegionName" value="([^"]*)"\s*/>\s*'
+                           r'<property name="strCanalZoneRegionName" value="([^"]*)"\s*/>\s*</object>[ \t]*\r?\n?')
+    _FOG_RE = re.compile(r'[ \t]*<object type="FoggingLinkedRegions"[^>]*>\s*<property name="strRegionNameLinkedTo" value="([^"]*)"\s*/>\s*'
+                         r'<property name="strRegionNameLinkedFrom" value="([^"]*)"\s*/>\s*</object>[ \t]*\r?\n?')
+
+    def _map_xml_text(self):
+        mp = os.path.join(self.xml, 'map.xml')
+        if not os.path.exists(mp):
+            mp = os.path.join(self.map_dir, 'xml', 'map.xml')
+        return open(mp, encoding='utf-8', errors='replace', newline='').read()
+
+    def canal_info(self, name):
+        """{'state': 'cerrada' | 'libre', 'zone': region ligada o None, 'fog': [regiones enlazadas por niebla]} de una region de mar."""
+        from xml.sax.saxutils import unescape
+        t = self._map_xml_text()
+        for m in self._CANAL_RE.finditer(t):
+            if unescape(m.group(1)) == name:
+                return {'state': 'cerrada', 'zone': unescape(m.group(2)), 'fog': []}
+        fog = []
+        for m in self._FOG_RE.finditer(t):
+            a, b = unescape(m.group(1)), unescape(m.group(2))
+            if a == name:
+                fog.append(b)
+            elif b == name:
+                fog.append(a)
+        return {'state': 'libre', 'zone': None, 'fog': fog}
+
+    def set_canal(self, name, closed, zone=None):
+        """Region de mar de navegacion libre o cerrada (canal). Cerrada: 'zone' es la region ligada al canal (la del pais).
+        Se escribe en la copia del proyecto de map.xml (se instala con «Instalar») y se anota en el changelog."""
+        from xml.sax.saxutils import escape, unescape
+        with self.lock:
+            names = {self.rname(g.index): g for g in self.m['regions']}
+            if name not in names:
+                raise ValueError('no existe la región %s' % name)
+            if names[name].u_type != SEA:
+                raise ValueError('%s no es una región de mar' % name)
+            zone = (zone or '').strip() or None
+            if closed:
+                if not zone:
+                    raise ValueError('elige la región ligada al canal (la zona del canal)')
+                if zone == name or zone not in names:
+                    raise ValueError('la zona del canal debe ser otra región del mapa')
+            mp = os.path.join(self.xml, 'map.xml')
+            if not os.path.exists(mp):
+                shutil.copy2(os.path.join(self.map_dir, 'xml', 'map.xml'), mp)
+            t = open(mp, encoding='utf-8', errors='replace', newline='').read()
+            nl = '\r\n' if '\r\n' in t else '\n'
+            old = self.canal_info(name)
+            t = self._CANAL_RE.sub(lambda m: '' if unescape(m.group(1)) == name else m.group(0), t)
+            link = zone or old['zone'] or (old['fog'][0] if old['fog'] else None)
+            if closed:         # la niebla enlazada de la pareja pasa a ser el canal
+                t = self._FOG_RE.sub(lambda m: '' if (unescape(m.group(1)), unescape(m.group(2))) == (name, zone) else m.group(0), t)
+                block = ('\t\t<object type="CanalRegions" name="objCanalRegions">' + nl
+                         + '\t\t\t<property name="strCanalRegionName" value="' + escape(name, {'"': '&quot;'}) + '"/>' + nl
+                         + '\t\t\t<property name="strCanalZoneRegionName" value="' + escape(zone, {'"': '&quot;'}) + '"/>' + nl
+                         + '\t\t</object>' + nl)
+            else:              # libre: sin CanalRegions; se conserva el enlace de niebla con su zona (como en WorldPublicPanamaCanalAndSuez)
+                have = {(unescape(m.group(1)), unescape(m.group(2))) for m in self._FOG_RE.finditer(t)}
+                block = ''
+                if old['state'] == 'cerrada' and link and (name, link) not in have:
+                    block = ('\t\t<object type="FoggingLinkedRegions" name="objFoggingLinkedRegions">' + nl
+                             + '\t\t\t<property name="strRegionNameLinkedTo" value="' + escape(name, {'"': '&quot;'}) + '"/>' + nl
+                             + '\t\t\t<property name="strRegionNameLinkedFrom" value="' + escape(link, {'"': '&quot;'}) + '"/>' + nl
+                             + '\t\t</object>' + nl)
+            if block:
+                kind = 'CanalRegions' if closed else 'FoggingLinkedRegions'
+                last = list(re.finditer(r'<object type="%s"[^>]*>.*?</object>[ \t]*\r?\n?' % kind, t, flags=re.S))
+                if last:
+                    t = t[:last[-1].end()] + block + t[last[-1].end():]
+                else:
+                    k = t.rfind('</object>')
+                    if k < 0:
+                        raise ValueError('map.xml no tiene un AreaMap donde añadirlo')
+                    t = t[:k].rstrip(' \t') + block + '\t' + t[k:]
+            open(mp, 'w', encoding='utf-8', newline='').write(t)
+            cl = self.changelog()
+            cl.append({'fecha': time.strftime('%Y-%m-%d %H:%M:%S'), 'regionpack': self.pack, 'instalado': False,
+                       'operaciones': ['canal'], 'regiones_nuevas': [],
+                       'canales': [{'region': name, 'cerrada': bool(closed), 'zona': zone if closed else None}]})
+            changelog_keys.dump(cl, self.changelog_path())
+            self.reload()
+            return self.canal_info(name)
+
+    # ------------------------------------------------------------------ map.xml: vinculos entre regiones
+    # ConnectedRegions (A, B): unidas aunque no sean vecinas (estrechos, ferris); DisconnectedRegions: vecinas pero sin paso;
+    # FoggingLinkedRegions: niebla enlazada. Las regiones nuevas NO figuran en map.xml por existir (solo en regions.bin), pero una
+    # region sacada de otra no hereda los vinculos de su madre: aqui se copian al map.xml del proyecto.
+    _LINK_RE = re.compile(r'[ \t]*<object type="(ConnectedRegions|DisconnectedRegions|FoggingLinkedRegions)"[^>]*>\s*'
+                          r'<property name="(\w+)" value="([^"]*)"\s*/>\s*<property name="(\w+)" value="([^"]*)"\s*/>\s*</object>[ \t]*\r?\n?')
+
+    def inherit_links(self, created):
+        """Copia a cada region nueva los vinculos de map.xml de su madre (o madres): Disconnected y Fogging si la nueva es vecina
+        de la otra region; Connected si queda a menos de 1.5 grados de ella. Devuelve las lineas añadidas (para el informe)."""
+        from xml.sax.saxutils import escape, unescape
+        news = [c for c in created if c.get('mothers') or c.get('mother')]
+        if not news:
+            return []
+        t = self._map_xml_text()
+        nl = '\r\n' if '\r\n' in t else '\n'
+        links = [(m.group(1), unescape(m.group(3)), unescape(m.group(5)), m.group(2), m.group(4)) for m in self._LINK_RE.finditer(t)]
+        if not links:
+            return []
+        have = {(k, a, b) for k, a, b, _, _ in links} | {(k, b, a) for k, a, b, _, _ in links}
+        idx = {self.rname(g.index): g.index for g in self.m['regions']}
+        add, notes = [], []
+        for c in news:
+            mothers = set(c.get('mothers') or ()) | ({c['mother']} if c.get('mother') else set())
+            mothers = {self.rname(g.index) for g in self.m['regions'] if g.name in mothers or self.rname(g.index) in mothers}
+            new = c['name']
+            if new not in idx:
+                continue
+            ni = idx[new]
+            nbs = {self.rname(n) for n in self.m['regions'][ni].neighbors}
+            poly = None
+            for kind, a, b, pa, pb in links:
+                for mo, other in ((a, b), (b, a)):
+                    if mo not in mothers or other == new or other not in idx or (kind, new, other) in have:
+                        continue
+                    ok = other in nbs
+                    if kind == 'ConnectedRegions' and not ok:
+                        poly = poly or new_region.mesh_polygon(self.m, ni)
+                        ok = poly is not None and not poly.is_empty and poly.distance(new_region.mesh_polygon(self.m, idx[other])) < 1.5
+                    if ok:
+                        add.append((kind, new, other, pa, pb))
+                        have |= {(kind, new, other), (kind, other, new)}
+                        notes.append('%s: %s ↔ %s (de %s)' % (kind, new, other, mo))
+        if not add:
+            return []
+        mp = os.path.join(self.xml, 'map.xml')
+        if not os.path.exists(mp):
+            shutil.copy2(os.path.join(self.map_dir, 'xml', 'map.xml'), mp)
+        t = open(mp, encoding='utf-8', errors='replace', newline='').read()
+        q = {'"': '&quot;'}
+        block = ''.join('\t\t<object type="%s" name="obj%s">%s\t\t\t<property name="%s" value="%s"/>%s\t\t\t<property name="%s" value="%s"/>%s\t\t</object>%s'
+                        % (k, k, nl, pa, escape(a, q), nl, pb, escape(b, q), nl, nl) for k, a, b, pa, pb in add)
+        k = t.rfind('</object>')
+        t = t[:k].rstrip(' \t') + block + '\t' + t[k:]
+        open(mp, 'w', encoding='utf-8', newline='').write(t)
+        self.reload()
+        return notes
+
     def load_installed(self):
         """Vuelve a copiar en el proyecto el regionpack del juego (con su changelog); borra «Volver / Rehacer»."""
+        if self.virtual:
+            raise ValueError('el regionpack %s todavía no está instalado en el juego' % self.pack)
         with self.lock:
             for f in XML_FILES:
                 shutil.copy2(os.path.join(self.map_dir, 'xml', f), os.path.join(self.xml, f))
@@ -279,6 +438,8 @@ class Project:
             # map.xml: la copia del proyecto (si se ha renombrado alguna región y aún no se instaló) o la del juego
             self.renames = load_renames(self.dir if os.path.exists(os.path.join(self.xml, 'map.xml')) else self.map_dir)
             self.outline_cache = {}
+            self._seam_cache = {}
+            self._geom_cache = {}
             self.bbox = []
             for row in self.m['shape_table']:
                 xs, ys = [], []
@@ -292,6 +453,13 @@ class Project:
             main, detail = outlines.region_polygons(self.m, r)
             g = shape({'type': 'MultiPolygon', 'coordinates': main}) if main else None
             ok = g is not None and g.is_valid
+            if not ok and self._mesh_ok(self.m, r):
+                # trazado de anillos inválido (pellizcos) con una malla sana: se dibuja y edita la unión de sus triángulos
+                u = new_region.mesh_polygon(self.m, r)
+                polys = [q for q in getattr(u, 'geoms', [u]) if q.geom_type == 'Polygon' and q.area > MIN_AREA]
+                main = [[[list(c) for c in q.exterior.coords]] + [[list(c) for c in h.coords] for h in q.interiors] for q in polys]
+                g = shape({'type': 'MultiPolygon', 'coordinates': main}) if main else None
+                ok = g is not None and g.is_valid
             self.outline_cache[r] = (main, detail, ok, '' if ok else (explain_validity(g) if g is not None else 'vacia'))
         return self.outline_cache[r]
 
@@ -306,9 +474,37 @@ class Project:
         return self.renames.get(n, n)
 
     def meta(self):
-        R = self.m['regions']
-        return [{'index': g.index, 'name': self.rname(g.index), 'mapName': g.name, 'type': g.u_type, 'sea': g.u_type == SEA,
-                 'bbox': self.bbox[g.index], 'center': [g.cx, g.cy]} for g in R]
+        with self.lock:          # reload() cambia mapa y bbox a la vez: sin el bloqueo, un guardado en curso daba IndexError
+            R = self.m['regions']
+            return [{'index': g.index, 'name': self.rname(g.index), 'mapName': g.name, 'type': g.u_type, 'sea': g.u_type == SEA,
+                     'bbox': self.bbox[g.index], 'center': [g.cx, g.cy]} for g in R]
+
+    @staticmethod
+    def _merge_seams(main, eps=5e-5):
+        """Trozos de una región separados por rendijas de ~2 m (restos de redondeo de traspasos repetidos): el mapa los dibuja como una línea
+        que cruza la región (en el juego no se ve). Para dibujar, los trozos que casi se tocan se funden en uno; el resto queda igual."""
+        if len(main) < 2:
+            return main
+        try:
+            polys = [Polygon(pl[0], pl[1:]) for pl in main]
+            grown = [q.buffer(eps, join_style=2) for q in polys]
+            u = unary_union(grown)
+            groups = [g for g in getattr(u, 'geoms', [u]) if g.geom_type == 'Polygon']
+            if len(groups) == len(polys):
+                return main
+            out = []
+            for g in groups:
+                inside = [i for i, q in enumerate(polys) if g.intersects(q)]
+                if len(inside) == 1:
+                    out.append(main[inside[0]])
+                    continue
+                m = g.buffer(-eps, join_style=2)
+                for q in getattr(m, 'geoms', [m]):
+                    if q.geom_type == 'Polygon' and q.area > 0:
+                        out.append([[list(c) for c in q.exterior.coords]] + [[list(c) for c in h.coords] for h in q.interiors])
+            return out
+        except Exception:
+            return main
 
     def features(self, x0, y0, x1, y1, limit=1500):
         R = self.m['regions']
@@ -319,6 +515,10 @@ class Project:
                 if b[2] < x0 or b[0] > x1 or b[3] < y0 or b[1] > y1:
                     continue
                 main, detail, ok, why = self.outline(g.index)
+                sc_ = self._seam_cache
+                if g.index not in sc_:
+                    sc_[g.index] = self._merge_seams(main)          # solo para dibujar
+                main = sc_[g.index]
                 out.append({'type': 'Feature', 'id': g.index,
                             'properties': {'index': g.index, 'name': self.rname(g.index), 'mapName': g.name, 'type': g.u_type, 'sea': g.u_type == SEA,
                                            'center': [g.cx, g.cy], 'neighbors': [self.rname(n) for n in g.neighbors if n != g.index],
@@ -339,13 +539,70 @@ class Project:
         return decode(data, size).convert('RGB')
 
     # ------------------------------------------------------------------ guardar
+    # niveles de saneado de los poligonos del guardado cuando la malla resultante quedaria rota (contorno invalido)
+    CLEAN_LEVELS = 4
+
+    @staticmethod
+    def _clean_geom(g, level):
+        """Poligono saneado: 1 = valido y sin trozos degenerados; 2 = rejilla de 1e-5 grados; 3 = simplificado (1e-4);
+        4 = redondeado (buffer +-2e-4, quita puntas y rendijas de menos de ~20 m)."""
+        import shapely
+        g = make_valid(g)
+        g = unary_union([x for x in getattr(g, 'geoms', [g]) if x.geom_type in ('Polygon', 'MultiPolygon')] or [Polygon()])
+        g = g.buffer(0)
+        if level == 2:
+            g = make_valid(shapely.set_precision(g, 1e-5))
+        elif level == 3:
+            g = make_valid(g.simplify(1e-4, preserve_topology=True))
+        elif level >= 4:
+            g = g.buffer(2e-4, join_style=2).buffer(-2e-4, join_style=2)
+        polys = [x for x in getattr(g, 'geoms', [g]) if x.geom_type == 'Polygon' and x.area > MIN_AREA]
+        return MultiPolygon(polys) if polys else MultiPolygon()
+
+    def _clean_payload(self, payload, level):
+        pl = json.loads(json.dumps(payload))
+        for k, coords in list((pl.get('modified') or {}).items()):
+            g = self._clean_geom(shape({'type': 'MultiPolygon', 'coordinates': coords}), level)
+            if not g.is_empty:
+                pl['modified'][k] = mapping(g)['coordinates']
+        for asg in pl.get('assigns') or []:
+            poly = asg.get('polygon')
+            if poly and poly.get('type') in ('Polygon', 'MultiPolygon') and asg.get('kind') != 'stroke':
+                g = self._clean_geom(shape(poly), level)
+                if not g.is_empty:
+                    asg['polygon'] = mapping(g)
+        return pl
+
     def save(self, payload, log=print):
+        """Guarda; si la malla resultante quedara rota (contorno invalido) reintenta saneando los poligonos poco a poco
+        (valido -> rejilla -> simplificado -> redondeado) en vez de negarse. El informe avisa del nivel usado."""
+        last = None
+        for level in range(self.CLEAN_LEVELS + 1):
+            pl = payload if level == 0 else self._clean_payload(payload, level)
+            try:
+                rep = self._save_once(pl, log)
+            except SystemExit as e:
+                if 'quedaría rota' not in str(e) and 'contorno inválido' not in str(e) and 'saldría con' not in str(e):
+                    raise
+                self._drop_pending_snapshot()
+                self.reload()
+                last = e
+                log('malla rota con el poligono tal cual: se reintenta saneado (nivel %d)' % (level + 1))
+                continue
+            if level:
+                rep.setdefault('warnings', []).append('El contorno se ajustó automáticamente (nivel %d de %d: %s) para que la malla no se rompiera'
+                                                       % (level, self.CLEAN_LEVELS, ('válido', 'rejilla de 1e-5°', 'simplificado', 'redondeado')[level - 1]))
+            return rep
+        raise last
+
+    def _save_once(self, payload, log=print):
         """payload: {modified: {idx: coords MultiPolygon}, assigns: [{polygon, region, fill}], centers: {idx: [x, y]},
         topo: bool, paint: bool}"""
         import progress
         with self.lock:
             t0 = time.time()
             progress.step(2, 'Calculando los cambios del mapa')
+            self._geom_cache = {}
             m = self.m
             R = m['regions']
             cache = {}
@@ -413,6 +670,7 @@ class Project:
                     if payload.get('topo', True):
                         report['warnings'].append('%s suelta %.6f grados2 que ninguna region gana: queda como hueco' % (R[r].name, lost.area))
                     add(lost, r, None)
+            self._deleting = {int(x['region']) for x in payload.get('assigns') or [] if x.get('kind') == 'delete_region'}   # se borran en este guardado
             # 3. operaciones de area: asignar / pintar (dan el area a 'region'), recortar (la quita), rellenar (hueco)
             for asg in payload.get('assigns') or []:
                 kind = asg.get('kind', 'assign')
@@ -463,7 +721,14 @@ class Project:
                 for s in owners(poly, exclude={r}):
                     if asg.get('land_only') and R[s].u_type == SEA:
                         continue
-                    add(poly.intersection(P(s)), s, r)
+                    part = poly.intersection(P(s))
+                    if kind == 'assign' and part.area < max(1e-6, 1e-4 * poly.area):
+                        # roces de un contorno importado con el borde de una vecina (trozos de milímetros): no se traspasan,
+                        # dejaban «pellizcos» que rompían la malla (p. ej. sumar Abjasia desde un GeoJSON tocaba Rostov y Kuban)
+                        if part.area > MIN_AREA:
+                            report['warnings'].append('ignorados %.1e grados² que el contorno tocaba de %s (roce con el borde)' % (part.area, R[s].name))
+                        continue
+                    add(part, s, r)
                 if asg.get('fill'):
                     rest = poly.difference(unary_union([P(s) for s in owners(poly)] or [Polygon()]))
                     add(rest, None, r)
@@ -514,6 +779,7 @@ class Project:
             self._guard(m, created, was_valid, report)      # aborta (sin escribir) si el resultado no es el esperado
             progress.step(60, 'Escribiendo regions.bin, regions.nts y borders.brd')
             mhmap.save_map(m, self.xml)
+            self._geom_cache = {}
             self._pending_snapshot = False
             if os.path.isdir(self._redo_dir()):
                 shutil.rmtree(self._redo_dir())        # un guardado nuevo invalida lo que se podia rehacer
@@ -527,6 +793,7 @@ class Project:
             progress.step(70, 'Comprobando el mapa')
             self.log_change(report, new_pairs, centers, R, payload)
             self.reload()
+            report['map_xml'] = self.inherit_links(created)
             report['new_pairs'] = [[R[a].name, R[b].name] for a, b in new_pairs]
             if report.get('deleted'):
                 self._finish_deletions(report['deleted'], log)
@@ -580,22 +847,29 @@ class Project:
         pieces = []
         mothers_area = {}
         if asg.get('sea'):
-            # region MARITIMA nueva: se recorta de las regiones de mar que toca (la madre es la de mas area)
-            water = [(poly.intersection(P(s)), s) for s in owners(poly) if R[s].u_type == SEA]
+            # region MARITIMA nueva: se recorta de las regiones de mar que toca (la madre es la de mas area); con 'take_all'
+            # (herramienta de recortar) tambien de las de tierra; los huecos se convierten en mar (siempre que no haya nada mas
+            # debajo, o con «rellenar huecos»); un mar que queda entero dentro del poligono se absorbe y se elimina
+            under = owners(poly)
+            take = {int(x) for x in asg.get('take_from') or []}
+            water = [(poly.intersection(P(s)), s) for s in under if s in take or R[s].u_type == SEA]
             water = drop_slivers([(p, s) for p, s in water if p.area > MIN_AREA])
-            if asg.get('fill'):      # huecos (p. ej. un río cortado antes de la tierra) pasan a ser mar de la región nueva
-                rest = poly.difference(unary_union([P(s) for s in owners(poly)] or [Polygon()]))
+            if asg.get('fill') or not water:      # huecos (p. ej. un río cortado antes de la tierra, o un mapa vacío) pasan a ser mar
+                rest = poly.difference(unary_union([P(s) for s in under] or [Polygon()]))
                 water += [(p, None) for p in polys_of(rest)]
             if not water:
-                report['errors'].append('%s: para una región marítima dibuja sobre el mar' % name)
+                report['errors'].append('%s: el polígono no cubre mar ni huecos' % name)
                 return
             for p, s in water:
                 if s is not None and p.area >= P(s).area * 0.999:
-                    report['errors'].append('%s: el polígono cubre toda %s' % (name, R[s].name))
-                    return
+                    if R[s].u_type != SEA:
+                        report['errors'].append('%s: el polígono cubre toda %s (bórrala o renómbrala en vez de recortarla)' % (name, R[s].name))
+                        return
+                    report.setdefault('deleted', []).append({'index': s, 'name': self.rname(s), 'raw': R[s].name, 'into': name, 'sea': True})
             pieces = water
-            mothers_area = {self.rname(s): round(p.area, 6) for p, s in water if s is not None}
-            mother = max([w for w in water if w[1] is not None] or [(None, None)], key=lambda x: x[0].area if x[0] is not None else 0)[1]
+            sea_w = [w for w in water if w[1] is not None and R[w[1]].u_type == SEA]
+            mothers_area = {self.rname(s): round(p.area, 6) for p, s in sea_w}
+            mother = max(sea_w, key=lambda x: x[0].area)[1] if sea_w else None
             u_type = SEA
         elif asg.get('cut_all'):
             # Dibujar/Cortar (como Pax Historia): se recorta de todas las regiones de tierra que toca;
@@ -604,7 +878,7 @@ class Project:
             land = drop_slivers([(p, s) for p, s in land if p.area > MIN_AREA])
             if land:
                 for p, s in land:
-                    if p.area >= P(s).area * 0.999:
+                    if p.area >= P(s).area * 0.999 and s not in self._deleting:
                         report['errors'].append('%s: el polígono cubre toda %s (bórrala o renómbrala en vez de recortarla)' % (name, R[s].name))
                         return
                 pieces = land
@@ -625,23 +899,27 @@ class Project:
             if part.area <= MIN_AREA:
                 report['errors'].append('%s: el polígono no toca %s' % (name, R[mother].name))
                 return
-            if part.area >= P(mother).area * 0.999:
+            if part.area >= P(mother).area * 0.999 and mother not in self._deleting:
                 report['errors'].append('%s: el polígono cubre toda %s (para cambiarle el nombre usa RegionRename de map.xml)' % (name, R[mother].name))
                 return
             pieces.append((part, mother))
             u_type = int(asg.get('u_type') or R[mother].u_type)
         else:
-            for s in owners(poly):
+            under = owners(poly)
+            for s in under:
                 if R[s].u_type == SEA:
                     pieces.append((poly.intersection(P(s)), s))
             u_type = int(asg.get('u_type') or 1)
-            if asg.get('fill'):
-                rest = poly.difference(unary_union([P(s) for s in owners(poly)] or [Polygon()]))
+            if asg.get('fill') or not any(p.area > MIN_AREA for p, _ in pieces):     # sobre huecos (p. ej. un mapa vacío) tambien
+                rest = poly.difference(unary_union([P(s) for s in under] or [Polygon()]))
                 if rest.area > MIN_AREA:
                     pieces.append((rest, None))
             if not any(p.area > MIN_AREA for p, _ in pieces):
-                report['errors'].append('%s: el polígono no cubre mar' % name)
+                report['errors'].append('%s: el polígono no cubre mar ni huecos' % name)
                 return
+            for p, s in pieces:         # un mar que queda entero dentro de la región nueva se absorbe y se elimina
+                if s is not None and p.area >= P(s).area * 0.999:
+                    report.setdefault('deleted', []).append({'index': s, 'name': self.rname(s), 'raw': R[s].name, 'into': name, 'sea': True})
         if u_type == SEA and not asg.get('sea'):
             u_type = 1
         if not asg.get('sea') and not 1 <= u_type <= 4:
@@ -654,17 +932,52 @@ class Project:
                         'terrain': asg.get('terrain'), 'sea': bool(asg.get('sea')),
                         'pop_fractions': asg.get('pop_fractions'), 'expected_area': round(expected, 6),
                         'historic': asg.get('historic'), 'population': asg.get('population'), 'city': asg.get('city'),
-                        'mothers': mothers_area})
+                        'nation': asg.get('nation'), 'equivalent': asg.get('equivalent'), 'mothers': mothers_area})
         for p, s in pieces:
             add(p, s, idx)
 
+    def gap_at(self, x, y, half=4.0):
+        """Hueco (zona sin región) que contiene el punto: {polygon, area, neighbors:[{index, name, sea, shared}]}. Sirve para
+        seleccionar el hueco y unirlo a una región o crear una región nueva ahí. Si no está cerrado (mapa vacío) devuelve error."""
+        from shapely.geometry import Point, box
+        with self.lock:
+            win = box(x - half, y - half, x + half, y + half)
+            geos = []
+            for g in self.m['regions']:
+                b = self.bbox[g.index] if g.index < len(self.bbox) else None
+                if b and (b[2] < win.bounds[0] or b[0] > win.bounds[2] or b[3] < win.bounds[1] or b[1] > win.bounds[3]):
+                    continue
+                geo = self.region_geom(self.rname(g.index))
+                if geo is not None and not geo.is_empty:
+                    geos.append((g, geo))
+            empty = win.difference(unary_union([geo for _, geo in geos]) if geos else Polygon())
+            pt = Point(x, y)
+            hole = [p for p in polys_of(empty) if p.buffer(1e-9).contains(pt)]
+            if not hole:
+                return {'error': 'no hay ningún hueco en este punto'}
+            h = hole[0]
+            opened = h.exterior.intersects(win.exterior)      # no está cerrado (sigue fuera de la ventana): se selecciona solo la parte de la ventana
+            nb = []
+            ring = h.buffer(1e-6)
+            for g, geo in geos:
+                sh = geo.intersection(ring).area
+                if sh > 0:
+                    nb.append({'index': g.index, 'name': self.rname(g.index), 'sea': g.u_type == SEA, 'shared': round(sh, 10)})
+            return {'polygon': mapping(h), 'open': bool(opened), 'area': round(h.area, 6), 'neighbors': sorted(nb, key=lambda n: -n['shared'])}
+
     def region_geom(self, name):
         """Poligono de la malla de una region por su nombre en los escenarios."""
+        gc = getattr(self, '_geom_cache', None)
+        if gc is not None and name in gc:
+            return gc[name]
         inv = {v: k for k, v in self.renames.items()}
         nm = inv.get(name, name)
         for g in self.m['regions']:
             if g.name == nm:
-                return new_region.mesh_polygon(self.m, g.index)
+                poly = new_region.mesh_polygon(self.m, g.index)
+                if gc is not None:
+                    gc[name] = poly       # se vacía en reload(); el mapa cambia solo al guardar o deshacer (que recargan)
+                return poly
         return None
 
     def check(self):
@@ -692,7 +1005,7 @@ class Project:
                     if nm:
                         pop = prop(head, 'nPopulation')
                         regions[nm] = {'owner': prop(head, 'strOwner'), 'controller': prop(head, 'strController'),
-                                       'terrain': prop(head, 'strTerrain'), 'population': int(pop) if pop and pop.isdigit() else None}
+                                       'terrain': prop(head, 'strTerrain'), 'culture': prop(head, 'strCulture'), 'population': int(pop) if pop and pop.isdigit() else None}
         colors = {}
         gs = open(os.path.join(d, 'gamestate.xml'), encoding='utf-8', errors='replace').read()
         for blk in re.split(r'<object type="Player"', gs)[1:]:
@@ -703,13 +1016,31 @@ class Project:
         return {'regions': regions, 'colors': colors}
 
     # ------------------------------------------------------------------ historial
-    def _mesh_valid(self, m, r):
-        """El contorno de la region r es un poligono valido (sin aristas que crucen el mapa)."""
+    @staticmethod
+    def _mesh_ok(m, r):
+        """La malla de r es sana aunque su contorno trazado no lo sea: la unión de sus triángulos es válida y no se solapan
+        (la suma de sus áreas es la de la unión). El trazado de anillos falla con vértices donde el borde se toca a sí mismo
+        («pellizcos»), algo que el juego acepta; antes eso bloqueaba el guardado (p. ej. sumar área a Abjasia)."""
         try:
-            main, _ = outlines.region_polygons(m, r)
-            return bool(main) and shape({'type': 'MultiPolygon', 'coordinates': main}).is_valid
+            tris = [Polygon(t) for x in mhmap.region_shapes(m, r) for t in x.triangles() if len(set(t)) == 3]
+            tris = [t for t in tris if t.area > 0]
+            if not tris:
+                return False
+            u = unary_union(tris)
+            tot = sum(t.area for t in tris)
+            return u.is_valid and abs(u.area - tot) <= 1e-6 * tot + 1e-9
         except Exception:
             return False
+
+    def _mesh_valid(self, m, r):
+        """El contorno de la region r es un poligono valido (sin aristas que crucen el mapa), o al menos su malla es sana."""
+        try:
+            main, _ = outlines.region_polygons(m, r)
+            if main and shape({'type': 'MultiPolygon', 'coordinates': main}).is_valid:
+                return True
+        except Exception:
+            pass
+        return self._mesh_ok(m, r)
 
     def _guard(self, m, created, was_valid, report):
         """Antes de escribir el mapa: ninguna region que era valida queda rota, y cada region nueva tiene
@@ -834,7 +1165,7 @@ class Project:
             for x in cl[-1].get('regiones_eliminadas', []):
                 if x['nombre'] in pops:
                     x['poblacion_por_escenario'] = pops[x['nombre']]
-            json.dump(cl, open(self.changelog_path(), 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
+            changelog_keys.dump(cl, self.changelog_path())
 
     def _finish_deletions(self, deleted, log=print):
         """Quita del mapa las regiones ya vaciadas y actualiza el changelog: la creación de una región borrada
@@ -856,12 +1187,78 @@ class Project:
         if cl:
             cl[-1]['regiones_eliminadas'] = [{'nombre': d['name'], 'absorbida_por': d['into'], 'mar': d['sea']} for d in deleted]
             cl[-1]['operaciones'] = sorted(set(cl[-1].get('operaciones', [])) | {'delete_region'})
-        json.dump(cl, open(self.changelog_path(), 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
+        changelog_keys.dump(cl, self.changelog_path())
         self.reload()
 
     def changelog(self):
         p = self.changelog_path()
-        return json.load(open(p, encoding='utf-8')) if os.path.exists(p) else []
+        return changelog_keys.load(p)
+
+    def equivalences(self):
+        """{región del regionpack: [regiones del juego vanilla (World) que equivale]}: las puestas al crearla (regiones_nuevas.equivale)
+        y las editadas después (entrada «equivalencias» del changelog; esta manda)."""
+        out = {}
+        for e in self.changelog():
+            for x in e.get('regiones_nuevas', []):
+                if x.get('equivale'):
+                    out[x['nombre']] = list(x['equivale'])
+            for k, v in (e.get('equivalencias') or {}).items():
+                if v:
+                    out[k] = list(v)
+                else:
+                    out.pop(k, None)
+        return out
+
+    def new_regions_info(self, scenario=None, have=()):
+        """Regiones nuevas de tierra del changelog: [{name, mother, owner, owner_here, ownerless}]. 'owner_here' es el dueño
+        propio de ese escenario (pais_por_escenario); 'ownerless' = no tienen dueño ni madre de la que heredarlo (el escenario
+        quedaría inutilizable: no se pueden añadir). 'have' = regiones que el escenario ya tiene (se omiten)."""
+        out = {}
+        for e in self.changelog():
+            for x in e.get('regiones_nuevas', []):
+                if x.get('mar') or x['nombre'] in have:
+                    continue
+                here = (x.get('pais_por_escenario') or {}).get(scenario)
+                out[x['nombre']] = {'name': x['nombre'], 'mother': x.get('madre'), 'owner': x.get('pais'), 'owner_here': here,
+                                    'ownerless': not (x.get('madre') or x.get('pais') or here)}
+        gone = {d['nombre'] for e in self.changelog() for d in e.get('regiones_eliminadas', [])}
+        return [v for k, v in out.items() if k not in gone]
+
+    def set_owner_for_scenario(self, region, scenario, owner):
+        """Dueño de una región nueva en un escenario concreto (pais_por_escenario del changelog; vacío = quitarlo)."""
+        cl = self.changelog()
+        hit = False
+        for e in cl:
+            for x in e.get('regiones_nuevas', []):
+                if x['nombre'] == region:
+                    m = dict(x.get('pais_por_escenario') or {})
+                    if owner:
+                        m[scenario] = owner
+                    else:
+                        m.pop(scenario, None)
+                    x['pais_por_escenario'] = m or None
+                    hit = True
+        if not hit:
+            raise ValueError('%s no es una región nueva del changelog' % region)
+        changelog_keys.dump(cl, self.changelog_path())
+        if not self.virtual and self.installed_state() == 'same':
+            shutil.copy2(self.changelog_path(), os.path.join(self.map_dir, 'changelog.json'))
+
+    def set_equivalence(self, region, names):
+        """Anota (o quita, con lista vacía) a qué regiones del juego vanilla equivale 'region'; va en el changelog del regionpack."""
+        names = [n.strip() for n in names if n and n.strip()]
+        cl = self.changelog()
+        ent = next((e for e in cl if 'equivalencias' in e), None)
+        if ent is None:
+            ent = {'fecha': time.strftime('%Y-%m-%d %H:%M:%S'), 'regionpack': self.pack, 'instalado': False, 'operaciones': ['equivalencias'],
+                   'equivalencias': {}, 'regiones_nuevas': []}
+            cl.append(ent)
+        ent['equivalencias'][region] = names
+        ent['fecha'] = time.strftime('%Y-%m-%d %H:%M:%S')
+        changelog_keys.dump(cl, self.changelog_path())
+        if not self.virtual and self.installed_state() == 'same':
+            shutil.copy2(self.changelog_path(), os.path.join(self.map_dir, 'changelog.json'))
+        return names
 
     def log_change(self, report, new_pairs, centers, R, payload):
         """Una entrada por guardado, por nombre de region: sirve para aplicar el cambio a otros escenarios."""
@@ -879,11 +1276,11 @@ class Project:
                                       'controlador': c.get('controller'), 'madres': c.get('mothers'),
                                       'terreno': c.get('terrain'), 'mar': c.get('sea'),
                                       'poblacion': c.get('pop_fractions'), 'historicos': c.get('historic'),
-                                      'poblacion_manual': c.get('population'), 'ciudad': c.get('city'),
+                                      'poblacion_manual': c.get('population'), 'ciudad': c.get('city'), 'nacion': c.get('nation'), 'equivale': c.get('equivalent'),
                                       'fraccion': c.get('fraccion'), 'area': c.get('area')} for c in report.get('new_regions', [])]}
         log = self.changelog()
         log.append(entry)
-        json.dump(log, open(self.changelog_path(), 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
+        changelog_keys.dump(log, self.changelog_path())
 
     # ------------------------------------------------------------------ regionpacks
     @staticmethod
@@ -904,7 +1301,10 @@ class Project:
         return out
 
     def save_meta(self):
-        json.dump({'pack': self.pack, 'decided': self.decided}, open(os.path.join(self.dir, 'pack.json'), 'w'))
+        meta = {'pack': self.pack, 'decided': self.decided}
+        if self.virtual:
+            meta['nuevo'] = True
+        json.dump(meta, open(os.path.join(self.dir, 'pack.json'), 'w'))
 
     @staticmethod
     def set_scenario_pack(scenario, pack, backup_root):
@@ -962,7 +1362,17 @@ class Project:
         import re
         with self.lock:
             dest = self.map_dir
-            if target == 'new':
+            if self.virtual:
+                # regionpack nuevo desde cero: se crea su carpeta en el juego (nunca se pisa una existente) con la base
+                # (map.xml, properties.xml, MiniMap, tiles en color mar) y encima lo del proyecto (mapa y tiles modificados)
+                if not self.m['regions']:
+                    return {'ok': False, 'msg': 'el regionpack no tiene ninguna región: crea al menos una antes de instalarlo'}
+                dest = os.path.join(MAPS, self.pack)
+                if os.path.exists(dest):
+                    return {'ok': False, 'msg': 'regionpack ya existente: %s' % self.pack}
+                target, scenarios = 'same', ()
+                shutil.copytree(self.base, dest, ignore=shutil.ignore_patterns('_mar'))
+            elif target == 'new':
                 if not new_name or not re.match(r'^[A-Za-z0-9_-]+$', new_name):
                     return {'ok': False, 'msg': 'nombre de regionpack no válido (solo letras, números, - y _)'}
                 dest = os.path.join(MAPS, new_name)
@@ -976,7 +1386,7 @@ class Project:
             pairs += [(os.path.join(self.tiles, f), os.path.join(dest, 'art', 'OperationalTerrain', f),
                        os.path.join(self.backup_dir, 'OperationalTerrain', f)) for f in os.listdir(self.tiles)]
             for src, dst, bak in pairs:
-                if target == 'same' and os.environ.get('MH_RESPALDOS') == '1':
+                if target == 'same' and not self.virtual and os.environ.get('MH_RESPALDOS') == '1':
                     os.makedirs(os.path.dirname(bak), exist_ok=True)
                     if not os.path.exists(bak):
                         shutil.copy2(dst, bak)   # respaldo del original del juego, solo la primera vez
@@ -987,8 +1397,8 @@ class Project:
             log = self.changelog()
             for e in log:
                 e['instalado'] = True
-            json.dump(log, open(self.changelog_path(), 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
-            json.dump(log, open(os.path.join(dest, 'changelog.json'), 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
+            changelog_keys.dump(log, self.changelog_path())
+            changelog_keys.dump(log, os.path.join(dest, 'changelog.json'))
             switched = []
             if target == 'new':
                 for s in scenarios:
@@ -1012,6 +1422,10 @@ class Project:
                 json.dump({'pack': orig, 'decided': False}, open(os.path.join(self.dir, 'pack.json'), 'w'))
                 self.__init__(self.dir, root_backup, orig)
                 return {'ok': True, 'files': done, 'regionpack': os.path.basename(dest), 'escenarios': switched, 'nuevo_proyecto': sibling}
+            if self.virtual:            # ya existe en el juego: el proyecto pasa a ser uno normal
+                self.virtual = False
+                self.map_dir = dest
+                shutil.rmtree(self.base, ignore_errors=True)
             self.decided = True
             self.save_meta()
             return {'ok': True, 'files': done, 'regionpack': os.path.basename(dest), 'escenarios': switched}

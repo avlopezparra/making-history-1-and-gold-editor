@@ -141,8 +141,34 @@
       location.reload();
     };
     const bar = document.getElementById('bar');
-    if (bar) { sel.style.marginLeft = 'auto'; bar.appendChild(sel); }
+    const langSlot = document.getElementById('langSlot');     // sitio propio de la página (editor de regiones: a la derecha de Créditos y Fondo)
+    if (langSlot) langSlot.appendChild(sel); else if (bar) { sel.style.marginLeft = 'auto'; bar.appendChild(sel); }
+    if (bar) { const slot = document.getElementById('creditsSlot'); (slot || bar).appendChild(credits()); }   // #creditsSlot: sitio propio de la página (p. ej. junto a Topología)
     else { Object.assign(sel.style, { position: 'fixed', right: '8px', bottom: '8px', zIndex: 9999 }); document.body.appendChild(sel); }
+  }
+  // créditos, Discord (novedades y actualizaciones) y dónde avisar de errores
+  const DISCORD = 'https://discord.com/invite/gFJyCjWEnr', BUGS = 'alopezcl@protonmail.com',
+    UPDATES = 'https://github.com/avlopezparra/making-history-1-and-gold-editor/releases/', HUB = 'https://gamebanana.com/threads/226595';
+  function credits() {
+    const en = lang() === 'en', b = document.createElement('button');
+    b.type = 'button'; b.textContent = en ? 'Credits / contact' : 'Créditos / contacto'; b.title = en ? 'Credits, updates and Discord' : 'Créditos, actualizaciones y Discord';
+    b.onclick = () => {
+      let d = document.getElementById('mhCredits');
+      if (!d) {
+        d = document.createElement('dialog'); d.id = 'mhCredits';
+        d.style.cssText = 'border:1px solid #888;border-radius:10px;max-width:420px;font:14px system-ui,sans-serif;background:var(--panel,#fff);color:var(--ink,#111)';
+        d.innerHTML = `<h3 style="margin-top:0">Making History Editor 2.0</h3>
+          <p style="margin-top:-6px;opacity:.75">${en ? 'Version 2.0' : 'Versión 2.0'}</p>
+          <p>${en ? 'Made by' : 'Hecho por'} <b>Alejandro Víctor López Parra</b> @avlopezparra, 2026</p>
+          <p><a href="${UPDATES}" target="_blank" rel="noopener">${en ? 'Check for updates' : 'Buscar actualizaciones'}</a> · <a href="${DISCORD}" target="_blank" rel="noopener">${en ? 'Join the Discord' : 'Únete al Discord'}</a></p>
+          <p><a href="${HUB}" target="_blank" rel="noopener">${en ? 'GameBanana hub of the game' : 'Hub del juego en GameBanana'}</a> · ${en ? 'upload your regionpacks and scenarios' : 'sube tus regionpacks y escenarios'}</p>
+          <p>${en ? 'Report bugs to' : 'Informa de errores a'} <a href="mailto:${BUGS}">${BUGS}</a></p>
+          <form method="dialog" style="text-align:right"><button>${en ? 'Close' : 'Cerrar'}</button></form>`;
+        document.body.appendChild(d);
+      }
+      d.showModal();
+    };
+    return b;
   }
   function start() {
     document.documentElement.lang = lang();

@@ -12,7 +12,7 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 WEB = [os.path.join(HERE, 'editor', f) for f in ('index.html', 'escenario.html', 'imagenes.html', 'escenario_imagenes.js')]
 PY = ['editor_server.py', 'editor_core.py', 'scenario_core.py', 'scenario_layers.py', 'geojson_io.py', 'geojson_compare.py', 'terrain_image.py',
-      'image_tools.py', 'convert_scenario.py', 'file_identify.py', 'new_region.py', 'transfer.py', 'paint_changes.py']
+      'image_tools.py', 'image_assets.py', 'convert_scenario.py', 'file_identify.py', 'new_region.py', 'new_pack.py', 'scenario_new.py', 'transfer.py', 'paint_changes.py']
 DICT = os.path.join(HERE, 'editor', 'i18n_en.json')
 
 SPANISH = re.compile(r'[áéíóúñ¿¡«»]|\b(el|la|los|las|de|del|que|en|un|una|con|por|para|sin|al|se|no|es|región|regiones|'

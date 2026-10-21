@@ -13,7 +13,7 @@ import webbrowser
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 PORT = 8765
-PAGES = {'mapa': '/', 'escenarios': '/escenario', 'imagenes': '/imagenes'}
+PAGES = {'mapa': '/', 'escenarios': '/scenario', 'imagenes': '/imagenes'}
 BROWSERS = [
     r'%ProgramFiles(x86)%\Microsoft\Edge\Application\msedge.exe',
     r'%ProgramFiles%\Microsoft\Edge\Application\msedge.exe',

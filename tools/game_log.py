@@ -39,7 +39,8 @@ def process_name(pid, cache={}):
     return cache[pid]
 
 
-def main(all_processes=False):
+def main(all_processes=False, stop=None, started=None):
+    """Escucha hasta Ctrl+C, o hasta que se active 'stop' (threading.Event; así lo usa el editor). 'started(ruta)' al empezar."""
     ready = k32.CreateEventW(None, False, False, 'DBWIN_BUFFER_READY')
     data = k32.CreateEventW(None, False, False, 'DBWIN_DATA_READY')
     if ctypes.get_last_error() == 183:   # ERROR_ALREADY_EXISTS: puede haber otro oyente (DebugView...)
@@ -51,10 +52,12 @@ def main(all_processes=False):
     os.makedirs(LOGS, exist_ok=True)
     path = os.path.join(LOGS, 'juego_%s.log' % datetime.datetime.now().strftime('%Y%m%d-%H%M%S'))
     print('Escuchando los mensajes del juego… (Ctrl+C para terminar)\nSe guardan en', os.path.abspath(path))
+    if started:
+        started(path)
     n = 0
     with open(path, 'w', encoding='utf-8') as out:
         try:
-            while True:
+            while not (stop and stop.is_set()):
                 k32.SetEvent(ready)
                 if k32.WaitForSingleObject(data, 500) != 0:
                     continue
@@ -73,6 +76,10 @@ def main(all_processes=False):
         except KeyboardInterrupt:
             pass
     print('\n%d mensajes guardados en %s' % (n, os.path.abspath(path)))
+    k32.UnmapViewOfFile(ctypes.c_void_p(view))     # deja el canal libre para otro oyente (otra captura, DebugView)
+    for h in (mapping, ready, data):
+        k32.CloseHandle(h)
+    return path
 
 
 if __name__ == '__main__':

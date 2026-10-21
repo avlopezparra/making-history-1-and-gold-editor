@@ -48,7 +48,7 @@ def create_region(m, name, u_type):
     m['shapes'].append(mhmap.Shape(si, 0, [], []))
     m['shape_table'].append(mhmap.ShapeIndexRow(idx, si, si, si))
     m['border_table'].append(mhmap.BorderIndexRow(idx, idx, []))
-    R.append(mhmap.Region(idx, raw, int(u_type), 0, 0, 0, 0.0, 0.0, 0, [], []))
+    R.append(mhmap.Region(idx, raw, int(u_type), 0, 0, 1 if int(u_type) == 0 else 0, 0.0, 0.0, 0, [], []))   # u_flag 1 = mar
     return idx
 
 
