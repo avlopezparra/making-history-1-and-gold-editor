@@ -163,6 +163,35 @@ Antes, si el polígono dejaba una malla con contorno inválido (p. ej. al añadi
 `Project.save` ahora reintenta saneando los polígonos por niveles: 1 válido (`make_valid`), 2 rejilla de 1e-5°, 3 simplificado (1e-4°), 4 redondeado (±2e-4°); el informe avisa del nivel usado.
 Con un fuzz sobre World (polígonos que amplían una región sobre su vecina, con ruido de 1e-7 a 1e-5°) fallaba ~10 %; con el saneado, 0 de 25 (los casos rotos se resolvían en el nivel 3).
 
+### Tierra que quedó como mar (regiones imposibles de tocar)
+Síntoma (Probando3, regionpack importado de un GeoJSON): en el juego y en el editor no se pueden seleccionar las regiones. Causa: 75 regiones de tierra tenían `u_type` 0
+(mar) y `u_a` 0 en `regions.bin`; en el juego las regiones de mar no se seleccionan ni tienen dueño. Arreglo: en el panel de una región, **«Convertir en región de tierra…»** (o de mar)
+cambia solo el tipo (`Project.convert_region_type`, `POST /api/region/convert`; la malla y las fronteras no cambian; queda en el changelog como `tipos`). Para muchas a la vez, con el editor CERRADO:
+`python tools/fix_region_types.py editor_proyecto_<nombre>` (`--solo-ver` para ver la lista; `--mar REGEX` para los nombres que sí son mar; `--terreno N`); trabaja sobre el proyecto, no sobre el juego, y luego se pulsa «Instalar».
+
+### Adecuar: regiones sin país
+Al «Adecuar» un escenario, las regiones de tierra que no salen de otra con datos (p. ej. importadas de un GeoJSON, o creadas sobre el mar) no se podían añadir y el escenario no terminaba de cuadrar
+(«no se ha añadido: no sale de ninguna región con datos…»). Ahora «Adecuar» abre el diálogo «Países de las regiones nuevas» con **todas** esas regiones (también las que el changelog no conocía
+o cuya madre es un mar), con un selector «Asignar todas las que no tienen país a…» y uno por región; el país se guarda en el changelog solo para ese escenario (`pais_por_escenario`). Una región con
+0-2 habitantes se crea con 1000 (más de 2).
+
+### Regiones invisibles en el juego (mapa hecho desde cero)
+Síntoma (Probando3): el escenario reconoce las regiones pero en el juego no se ven ni se pueden elegir (solo trozos de frontera). Causa: **todos los triángulos de `regions.nts`
+estaban en sentido horario**; el juego solo dibuja y deja elegir los antihorarios (World y WorldModern: 100 % antihorarios). Al crear la primera región en un mapa vacío el
+editor no tenía triángulos de los que deducir el sentido y elegía horario. Corregido (`transfer.apply_transfers`: antihorario por defecto). `new_region.normalize_map` gira los
+triángulos horarios y pone a 0 el flag de costa en bordes tierra-tierra y mar-mar; se aplica en **Instalar** y en `tools/fix_region_types.py`.
+
+### Mallas que se solapan («formas raras»)
+Podelia y Polissia (WorldModern) se solapaban 0,0009 grados² en sus mallas. Al recortar esa zona de Podelia hacia Polissia, el traspaso le añadía a Polissia triángulos
+que ya tenía, su malla quedaba con solapes y el guardado se rechazaba («la malla de Polissia quedaría rota»), incluso con el saneado automático. Ahora
+`transfer.apply_transfers` resta a cada trozo lo que la región destino ya cubre antes de añadírselo.
+
+### Contorno dibujado equivocado tras restar área (Wilno / Lituania)
+Al restar a Wilno el área de `lt.json` y dársela a Aukstaitija, la malla quedaba bien (Wilno −0,22 grados², Aukstaitija +0,22) pero el trazado de anillos del contorno
+salía válido y **equivocado** (5,4 de 9,7 grados², una arista recta de 3,5° hasta Bialystok): el editor dibujaba y dejaba editar esa forma rota, y editarla la habría
+guardado. Ahora `Project.outline` compara el área del contorno con la de los triángulos y, si no cuadran (>0,5 %), dibuja la unión de los triángulos; el control del
+guardado (`_mesh_valid`) hace la misma comparación. En WorldModern solo cambia Wilno.
+
 ## Mapa y escenario a la vez (para que el juego cargue)
 Las regiones de un escenario tienen que coincidir con las del mapa de su regionpack; si falta o sobra una, el juego da
 «Error creating local game».
@@ -542,3 +571,13 @@ formato. Se escribe solo tras confirmar y nunca en la carpeta de contenido del j
 - **Tamriel «no se puede modificar»**: no se reprodujo: en una copia del proyecto Tamriel todas las regiones son editables (una tenía el contorno trazado inválido, ya arreglado con la unión de triángulos). Ese proyecto tiene 33 regiones («Glenumbra 2»…, sobre «World Land»), no las 104 del GeoJSON: se hizo con una versión anterior (relleno de tierra, nombres duplicados y naciones con «/»). Recomendado rehacerlo con relleno vacío según los pasos de «Instrucciones 6».
 - **Regiones «Nombre 2» de Tamriel**: venían de elegir dos veces el mismo GeoJSON (p. ej. `tamriel_regiones.geojson` y `tamriel_regiones (1).geojson`): la segunda copia de cada contorno se renombraba «X 2» y le quitaba el área a la primera. Ahora un contorno con el mismo nombre y la misma forma (área ±1 %) se omite y se avisa; solo se numeran los que comparten nombre con forma distinta (p. ej. las 17 «Aguas interregionales»). El regionpack y el escenario Tamriel del usuario ya cuadran entre sí (33 regiones «X 2» en los dos). A sus escenarios Tamriel y Probando3 se les corrigió `strSpriteMapName` (→ World; copia de los scenario.xml anteriores en el scratchpad de la sesión).
 - **Turov (belarus.geojson)**: el arreglo de la tolerancia está en `tools/editor_core.py` desde el 22-10 08:01; el `MHEditor.zip` de `release/` es de las 07:58 y no lo lleva: hay que regenerar el exe (`python tools/build_exe.py`) o usar `Region Editor.bat`.
+
+## Instrucciones 8 (editor de regiones)
+- **Dueño cambiado sin motivo (Rostov → Donetsk-Luhansk; antes Syria/Palmyra)**: «Adecuar» solo aplicaba los renombres anotados en el changelog. Un RegionRename de map.xml sin anotar (Rostov → Rostov Oblast) hacía que la región se quitara y se volviera a crear desde la vecina con más frontera (Donetska), con su dueño y su población. Ahora también se aplican los RegionRename de map.xml (`PackMap.renames`).
+- **Guardar / Instalar con escenarios con cambios sin guardar**: antes se saltaba el registro de la región nueva en ese escenario (y quedaba sin cuadrar con el mapa). Ahora se pregunta si guardarlos antes (`savePendingScen`).
+- **Tierra importada como mar** (Probando3: las regiones de Tamriel salieron todas de mar): la detección «el contorno cae sobre el mar del mapa» contaba el «World Ocean» de relleno que cubre todo el mundo; ya no lo cuenta, y el tipo que da el GeoJSON (preset) manda sobre el «solo sobre mar». Probado: tierra → tierra, mar → mar.
+- **Limpiar trozos sueltos…** (panel de la región): encuentra exclaves diminutos, tiras de dos nodos y restos de geometría imperfecta y los pasa a la vecina con más borde (se aplica al Guardar). Probado en copia: Polissia 8 trozos, Forecaucasia 2 (incluido uno de 7e-9 grados²).
+- **Restar lt.json de Wilno / malla de Polissia**: las migas de menos de 1e-8 grados² que deja un contorno al rozar fronteras ya no se traspasan (creaban pellizcos). Probado: se guarda.
+- **Importar**: por defecto los exclaves los absorben las vecinas.
+- Casilla **Regiones nuevas** (naranja) a la derecha de «Controlador». Al pasar el cursor se ve el nombre del juego si no es el interno (texto del stringTable o RegionRename). **Renombrar** pregunta además si cambiar el código SID. Más mensajes del servidor traducidos al inglés.
+- Pendiente: tras «Dibujar», ofrecer las mismas opciones que tras «Recortar»; convertir zonas vacías en tierra o mar ya se puede seleccionando el hueco («Crear una región nueva aquí…» con tipo tierra/mar).

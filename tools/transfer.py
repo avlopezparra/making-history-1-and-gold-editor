@@ -180,11 +180,14 @@ def apply_transfers(m, transfers, islands, P, cache=None):
     R = m["regions"]
     # ------------------------------------------------------------ mallas: recorte
     all_tris = [t for s in m['shapes'] for t in s.triangles()]
-    winding = sum(signed_area(t) > 0 for t in all_tris) * 2 > len(all_tris)
+    # el juego solo dibuja (y deja elegir) triangulos en sentido antihorario (World: 100 %); en un mapa vacío no hay de donde
+    # deducirlo y antes salía horario: regiones invisibles e imposibles de seleccionar (Probando3, 2026-10-22)
+    winding = not all_tris or sum(signed_area(t) > 0 for t in all_tris) * 2 >= len(all_tris)
     by_src = defaultdict(list)
     for p, s, d in transfers:
         by_src[s].append((p, d))
     work = {}          # indice de shape -> triangulos (tuplas de puntos)
+    dest_geom = {}     # region destino -> (malla preparada, malla) tal como estaba antes del traspaso
     incoming = defaultdict(list)
     for src, items in by_src.items():
         if src is None:   # area que sale de la nada (rellenar un hueco o lago)
@@ -198,7 +201,19 @@ def apply_transfers(m, transfers, islands, P, cache=None):
             for t in sh.triangles():
                 tp = Polygon(t)
                 if tp.area < EPS:
-                    res.append(tuple(t))
+                    # triángulo diminuto: antes se quedaba siempre en su región (un resto de Podelia de 1e-8 grados² dentro de
+                    # Polissia no había forma de quitarlo); si cae dentro de lo que se traspasa, se va con ello
+                    c = Point(sum(p_[0] for p_ in t) / 3, sum(p_[1] for p_ in t) / 3)
+                    hit = next((items[i] for i in tree.query(c.buffer(1e-7)) if items[i][0].buffer(1e-7).contains(c)), None)
+                    if hit is None:
+                        res.append(tuple(t))
+                    elif hit[1] is not None:
+                        d = hit[1]
+                        if d not in dest_geom:
+                            from shapely.prepared import prep
+                            dest_geom[d] = (prep(P(d)), P(d))
+                        if not dest_geom[d][0].contains(c):      # si el destino ya cubre ese punto, basta con quitarlo del origen
+                            incoming[d].append(tuple(map(tuple, t)))
                     continue
                 hits = [items[i] for i in tree.query(tp) if items[i][0].intersects(tp)]
                 rem = tp
@@ -206,7 +221,15 @@ def apply_transfers(m, transfers, islands, P, cache=None):
                     inter = rem.intersection(p)
                     if inter.area > EPS:
                         if d is not None:   # d None: el area se elimina (queda un hueco)
-                            incoming[d].extend(tuple(map(tuple, q)) for q in triangulate(inter))
+                            # lo que la región destino ya tiene (mallas que se solapan, p. ej. las «formas raras» entre
+                            # Podelia y Polissia) no se le vuelve a añadir: duplicaría triángulos y su malla quedaría rota
+                            if d not in dest_geom:
+                                from shapely.prepared import prep
+                                dest_geom[d] = (prep(P(d)), P(d))
+                            if dest_geom[d][0].intersects(inter):
+                                inter = inter.difference(dest_geom[d][1])
+                            if inter.area > EPS:
+                                incoming[d].extend(tuple(map(tuple, q)) for q in triangulate(inter))
                         rem = rem.difference(p)
                 if rem.equals(tp):
                     res.append(tuple(t))

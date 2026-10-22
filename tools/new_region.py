@@ -186,3 +186,33 @@ def delete_region(m, r):
         g.index = i
         g.neighbors = [x - 1 if x > r else x for x in g.neighbors if x != r]
     return n
+
+
+def normalize_map(m):
+    """Reglas que el juego necesita y que un mapa hecho desde cero (o con regiones que cambiaron de mar a tierra) podía romper:
+    triángulos en sentido antihorario (en horario el juego no los dibuja ni deja elegir la región) y flag de costa a 0 en los bordes
+    tierra-tierra y mar-mar (como en World). Devuelve {'triangulos': n invertidos, 'costas': n tramos corregidos}."""
+    flipped = 0
+    for s in m['shapes']:
+        ix, v = s.indices, s.vertices
+        for k in range(0, len(ix) - 2, 3):
+            a, b, c = v[ix[k]], v[ix[k + 1]], v[ix[k + 2]]
+            if (b[0] - a[0]) * (c[1] - a[1]) - (c[0] - a[0]) * (b[1] - a[1]) < 0:
+                ix[k + 1], ix[k + 2] = ix[k + 2], ix[k + 1]
+                flipped += 1
+    R = m['regions']
+    coast = 0
+    for b in m['borders']:
+        if len(b.regions) != 2:
+            continue
+        if (R[b.regions[0]].u_type == SEA) != (R[b.regions[1]].u_type == SEA):
+            continue           # tierra-mar: en World pueden ir con 0, 1 o mezclados; se dejan
+        want = 0               # tierra-tierra y mar-mar: siempre 0 en World
+        segs = []
+        for f, pts in b.segments:
+            if f != want:
+                coast += 1
+            segs.append((want, pts))
+        b.segments = segs
+    return {'triangulos': flipped, 'costas': coast}
+

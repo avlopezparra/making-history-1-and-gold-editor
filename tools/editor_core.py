@@ -135,7 +135,7 @@ class Project:
                 e['traspasos'] = [t for t in e.get('traspasos', []) if t.get('de') not in g and t.get('a') not in g]
                 e['vecindades_nuevas'] = [v for v in e.get('vecindades_nuevas', []) if not g & set(v)]
             cl = [e for e in cl if e.get('regiones_nuevas') or e.get('regiones_eliminadas') or e.get('traspasos')
-                  or e.get('centros') or e.get('vecindades_nuevas') or e.get('renombradas') or e.get('canales')]
+                  or e.get('centros') or e.get('vecindades_nuevas') or e.get('renombradas') or e.get('canales') or e.get('tipos')]
             changelog_keys.dump(cl, self.changelog_path())
             log('changelog: quitadas regiones que no están en el mapa: %s' % ', '.join(gone))
         return gone
@@ -201,7 +201,7 @@ class Project:
                 e['traspasos'] = [t for t in e.get('traspasos', []) if t.get('de') not in gone and t.get('a') not in gone]
                 e['vecindades_nuevas'] = [v for v in e.get('vecindades_nuevas', []) if not gone & set(v)]
             cl = [e for e in cl if e.get('regiones_nuevas') or e.get('regiones_eliminadas') or e.get('traspasos')
-                  or e.get('centros') or e.get('vecindades_nuevas') or e.get('renombradas') or e.get('canales')]
+                  or e.get('centros') or e.get('vecindades_nuevas') or e.get('renombradas') or e.get('canales') or e.get('tipos')]
             news = []
             for n in add or []:
                 r = rows.get(n)
@@ -412,6 +412,48 @@ class Project:
         self.reload()
         return notes
 
+    # ------------------------------------------------------------------ tipo de region: mar <-> tierra
+    def convert_region_type(self, names, to, terrain=1):
+        """Cambia regiones entre mar y tierra (p. ej. tierra importada que quedo como mar: en el juego una región de mar no se puede
+        seleccionar ni tiene dueño). to: 'land' (terrain 1..4: llanura, colinas, montaña, desierto) o 'sea'.
+        Tierra: u_type = terreno y u_a = u_b (toda su área es tierra); mar: u_type 0 y u_a 0. La malla y las fronteras no cambian."""
+        with self.lock:
+            R = self.m['regions']
+            by = {self.rname(g.index): g for g in R}
+            terrain = int(terrain or 1)
+            if to not in ('land', 'sea'):
+                raise ValueError("el tipo debe ser 'land' o 'sea'")
+            if to == 'land' and not 1 <= terrain <= 4:
+                raise ValueError('terreno no válido (1..4)')
+            done, skipped = [], []
+            for n in names:
+                g = by.get(n)
+                if g is None:
+                    skipped.append('%s: no existe' % n)
+                    continue
+                if to == 'land':
+                    g.u_type, g.u_a = terrain, (g.u_b or g.u_a)
+                else:
+                    g.u_type, g.u_a = SEA, 0
+                done.append(n)
+            if not done:
+                return {'done': [], 'skipped': skipped}
+            self.snapshot(print, keep_redo=True)
+            self._pending_snapshot = True
+            mhmap.save_map(self.m, self.xml)
+            self._pending_snapshot = False
+            cl = self.changelog()
+            for e in cl:
+                for x in e.get('regiones_nuevas', []):
+                    if x.get('nombre') in done:
+                        x['mar'] = to == 'sea'
+                        x['tipo'] = SEA if to == 'sea' else terrain
+            cl.append({'fecha': time.strftime('%Y-%m-%d %H:%M:%S'), 'regionpack': self.pack, 'instalado': False, 'operaciones': ['tipo_region'],
+                       'regiones_nuevas': [], 'tipos': [{'region': n, 'mar': to == 'sea', 'terreno': None if to == 'sea' else terrain} for n in done]})
+            json.dump(cl, open(self.changelog_path(), 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
+            self.reload()
+            return {'done': done, 'skipped': skipped}
+
     def load_installed(self):
         """Vuelve a copiar en el proyecto el regionpack del juego (con su changelog); borra «Volver / Rehacer»."""
         if self.virtual:
@@ -453,6 +495,11 @@ class Project:
             main, detail = outlines.region_polygons(self.m, r)
             g = shape({'type': 'MultiPolygon', 'coordinates': main}) if main else None
             ok = g is not None and g.is_valid
+            # el trazado de anillos puede salir válido pero equivocado (tras partir uniones en T une vértices que no tocan:
+            # Wilno tras restarle Lituania salía con 5,4 grados² de 9,7 y una arista de 3,5°): si no cuadra con el área de la malla,
+            # se usa la unión de los triángulos
+            if ok and len(mhmap.region_shapes(self.m, r)) == 1 and abs(g.area - self._tri_area(self.m, r)) > 0.005 * max(g.area, 1e-9):
+                ok = False         # (las regiones-isla, con halo y detalle en dos shapes, no se comparan)
             if not ok and self._mesh_ok(self.m, r):
                 # trazado de anillos inválido (pellizcos) con una malla sana: se dibuja y edita la unión de sus triángulos
                 u = new_region.mesh_polygon(self.m, r)
@@ -642,6 +689,8 @@ class Project:
 
             def add(piece, src, dst):
                 for p in polys_of(piece):
+                    if p.area < 1e-8:      # migas de ~100 m² que deja un contorno al rozar fronteras: solo crean «pellizcos» en la malla
+                        continue
                     transfers.append((p, src, dst))
                     if src is not None:
                         taken[src] = unary_union([taken[src], p]) if src in taken else p
@@ -716,7 +765,15 @@ class Project:
                     into = int(into) if into is not None else None
                     if into == src:
                         into = None
-                    add(poly.intersection(P(src)), src, into)
+                    cut_pieces = polys_of(poly.intersection(P(src)))
+                    # «Limpiar trozos sueltos», o un recorte que solo toca migas (p. ej. el resto de 1e-8 grados² de Podelia dentro de
+                    # Polissia): también las migas diminutas, que son justo lo que se quiere quitar
+                    if asg.get('keep_tiny') or (cut_pieces and all(q.area < 1e-8 for q in cut_pieces)):
+                        for q in cut_pieces:
+                            transfers.append((q, src, into))
+                            taken[src] = unary_union([taken[src], q]) if src in taken else q
+                    else:
+                        add(poly.intersection(P(src)), src, into)
                     continue
                 for s in owners(poly, exclude={r}):
                     if asg.get('land_only') and R[s].u_type == SEA:
@@ -936,6 +993,40 @@ class Project:
         for p, s in pieces:
             add(p, s, idx)
 
+    def crumbs(self, r, max_deg2=0.05, max_ratio=0.02):
+        """Trozos sueltos de la región r (exclaves diminutos, tiras de dos nodos, restos de geometría imperfecta): todas sus partes
+        menos la principal que midan menos de max_deg2 grados² o de max_ratio de la región. Para cada uno, la vecina (de cualquier
+        tipo) con la que más borde comparte: [{polygon, area, into, into_name}]."""
+        from shapely.geometry import mapping as _mp
+        with self.lock:
+            geo = new_region.mesh_polygon(self.m, r)
+            parts = sorted(polys_of(geo), key=lambda q: -q.area)
+            if len(parts) < 2:
+                return []
+            total = sum(q.area for q in parts)
+            out = []
+            for q in parts[1:]:
+                if q.area > max_deg2 and q.area > max_ratio * total:
+                    continue
+                ring = q.buffer(1e-6)
+                best, bl = None, 0.0
+                b0 = q.bounds
+                for g in self.m['regions']:
+                    if g.index == r:
+                        continue
+                    bb = self.bbox[g.index] if g.index < len(self.bbox) else None
+                    if bb and (bb[2] < b0[0] - 1e-3 or bb[0] > b0[2] + 1e-3 or bb[3] < b0[1] - 1e-3 or bb[1] > b0[3] + 1e-3):
+                        continue
+                    hg = self.region_geom(self.rname(g.index))
+                    if hg is None:
+                        continue
+                    n = hg.intersection(ring).area
+                    if n > bl:
+                        best, bl = g.index, n
+                out.append({'polygon': _mp(q.buffer(1e-7)), 'area': round(q.area, 9), 'into': best,
+                            'into_name': self.rname(best) if best is not None else None})
+            return out
+
     def gap_at(self, x, y, half=4.0):
         """Hueco (zona sin región) que contiene el punto: {polygon, area, neighbors:[{index, name, sea, shared}]}. Sirve para
         seleccionar el hueco y unirlo a una región o crear una región nueva ahí. Si no está cerrado (mapa vacío) devuelve error."""
@@ -1005,7 +1096,15 @@ class Project:
                     if nm:
                         pop = prop(head, 'nPopulation')
                         regions[nm] = {'owner': prop(head, 'strOwner'), 'controller': prop(head, 'strController'),
-                                       'terrain': prop(head, 'strTerrain'), 'culture': prop(head, 'strCulture'), 'population': int(pop) if pop and pop.isdigit() else None}
+                                       'terrain': prop(head, 'strTerrain'), 'culture': prop(head, 'strCulture'), 'population': int(pop) if pop and pop.isdigit() else None,
+                                       'sid': prop(head, 'sidName')}
+        # nombre que se ve en el juego (stringTable del escenario) para mostrarlo al pasar el cursor si no es el interno
+        st_path = os.path.join(d, 'game', 'stringTable.xml')
+        if os.path.exists(st_path):
+            texts = dict(re.findall(r'<string id="([^"]+)" value="([^"]*)"', open(st_path, encoding='utf-8', errors='replace').read()))
+            for v in regions.values():
+                if v.get('sid') in texts:
+                    v['text'] = texts[v['sid']]
         colors = {}
         gs = open(os.path.join(d, 'gamestate.xml'), encoding='utf-8', errors='replace').read()
         for blk in re.split(r'<object type="Player"', gs)[1:]:
@@ -1032,11 +1131,18 @@ class Project:
         except Exception:
             return False
 
+    @staticmethod
+    def _tri_area(m, r):
+        """Suma de las áreas (grados²) de los triángulos de la malla de r."""
+        return sum(abs((t[1][0] - t[0][0]) * (t[2][1] - t[0][1]) - (t[2][0] - t[0][0]) * (t[1][1] - t[0][1])) / 2
+                   for s in mhmap.region_shapes(m, r) for t in s.triangles())
+
     def _mesh_valid(self, m, r):
         """El contorno de la region r es un poligono valido (sin aristas que crucen el mapa), o al menos su malla es sana."""
         try:
             main, _ = outlines.region_polygons(m, r)
-            if main and shape({'type': 'MultiPolygon', 'coordinates': main}).is_valid:
+            g = shape({'type': 'MultiPolygon', 'coordinates': main}) if main else None
+            if g is not None and g.is_valid and (len(mhmap.region_shapes(m, r)) != 1 or abs(g.area - self._tri_area(m, r)) <= 0.005 * max(g.area, 1e-9)):
                 return True
         except Exception:
             pass
@@ -1214,13 +1320,15 @@ class Project:
         propio de ese escenario (pais_por_escenario); 'ownerless' = no tienen dueño ni madre de la que heredarlo (el escenario
         quedaría inutilizable: no se pueden añadir). 'have' = regiones que el escenario ya tiene (se omiten)."""
         out = {}
+        sea = {g.name for g in self.m['regions'] if g.u_type == SEA} | {self.rname(g.index) for g in self.m['regions'] if g.u_type == SEA}
         for e in self.changelog():
             for x in e.get('regiones_nuevas', []):
                 if x.get('mar') or x['nombre'] in have:
                     continue
                 here = (x.get('pais_por_escenario') or {}).get(scenario)
-                out[x['nombre']] = {'name': x['nombre'], 'mother': x.get('madre'), 'owner': x.get('pais'), 'owner_here': here,
-                                    'ownerless': not (x.get('madre') or x.get('pais') or here)}
+                mother = x.get('madre') if x.get('madre') not in sea else None      # una madre de mar no le da país
+                out[x['nombre']] = {'name': x['nombre'], 'mother': mother, 'owner': x.get('pais'), 'owner_here': here,
+                                    'ownerless': not (mother or x.get('pais') or here)}
         gone = {d['nombre'] for e in self.changelog() for d in e.get('regiones_eliminadas', [])}
         return [v for k, v in out.items() if k not in gone]
 
@@ -1239,7 +1347,14 @@ class Project:
                     x['pais_por_escenario'] = m or None
                     hit = True
         if not hit:
-            raise ValueError('%s no es una región nueva del changelog' % region)
+            if not owner:
+                return
+            # región del mapa que el changelog no conoce (p. ej. importada de un GeoJSON): se anota con el dueño de este escenario
+            if not any(self.rname(g.index) == region for g in self.m['regions']):
+                raise ValueError('%s no es una región de este regionpack' % region)
+            cl.append({'fecha': time.strftime('%Y-%m-%d %H:%M:%S'), 'regionpack': self.pack, 'instalado': False, 'operaciones': ['propietario'],
+                       'regiones_nuevas': [{'nombre': region, 'texto': region, 'madre': None, 'pais': None, 'tipo': None, 'controlador': None,
+                                            'terreno': None, 'mar': False, 'poblacion': None, 'historicos': None, 'pais_por_escenario': {scenario: owner}}]})
         changelog_keys.dump(cl, self.changelog_path())
         if not self.virtual and self.installed_state() == 'same':
             shutil.copy2(self.changelog_path(), os.path.join(self.map_dir, 'changelog.json'))
@@ -1361,6 +1476,10 @@ class Project:
         los 'scenarios' indicados pasan a usar el regionpack nuevo."""
         import re
         with self.lock:
+            fix = new_region.normalize_map(self.m)       # triángulos antihorarios y costas: si no, el juego no dibuja ni deja elegir regiones
+            if fix['triangulos'] or fix['costas']:
+                mhmap.save_map(self.m, self.xml)
+                print('instalar: corregidos %d triángulos en sentido horario y %d tramos de costa' % (fix['triangulos'], fix['costas']))
             dest = self.map_dir
             if self.virtual:
                 # regionpack nuevo desde cero: se crea su carpeta en el juego (nunca se pisa una existente) con la base

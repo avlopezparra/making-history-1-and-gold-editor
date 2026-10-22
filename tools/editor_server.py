@@ -99,7 +99,15 @@ class Handler(BaseHTTPRequestHandler):
                 try:
                     s_ = scenario(sc_)
                     have = {scenario_core.prop(r, 'strName') for r in s_.regions(sea=False)}
-                    return self.send(200, {'regions': PROJECT.new_regions_info(sc_, have), 'countries': sorted(s_.countries())})
+                    regs = PROJECT.new_regions_info(sc_, have)
+                    known = {r['name'] for r in regs}
+                    try:      # tierra del mapa que el changelog no conoce y no sale de ninguna región con datos: sin dueño no se puede añadir
+                        for x in scenario_layers.pack_sync_plan(s_, PROJECT.pack)['add']:
+                            if not x['sea'] and not x['mother'] and x['name'] not in known and x['name'] not in have:
+                                regs.append({'name': x['name'], 'mother': None, 'owner': None, 'owner_here': None, 'ownerless': True})
+                    except (ValueError, OSError, KeyError):
+                        pass
+                    return self.send(200, {'regions': regs, 'countries': sorted(s_.countries())})
                 except (ValueError, OSError, KeyError) as e:
                     return self.send(200, {'error': str(e), 'regions': [], 'countries': []})
             if u.path == '/api/changelog':
@@ -349,6 +357,8 @@ class Handler(BaseHTTPRequestHandler):
                     TILE_CACHE.clear()
                 PROJECT_VERSION[0] += 1
                 return self.send(200, {'ok': True, 'tiles': done})
+            if u.path == '/api/region/crumbs':      # trozos sueltos / exclaves diminutos de una región (para pasarlos a la vecina)
+                return self.send(200, {'crumbs': PROJECT.crumbs(int(payload['region']))})
             if u.path == '/api/gap':
                 return self.send(200, PROJECT.gap_at(float(payload['x']), float(payload['y'])))
             if u.path == '/api/cut_preview':
@@ -393,6 +403,15 @@ class Handler(BaseHTTPRequestHandler):
                 if bad:
                     return self.send(200, {'error': '%s es de %s: no puede equivaler a %s (%s)' % (payload['region'], 'mar' if mine else 'tierra', ', '.join(bad), 'de tierra' if mine else 'de mar')})
                 return self.send(200, {'equivale': PROJECT.set_equivalence(payload['region'], payload.get('vanilla') or [])})
+            if u.path == '/api/region/convert':
+                # mar <-> tierra (tierra importada que quedó como mar): solo el tipo; la malla no cambia
+                try:
+                    out = PROJECT.convert_region_type(payload.get('regions') or [], payload.get('to'), payload.get('terrain') or 1)
+                except (ValueError, OSError) as e:
+                    return self.send(200, {'error': str(e)})
+                PROJECT_VERSION[0] += 1
+                log('tipo de región -> %s: %s' % (payload.get('to'), ', '.join(out['done'])))
+                return self.send(200, dict(out, ok=True))
             if u.path == '/api/region/canal':
                 # región de mar de navegación libre o cerrada (canal): map.xml del proyecto, se instala con «Instalar»
                 try:
@@ -419,6 +438,12 @@ class Handler(BaseHTTPRequestHandler):
                                     continue
                                 reg = next((r for r in sc_.regions() if scenario_core.prop(r, 'strName') == old), None)
                                 sid = scenario_core.prop(reg, 'sidName') if reg is not None else None
+                                if reg is not None and payload.get('change_sid'):
+                                    # también el código del texto (sidName): SID.Game.Region.Name.<texto sin espacios ni acentos>
+                                    nsid = scenario_core.region_sid(text)
+                                    if nsid != sid:
+                                        st.set_prop(reg, 'sidName', nsid)
+                                        sid = nsid
                                 notes = scenario_core.set_region_string(sc_, sid, text) if sid else ['%s: no está en este escenario' % old]
                                 res = st.save([x for x in sc_.paths if x in st.dirty])
                                 if res['written']:

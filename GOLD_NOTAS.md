@@ -54,3 +54,20 @@ Idiomas disponibles: carpetas en `system\locale` (en, esp, ru).
 ### Actualizacion (pruebas)
 El arreglo de VirtualStore **no funciono**: con VirtualStore=esp (y HKLM=esp) el log sigue en `locale/en`; con un valor centinela `zz` tambien `en` (el juego no lee esas claves, o cae a `en`). Se restauro VirtualStore a `en` (backup: `backup_virtualstore_MH1.reg`).
 Pistas: no hay cadena `locale` ni ruta de registro en `bin\*.dll/exe` (salvo MFC/apatch genericas). Steam guarda idioma por juego en `appmanifest_*.acf` / `localconfig.vdf`: MH1 = `english`, Gold = `german`, MH2 = `english`. Hipotesis pendiente: el idioma sale del idioma de Steam del juego (Propiedades > Idioma) o de otro mecanismo; falta probar y/o trazar el acceso a registro (Procmon).
+
+### Traza Procmon (MH1, 2026-10-22)
+`makehist.exe` lee `HKCU\Software\Classes\VirtualStore\MACHINE\SOFTWARE\WOW6432Node\Muzzy Lane Software\Making History 2.0\Locale` (primero prueba `HKCU\Software\Muzzy Lane Software\Making History 2.0`, que no existe; HKLM ni se consulta porque VirtualStore ya tiene el valor). Aun con `Locale=esp` ahi (y sin que nadie lo reescriba), el log sigue en `locale/en`, y `locale\esp` esta completo. Conclusion: el valor del registro se lee pero otra cosa lo anula (idioma de Steam del juego = `english`, u otra comprobacion interna). Pendiente: probar idioma de Steam para MH1 / analizar game.dll con rea. Procmon en `tools_ext/procmon` (Procmon64.exe, firmado por Microsoft).
+
+### Hallazgos del analisis (rea/capstone/Procmon)
+- `program.dll` (CProgram::Init) lee `Locale` con CMLRegistryValue (HKLM→VirtualStore), lo valida con `CObjectManager::LocaleExists` (siempre true) y lo pasa a `CObjectManager::Init(locale)` (objectcore.dll). `utility.dll` acepta ru/de/fr/ita/esp/en. Tambien existe override por ini (`SharedConfig` en la clave del registro; no existe aqui).
+- Procmon: el juego leyo `Locale=en` de VirtualStore mientras mi consola ya mostraba `esp` => **mis `reg add` desde la herramienta sandbox no llegaron al registro real** (vista virtualizada). Hay que escribir fuera del sandbox / con el `.reg` doble clic del usuario. Pendiente verificar con el juego.
+
+### CAUSA REAL de que mis cambios no tuvieran efecto (importante para el editor)
+Procmon mostro que el `reg.exe` lanzado desde la herramienta de Claude escribe en `\REGISTRY\WC\Silo...` (contenedor de la app), no en el registro real: el juego seguia leyendo `Locale=en`. Solo vale escribir desde un proceso fuera del contenedor (doble clic en un `.reg`, o `Start-Process ... -Verb RunAs`). Escritura elevada hecha el 2026-10-22 13:2x: VirtualStore MH1 `Locale=esp`; pendiente confirmar con el juego. Para el editor: escribir `HKCU\Software\Classes\VirtualStore\MACHINE\SOFTWARE\WOW6432Node\Muzzy Lane Software\<Making History 2.0|Making History Gold>\Locale` (y de paso HKLM si hay admin).
+
+## RESUELTO — cambio de idioma MH1/Gold (2026-10-22)
+- **Causa**: el juego lee `Locale` de `HKCU\Software\Classes\VirtualStore\MACHINE\SOFTWARE\WOW6432Node\Muzzy Lane Software\<Making History 2.0 | Making History Gold>` (la copia virtualizada gana sobre HKLM). Los `.reg` del juego escriben en HKLM, por eso ya no surten efecto desde que existe la copia en VirtualStore (con `Locale=en`).
+- **Arreglo verificado**: poner `Locale=esp` en esa clave de VirtualStore (doble clic en `Idioma MH1 - Espanol (VirtualStore).reg`); log `juego_20261022-132644.log` => `locale/esp/...`.
+- **Herramienta**: `python tools/idioma_juego.py` (lista), `python tools/idioma_juego.py mh1 esp` / `gold de`. Ejecutar en una terminal NORMAL del usuario: el `reg`/python lanzado desde la app de Claude escribe en un registro privado (`\REGISTRY\WC\Silo...`) y no tiene efecto, ni siquiera elevado.
+- Valores validos: carpetas de `system\locale` (MH1: en, esp, ru; Gold: de, en, jp, ru). Gold (clave `Making History Gold`) no se probo con el juego.
+- Falta (opcional): boton en el editor que llame a `idioma_juego.cambiar`.

@@ -19,7 +19,7 @@ DOCS = ['AGENTS.md', 'EDITOR.md', 'MAPA_FORMATO.md', 'REVERSING_NOTAS.md', 'ESCE
 LAUNCHERS = ['Region Editor.bat', 'Scenario Editor.bat', 'Editor (window).bat', 'Scenario Editor (window).bat', 'Game Log.bat']
 SKIP_PY = {'probe2.py', 'probe_regions.py'}          # pruebas sueltas de ingeniería inversa
 
-README = """# Making History 1 & Gold Editor 2.1
+README = """# Making History 1 & Gold Editor 2.2
 
 Map (regionpack), scenario and image editor for **Making History: The Calm and The Storm (MH1)** and **Making History Gold**.
 
@@ -30,7 +30,7 @@ Map (regionpack), scenario and image editor for **Making History: The Calm and T
 - **Community:** [Discord](https://discord.com/invite/gFJyCjWEnr)
 - **Report bugs:** alopezcl@protonmail.com (or open an issue)
 
-Made by Alejandro Víctor López Parra (@avlopezparra), 2026. **Version 2.1**.
+Made by Alejandro Víctor López Parra (@avlopezparra), 2026. **Version 2.2**.
 
 ## What it does
 - **Region editor**: move nodes, draw, cut, merge, create, rename and delete regions; topology-safe shape changes; installs the
@@ -164,10 +164,7 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/')
         with:
           files: MHEditor.zip
-          body: |
-            Mejorado el agregado de área a una región mediante GeoJSON.
-
-            Improved adding area to a region using GeoJSON.
+          generate_release_notes: true
 """
 
 

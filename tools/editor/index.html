@@ -88,6 +88,7 @@
       <button class="tool" data-mode="propiedad" title="Elige un país y haz clic en regiones para asignárselas"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 21V4h12l-2 4 2 4H4"/></svg>Pintar propiedad</button>
       <label class="barfield">País <select id="paintCountry"><option value="">(elige escenario)</option></select></label>
       <label class="barfield" title="Además del propietario, cambiar también el controlador"><span>Controlador</span><input type="checkbox" id="paintCtrl" checked></label>
+      <label class="barfield" title="Borde naranja y nombre de las regiones nuevas del changelog"><span>Regiones nuevas</span><input type="checkbox" id="showNew" checked></label>
       <button class="tool primary" id="saveScen" disabled title="Escribir los cambios de propiedad en los archivos del escenario"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 3h11l3 3v15H5z"/><path d="M8 3v5h7V3M8 21v-7h8v7"/></svg>Guardar escenario</button>
     </div></div>
     <div class="grp shape"><span>Edición</span><div>
@@ -119,7 +120,7 @@
       <label class="barfield" title="Regionpack: carpeta DisplayLibraries/Maps/&lt;nombre&gt; con la geometría y las texturas">Regionpack <select id="pack"></select></label>
       <button type="button" id="openPackDir" title="Abrir la carpeta del regionpack en el Explorador" style="background:none;border:0;color:var(--barink);cursor:pointer;font-size:15px">📁</button>
       <button type="button" id="packNew" title="Crear un regionpack nuevo vacío para un mundo ficticio (se construye como proyecto; no se escribe nada en el juego hasta «Instalar»)">+ Nuevo</button>
-      <label class="barfield"><span style="display:inline-flex;align-items:center;gap:4px">Escenario <img id="scenGameIcon" alt="" style="display:none;vertical-align:middle;height:14px"></span><select id="scenario"><option value="">(ninguno)</option></select></label>
+      <label class="barfield"><span style="display:inline-flex;align-items:center;gap:4px">Escenario <img id="scenGameIcon" alt="" style="display:none;vertical-align:middle;height:14px"></span><span style="display:flex;gap:2px"><select id="scenario"><option value="">(ninguno)</option></select><button type="button" id="openScenDir" title="Abrir la carpeta del escenario en el Explorador" style="background:none;border:0;color:var(--barink);cursor:pointer;font-size:15px">📁</button></span></label>
       <span id="scenSync" class="muted" style="font-size:12px;max-width:230px"></span>
       <button type="button" id="refreshAll"title="Vuelve a leer del disco el escenario y el regionpack del juego (por ejemplo, si los has cambiado fuera del editor)">⟳ Refrescar</button>
       <label class="barfield">Colorear <select id="colormode"><option value="region">por región</option><option value="pais">por país</option></select></label>
@@ -148,7 +149,6 @@
         <label title="Al dibujar o pintar, lo que no es de nadie (lagos, huecos) también pasa a la región"><input type="checkbox" id="fill"> Rellenar huecos al dibujar/pintar</label>
         <label title="Al dibujar o pintar sobre una región de tierra, no tomar zonas de mar"><input type="checkbox" id="landonly" checked> Solo tierra (no quitar mar)</label>
         <label><input type="checkbox" id="paint" checked> Repintar fronteras en la textura al guardar</label>
-        <label title="Borde naranja y nombre de las regiones nuevas del changelog"><input type="checkbox" id="showNew" checked> Resaltar las regiones nuevas</label>
         <label title="Al guardar una región nueva se crea su objeto Region en cada escenario que usa este regionpack"><input type="checkbox" id="register" checked> Registrar regiones nuevas en los escenarios del regionpack</label>
         <label title="Muestra y deja arrastrar los nodos de todas las regiones a la vista, sin seleccionar. Arrastrar desde un borde crea un nodo; Alt+clic lo borra."><input type="checkbox" id="allv"> Todos los vértices (modificar sin seleccionar)</label>
       </div>
@@ -366,7 +366,8 @@ function styleFor(R) {
 function tipFor(R) {
   const o = ownerOf(R), p = R.props;
   if (S.overlay && S.overlay.tips && S.overlay.tips[p.name]) return `${p.name} | ${S.overlay.tips[p.name]}`;
-  return `${p.name} |${o ? (o.owner || 'Sin propietario') + (o.terrain ? ' · ' + o.terrain : '') : (p.sea ? 'Mar' : 'Sin propietario')}`;
+  const shown = o && o.text && o.text !== p.name ? `${o.text} (interno: ${p.name})` : p.mapName && p.mapName !== p.name ? `${p.name} (en el mapa: ${p.mapName})` : p.name;   // nombre del juego si no es el interno
+  return `${shown} |${o ? (o.owner || 'Sin propietario') + (o.terrain ? ' · ' + o.terrain : '') : (p.sea ? 'Mar' : 'Sin propietario')}`;
 }
 function drawRegion(R) {
   if (R.layer) { R.layer.setLatLngs(latlngsOf(R)); R.layer.setStyle(styleFor(R)); return; }
@@ -798,7 +799,10 @@ async function askNewRegion(polygon, from, opt = {}) {
   cultureList();
   S.nrOnly = !opt.nueva && M ? M.props.name : null;      // recorte de la región seleccionada: la población sale solo de ella, no de las vecinas que toque el dibujo
   $('#nrKindRow').style.display = opt.nueva && !opt.forceSea ? '' : 'none';
-  document.querySelector(`input[name=nrKind][value=${opt.forceSea || (opt.nueva && !opt.land.length && opt.sea.length) ? 'sea' : 'land'}]`).checked = true;
+  // tipo: lo que diga el GeoJSON importado (preset.sea) manda; si no, mar cuando se dibuja solo sobre mar. Antes, al importar regiones
+  // de TIERRA sobre un regionpack relleno de mar («World Ocean»), todas salían como mar
+  const pSea = opt.preset && typeof opt.preset.sea === 'boolean' ? opt.preset.sea : null;
+  document.querySelector(`input[name=nrKind][value=${opt.forceSea || (pSea !== null ? pSea : (opt.nueva && !opt.land.length && opt.sea.length)) ? 'sea' : 'land'}]`).checked = true;
   $('#nrSeaChoice').style.display = overSea ? '' : 'none';
   $('#nrName').value = '';
   const curT = (mo && mo.terrain) || 'Plains';
@@ -1121,12 +1125,14 @@ function showInfo() {
     ${o ? `<div class="muted">${S.scenName}: ${o.owner || '—'}${o.controller && o.controller !== o.owner ? ' (controla ' + o.controller + ')' : ''} · ${o.terrain || ''}${o.population ? ' · ' + o.population.toLocaleString('es') + ' hab.' : ''}</div>` : ''}
     <div class="muted">Vecinos: ${p.neighbors.join(', ') || '—'}</div>
     ${p.sea ? '<div id="canalBox" style="margin-top:8px"></div>' : ''}
+    <div style="margin-top:8px"><button type="button" id="convType" title="Cambia solo el tipo de la región (mar ↔ tierra); la forma y las fronteras no cambian. Útil si una región de tierra importada quedó como mar (en el juego no se puede seleccionar) o al revés">${p.sea ? 'Convertir en región de tierra…' : 'Convertir en región de mar'}</button></div>
     ${p.detail && p.detail.length ? '<div class="muted">Región-isla: se edita el halo; la isla interior es detalle.</div>' : ''}
     ${p.editable || S.view !== 'shape' ? '' : `<div class="err">No editable: ${p.invalid}</div>`}
     ${ownerEditor(R)}
     ${$('#pack').value !== 'World' ? `<div style="margin-top:8px"><label>Equivale a región del juego vanilla: <input id="eqVanilla" list="${p.sea ? 'vanillaSeaList' : 'vanillaList'}" placeholder="${p.sea ? 'p. ej. Caspian Sea (región de mar)' : 'p. ej. Cuyo, Patagonia'}" style="width:100%;padding:3px 6px" autocomplete="off"></label>
       <div class="muted">${p.sea ? 'Una región de mar de World' : 'Una o varias regiones de tierra de World separadas por coma'}. Queda en el changelog del regionpack: al «Adecuar» un escenario que usa World, esta región sustituye a esas (con sus ciudades, unidades y población).</div></div>` : ''}
     <div style="margin-top:8px"><button type="button" id="renRegion" title="Cambia el nombre de la región en el regionpack (RegionRename de map.xml) y en los escenarios que lo usan">Renombrar región…</button></div>
+    <div style="margin-top:8px"><button type="button" id="crumbsBtn" title="Busca exclaves diminutos, tiras de dos nodos y restos de geometría de esta región y los pasa a la vecina con la que más borde comparten">Limpiar trozos sueltos…</button></div>
     ${p.editable ? '<div style="margin-top:8px"><button type="button" id="delRegion" style="color:#b91c1c" title="Pregunta adónde va su área: a una vecina de tierra, al mar vecino o queda vacía">Eliminar región…</button></div>' : ''}
     <details id="adv" ${S.advOpen !== false ? 'open' : ''} style="margin-top:8px"><summary style="cursor:pointer;font-weight:600">{ } Avanzado</summary>
       <div class="muted" style="margin:4px 0">GeoJSON (FeatureCollection con la región como MultiPolygon, longitud/latitud), como en geojson.io.
@@ -1141,11 +1147,32 @@ function showInfo() {
         <input type="file" id="advFileAdd" accept=".geojson,.json" hidden><input type="file" id="advFileSub" accept=".geojson,.json" hidden></div>
     </details>`;
   if (p.sea) canalBox(R);
+  $('#convType').onclick = async () => {
+    let terrain = 1;
+    if (p.sea) {
+      const v = prompt('Terreno de la región de tierra: 1 llanura, 2 colinas, 3 montaña, 4 desierto', '1'); if (v == null) return;
+      terrain = +v; if (!(terrain >= 1 && terrain <= 4)) return status('Terreno no válido (1 a 4)');
+    } else if (!confirm(`¿Convertir «${p.name}» en región de mar? Deja de tener dueño, ciudades y población en los escenarios.`)) return;
+    const r = await (await fetch('/api/region/convert', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ regions: [p.name], to: p.sea ? 'land' : 'sea', terrain }) })).json();
+    if (r.error) return report('No se cambió el tipo: ' + r.error, 'err');
+    report(`«${p.name}» ahora es una región de ${p.sea ? 'tierra' : 'mar'}. Falta «Instalar» para que el juego lo use.`, 'ok');
+    S.version++; await reloadMeta(); await reloadAll(); loadChangelog();
+  };
   const ap = document.getElementById('ownApply');
   if (ap) ap.onclick = () => applyOwner(R.props.name, $('#ownSel').value, $('#ctlSel').value);
   advPanel(R);
   const dr = document.getElementById('delRegion'); if (dr) dr.onclick = () => { if (S.view !== 'shape') setView('shape'); if (S.view === 'shape') askDeleteRegion(R); };
   const rn = document.getElementById('renRegion'); if (rn) rn.onclick = () => askRenameRegion(R);
+  const cb = document.getElementById('crumbsBtn'); if (cb) cb.onclick = async () => {
+    if (S.view !== 'shape') { setView('shape'); if (S.view !== 'shape') return; }
+    const r = await (await fetch('/api/region/crumbs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ region: p.index }) })).json().catch(() => ({ crumbs: [] }));
+    const cs = r.crumbs || [];
+    if (!cs.length) return status(`«${p.name}» no tiene trozos sueltos`);
+    const names = [...new Set(cs.map(c => c.into_name || '(hueco)'))].slice(0, 6).join(', ');
+    if (!confirm(`«${p.name}» tiene ${cs.length} trozo(s) suelto(s) (${cs.reduce((a, c) => a + c.area, 0).toExponential(2)} grados²). ¿Pasarlos a su vecina (${names})? Se aplica al «Guardar».`)) return;
+    for (const c of cs) addOp({ kind: 'cut', polygon: c.polygon, from: p.index, into: c.into, keep_tiny: true });
+    status(`${cs.length} trozo(s) de «${p.name}» se pasarán a sus vecinas al guardar`);
+  };
   const eq = document.getElementById('eqVanilla');
   if (eq) {
     vanillaList();
@@ -1193,12 +1220,16 @@ async function askRegisterRegion(R) {
 async function askCutTarget(polygon, from, under) {
   // regiones que toca el dibujo (por área); la de origen por defecto: la seleccionada si está entre ellas, si no la de más área
   under = (under || []).length ? under : (from != null && S.regions.get(from) ? [{ index: from, name: S.regions.get(from).props.name, sea: S.regions.get(from).props.sea, neighbors: S.regions.get(from).props.neighbors, n: 1 }] : []);
+  // la región seleccionada va siempre (y por defecto): con un recorte fino el muestreo por puntos podía no verla y proponía otra
+  if (from != null && S.regions.get(from) && !under.some(u => u.index === from)) {
+    const Rf = S.regions.get(from); under = [{ index: from, name: Rf.props.name, sea: Rf.props.sea, neighbors: Rf.props.neighbors || [], n: 0 }, ...under];
+  }
   if (!under.length) return status('El recorte no toca ninguna región');
   $('#cutFrom').innerHTML = under.map(u => `<option value="${u.index}">${u.name}${u.sea ? ' (mar)' : ''}</option>`).join('');
   $('#cutFrom').value = String(under.some(u => u.index === from) ? from : under[0].index);
   // punto donde terminó el recorte (último vértice dibujado): las vecinas más cercanas a él salen primero
   const ringC = polygon && polygon.coordinates && polygon.coordinates[0] || [], endPt = ringC.length > 1 ? ringC[ringC.length - 2] : ringC[0];
-  const cutDist = m => { if (!endPt || !m.bbox) return Infinity; const dx = Math.max(m.bbox[0] - endPt[0], 0, endPt[0] - m.bbox[2]), dy = Math.max(m.bbox[1] - endPt[1], 0, endPt[1] - m.bbox[3]);
+  const cutDist = m => { if (!endPt || !m.bbox) return Infinity; if (m.bbox[2] - m.bbox[0] > 90) return 1e3; /* islas que cruzan la línea de fecha: su caja no sirve para medir */ const dx = Math.max(m.bbox[0] - endPt[0], 0, endPt[0] - m.bbox[2]), dy = Math.max(m.bbox[1] - endPt[1], 0, endPt[1] - m.bbox[3]);
     const R = S.regions.get(m.index); if (!R || !R.polys) return Math.hypot(dx, dy);
     let best = Infinity; for (const poly of R.polys) for (const q of poly[0]) best = Math.min(best, Math.hypot(q[0] - endPt[0], q[1] - endPt[1])); return best; };
   const fill = () => {
@@ -1209,13 +1240,15 @@ async function askCutTarget(polygon, from, under) {
     const lab = m => `${m.name}${own(m.name) ? ' — ' + own(m.name) : ''}`;
     $('#cutTitle').textContent = `¿Qué hacer con lo recortado de «${u.name}»?`;
     $('#cutLand').innerHTML = land.map(m => `<option value="${m.index}">${lab(m)}</option>`).join('') || '<option value="">(no tiene vecinas de tierra)</option>';
-    $('#cutOther').innerHTML = S.meta.filter(m => !m.sea && m.index !== u.index).sort((a, b) => a.name.localeCompare(b.name)).map(m => `<option value="${m.index}">${lab(m)}</option>`).join('');
+    // «Anexar a otro territorio»: cualquier región de tierra, las más cercanas al punto donde terminó el recorte primero
+    $('#cutOther').innerHTML = S.meta.filter(m => !m.sea && m.index !== u.index).map(m => [cutDist(m), m]).sort((a, b) => a[0] - b[0] || a[1].name.localeCompare(b[1].name))
+      .slice(0, 400).map(x => `<option value="${x[1].index}">${lab(x[1])}</option>`).join('');
     document.querySelector('input[name=cutMode][value=other]').disabled = u.sea;
     $('#cutSea').innerHTML = sea.map(m => `<option value="${m.index}">${m.name}</option>`).join('') || '<option value="">(no tiene mar vecino)</option>';
     document.querySelector('input[name=cutMode][value=land]').disabled = !land.length;
     document.querySelector('input[name=cutMode][value=sea]').disabled = !sea.length;
     document.querySelector('input[name=cutMode][value=new]').disabled = !!u.sea;
-    document.querySelector(`input[name=cutMode][value=${land.length && !u.sea ? 'land' : sea.length ? 'sea' : 'none'}]`).checked = true;
+    document.querySelector(`input[name=cutMode][value=${land.length && !u.sea ? 'land' : sea.length ? 'sea' : !u.sea ? 'other' : 'none'}]`).checked = true;
   };
   $('#cutFrom').onchange = fill; fill();
   const dlg = $('#cutDlg');
@@ -1265,7 +1298,8 @@ async function askRenameRegion(R) {
   // los dos nombres pueden ser distintos: solo el visible (stringTable de los escenarios) o también el interno (RegionRename de map.xml)
   const both = confirm(`¿Cambiar también el NOMBRE INTERNO de «${old}»?\n\nAceptar: el interno y el visible (RegionRename en map.xml; hay que «Instalar»).\nCancelar: solo el nombre que se ve en el juego (el interno sigue siendo «${old}»).`);
   if (!both) {
-    const r = await scenPost('/api/region/rename', { region: old, new_name: old, text: text.trim() }); if (!r) return;
+    const sidToo = confirm(`¿Cambiar también el código del texto (SID) a «SID.Game.Region.Name.${plain.replace(/[^A-Za-z0-9]/g, '')}»?\n\nAceptar: código nuevo (más claro en los archivos).\nCancelar: solo la apariencia (el código sigue igual).`);
+    const r = await scenPost('/api/region/rename', { region: old, new_name: old, text: text.trim(), change_sid: sidToo }); if (!r) return;
     report(`«${old}» se verá como «${text.trim()}» (el nombre interno no cambia).\n\n` + scenarioNotes(r.scenarios), 'ok');
     if (S.scenName) refreshScen(); return;
   }
@@ -1506,6 +1540,10 @@ async function save() {
   for (const [i, R] of S.regions) if (R.modified) modified[i] = R.polys.map(poly => poly.map(r => r.concat([r[0]])));
   const body = { modified, assigns: S.ops.map(({ name, ...op }) => op.kind === 'new_region' ? Object.assign(op, { name: op.newName }) : op),
     centers: S.centers, topo: S.topo, paint: $('#paint').checked, register: $('#register').checked, scenario: S.scenName || null, new_scenario: S.newScen || null };
+  if (body.register && body.assigns.some(o => o.kind === 'new_region' || o.kind === 'delete_region')) {
+    const info = await (await fetch('/api/pack/info')).json().catch(() => ({}));
+    await savePendingScen([...(((info.users || {})[info.pack]) || []), S.scenName]);
+  }
   $('#save').disabled = true; report('Guardando… (unos segundos)');
   let r;
   try {
@@ -1695,6 +1733,10 @@ async function askOwners(scens) {
     }).join('');
   };
   $('#ownAll').checked = false; $('#ownAll').onchange = () => draw($('#ownAll').checked); draw(false);
+  { const cs = [...new Set(data.flatMap(([, d]) => d.countries))].sort();
+    $('#ownBulk').innerHTML = '<option value="">(elige país)</option>' + cs.map(c => `<option>${esc(c)}</option>`).join('');
+    $('#ownBulk').onchange = () => { const v = $('#ownBulk').value; if (!v) return;
+      $('#ownList').querySelectorAll('select').forEach(sel => { if (sel.options[0].textContent === '(elige país)' && [...sel.options].some(o => o.value === v || o.textContent === v)) sel.value = v; }); }; }
   while (true) {
     const ok = await waitDialog(dlg);
     if (!ok) return false;
@@ -1704,7 +1746,22 @@ async function askOwners(scens) {
     if (!left.length || confirm(`${left.length} región(es) siguen sin país y no se añadirán al escenario (queda inutilizable). ¿Continuar igualmente?`)) return true;
   }
 }
+// escenarios con cambios sin guardar en el editor de escenarios: el guardado/instalación del mapa no los toca (y la región nueva no
+// se registraba en ellos, dejándolos sin cuadrar con el mapa). Se ofrece guardarlos antes.
+async function savePendingScen(names) {
+  for (const n of [...new Set((names || []).filter(Boolean))]) {
+    const d = await (await fetch('/api/scen/dirty', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: n }) })).json().catch(() => null);
+    if (!d || !d.dirty || !d.dirty.length) continue;
+    if (!confirm(`«${n}» tiene cambios sin guardar en el editor de escenarios (${d.dirty.join(', ')}).
+
+Aceptar: guardarlos ahora y seguir (así se registran en él las regiones nuevas).
+Cancelar: seguir sin guardarlos (ese escenario no se toca y puede quedar sin cuadrar con el mapa).`)) continue;
+    const r = await (await fetch('/api/scen/save', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: n }) })).json().catch(e => ({ error: e.message }));
+    if (r.error) alert(`No se pudo guardar «${n}»: ${r.error}`);
+  }
+}
 async function doInstall(body) {
+  await savePendingScen([...(body.apply_scenarios || []), ...(body.scenarios || []), S.scenName]);
   const r = await (await fetch('/api/install', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })).json();
   if (!r.ok) return report('Error: ' + (r.msg || ''), 'err');
   report(`Instalado en el regionpack «${r.regionpack}»:\n  ${r.files.length > 40 ? r.files.length + ' ' + mhTr('archivos (mapa, map.xml, properties.xml y texturas)') : r.files.join('\n  ')}${r.escenarios && r.escenarios.length ? '\n\nEscenarios que ahora usan «' + r.regionpack + '»:\n  ' + r.escenarios.join('\n  ') : ''}\n\nEl changelog se guardó en el regionpack.` + (r.scenarios ? '\n\n' + scenarioNotes(r.scenarios) : ''), 'ok');
@@ -1728,6 +1785,7 @@ $('#pack').onchange = async e => {
   await fetch('/api/pack/select', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pack: e.target.value }) });
   S.packUsers = ((await (await fetch('/api/pack/info')).json()).users || {})[e.target.value] || []; S.baseScen = null;
   clearEdits(); S.version++; S.selected = null; NEW.gen++; NEW.layer.clearLayers(); NEW.names = new Set();       // las regiones nuevas (naranja) son del regionpack anterior
+  await reloadMeta();      // regiones, nombres y vecinas del regionpack nuevo (antes quedaban las del anterior: «626 regiones sin nación», recortes sin vecinas)
   await reloadAll(); loadChangelog(); report('Regionpack: ' + e.target.value); checkScenSync();
 };
 $('#scenario').onchange = async e => {
@@ -1946,6 +2004,7 @@ $('#nrName').onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); $('
     <p class="muted">Estas regiones nuevas no salen de ninguna otra: sin país no se pueden añadir al escenario. El país se guarda en el changelog solo para ese escenario
       (puede ser distinto en otro, p. ej. una región que en uno es de Rusia y en otro de Polonia).</p>
     <label><input type="checkbox" id="ownAll"> Mostrar también las que ya tienen país</label>
+    <div style="margin:4px 0">Asignar todas las que no tienen país a: <select id="ownBulk" style="max-width:240px"></select></div>
     <div id="ownList" style="max-height:45vh;overflow:auto;margin:6px 0"></div>
     <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px"><button value="cancel">Cancelar</button>
       <button value="ok" style="background:#0ea5e9;color:#fff;border:0;border-radius:6px;padding:5px 12px">Aceptar</button></div>
@@ -2088,6 +2147,11 @@ function openMulti(force) {
   f.src = '/scenario?panel=multi&keep=1&scenario=' + encodeURIComponent(S.scenName);
 }
 $('#multiBtn').onclick = () => openMulti(false);
+$('#openScenDir').onclick = async () => {
+  if (!$('#scenario').value) return status('Elige un escenario');
+  const r = await (await fetch('/api/scen/open_folder', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ scenario: $('#scenario').value }) })).json();
+  if (r.error) status(r.error);
+};
 $('#openPackDir').onclick = async () => {
   let r; try { r = await (await fetch('/api/scen/open_folder', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pack: $('#pack').value }) })).json(); }
   catch (e) { return report('No se pudo abrir la carpeta: ' + e.message + ' (si el editor es de antes de esta versión, ciérralo y ábrelo de nuevo)', 'err'); }
@@ -2237,7 +2301,7 @@ if (parent !== window) {
         <div class="muted">Las regiones con el mismo nombre que un contorno no se borran (se conservan y ese contorno se omite). Todo queda en un solo guardado que se puede deshacer.</div></div>
       <div style="margin-top:6px"><label><input type="checkbox" id="gjFill"> Rellenar los huecos vacíos que queden bajo los contornos <span class="muted">(suelen ser lagos; por defecto no)</span></label></div>
       <div style="margin-top:4px">Exclaves que deja el recorte (trozos sueltos por diferencias menores de geometría):
-        <select id="gjEx"><option value="none">dejarlos como están</option><option value="neighbors">los absorben las regiones vecinas</option><option value="include">incluirlos en la forma importada</option></select></div>
+        <select id="gjEx"><option value="neighbors" selected>los absorben las regiones vecinas</option><option value="none">dejarlos como están</option><option value="include">incluirlos en la forma importada</option></select></div>
       <label style="display:block;margin-top:6px"><input type="checkbox" id="gjRef"> Mantener el GeoJSON como capa de referencia para dibujar a mano</label>
       <label style="display:block;margin-top:6px"><input type="checkbox" id="gjAuto" checked> No preguntar región a región cuando el contorno trae nombre y nación <span class="muted">(si falta algo, se abre el diálogo)</span></label>
       <div class="muted" style="margin-top:4px">Los contornos cuyo nombre ya existe en el mapa se omiten (para cambiar una forma usa Avanzado → Sumar / Restar área).</div>
@@ -2348,7 +2412,10 @@ function gjDetect(sh, list) {
     }
     if (out.sea === undefined && /\b(lake|sea|ocean|river|bay|gulf|strait|mar|lago|oceano|rio|golfo|estrecho)\b/.test(gjNorm(gjName(sh)))) { out.sea = true; out.how.sea = 'name'; }   // «Lake», «Mar»… en el nombre: se sugiere mar
     if (out.sea === undefined) {      // sin pistas: ¿el contorno cae sobre todo en regiones de mar del mapa?
-      const seaShare = ((sh.an || {}).sources || []).reduce((n, s) => n + (s.sea ? s.pct_new : 0), 0);
+      // no cuenta un mar «de relleno» (World Ocean de un regionpack hecho desde cero cubre todo el mundo): si no, toda la tierra
+      // importada encima salía como mar
+      const filler = n => { const m = (S.meta || []).find(x => x.name === n); return !!m && m.bbox && (m.bbox[2] - m.bbox[0]) >= 300; };
+      const seaShare = ((sh.an || {}).sources || []).reduce((n, s) => n + (s.sea && !filler(s.region || s.name) ? s.pct_new : 0), 0);
       out.sea = seaShare >= 0.5; out.how.sea = (sh.an ? 'overlap' : '');
     }
   }
@@ -2660,7 +2727,7 @@ async function gjPoints(fname, fc, types, opts) {
     $('#npGo').disabled = false;
     if (r.error) { $('#npMsg').textContent = T('Error') + ': ' + T(r.error); return; }
     npDlg.close(); clearEdits(); S.version++; S.selected = null;
-    await loadPacks(); S.packUsers = []; S.baseScen = null; await reloadAll(); updateTiles(); checkScenSync();
+    await loadPacks(); S.packUsers = []; S.baseScen = null; await reloadMeta(); await reloadAll(); updateTiles(); checkScenSync();
     report(`${T('Regionpack nuevo')} «${r.pack}» ${T('creado como proyecto, sin regiones y con el fondo')} ${T(r.tiles ? 'de tu imagen' : 'en color mar')}. ${T('Constrúyelo con Dibujar, importar GeoJSON o sumar/restar área. No se ha escrito nada en el juego: pulsa «Instalar» cuando tenga regiones.')}`, 'ok');
     // ¿escenario nuevo (vacío) para este regionpack? Las naciones se le añaden al crear regiones
     const sn = prompt(T('¿Crear también un escenario nuevo (vacío) para este regionpack? Escribe su nombre; Cancelar o vacío = no. Las naciones se añaden al crear regiones.'), r.pack);

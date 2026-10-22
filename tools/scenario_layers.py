@@ -735,6 +735,7 @@ class PackMap:
             raise ValueError('no existe el regionpack %s' % pack)
         self.m = mhmap.load_map(os.path.join(self.dir, 'xml'))
         ren = editor_core.load_renames(self.dir)
+        self.renames = ren          # {nombre en regions.bin: nombre en los escenarios} (RegionRename de map.xml)
         R = self.m['regions']
         self.name = {g.index: ren.get(g.name, g.name) for g in R}
         self.idx = {v: k for k, v in self.name.items()}
@@ -883,6 +884,8 @@ def _add_owned_region(s, pm, name, c):
         pop = sum(int(prop(r, 'nPopulation')) for r in regs if (prop(r, 'nPopulation') or '').isdigit())
         area = sum(ub.get(prop(r, 'strName'), 0) for r in regs)
         population = int(round(pop / area * ub.get(name, 0))) if area else 0
+        if population <= 2:
+            population = 1000          # una región con 0-2 habitantes no vale (el juego la trata como vacía)
     notes = notes0 + sc.add_new_region(s, name, owner=owner, terrain=c.get('terreno'), population=population, text=c.get('texto'))
     ctl = c.get('controlador')
     reg = next((r for r in s.regions(sea=False) if prop(r, 'strName') == name), None)
@@ -991,8 +994,12 @@ def pack_sync_apply(s, pack, switch=True, pop_mode='area'):
     notes = []
     # regiones renombradas en el regionpack (changelog «renombradas»): se renombran, no se quitan y se vuelven a crear
     have = {prop(r, 'strName') for r in s.regions()}
+    # también los RegionRename de map.xml aunque el changelog no los anote (renombrados antes de que se anotaran): sin esto la
+    # región «Rostov» se quitaba y «Rostov Oblast» se volvía a crear a partir de una vecina, con el dueño y la población de esa vecina
+    rens = [{'de': a, 'a': b} for a, b in getattr(pm, 'renames', {}).items() if a != b]
     for e in pm.changelog:
-        for r in e.get('renombradas', []):
+        rens += e.get('renombradas', [])
+    for r in rens:
             if r['de'] in have and r['a'] not in have and r['a'] in pm.sea:
                 progress.step(8, 'Renombrando %s a %s' % (r['de'], r['a']))
                 notes += rename_region(s, r['de'], r['a'], r.get('texto'))
@@ -1029,7 +1036,7 @@ def pack_sync_apply(s, pack, switch=True, pop_mode='area'):
                 notes += reassign_ports(s, x['name'], pm.geom(x['name']), pm.geom)
                 continue
             c = made.get(x['name'], {})
-            if c and not c.get('madre') and c.get('pais'):
+            if c and (not c.get('madre') or not x['mother']) and c.get('pais'):     # sin madre en el escenario (p. ej. salió del mar)
                 # región creada sin región de origen (p. ej. una isla en el mar): con el dueño, terreno y población del changelog
                 notes += _add_owned_region(s, pm, x['name'], c)
                 continue
