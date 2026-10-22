@@ -1,6 +1,6 @@
 """Crea el regionpack nuevo «MH2World2» desde mh2/mh2_mundo.geojson (mapa vacio + una region nueva por contorno).
 
-    python -u mh2_make_world2.py [--resume] [--limit N]
+    python -u mh2_make_world2.py [--resume [--retry]] [--limit N]
 
 Deja el proyecto del editor en making-history/editor_proyecto_MH2World2 (regionpack nuevo aun sin instalar: en el editor de
 regiones aparece en «Regionpack» y se instala con Instalar). No escribe nada en el juego. Si se corta, --resume sigue por donde iba.
@@ -43,8 +43,13 @@ def prep(g, simplify=0):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--resume', action='store_true')
+    ap.add_argument('--retry', action='store_true', help='con --resume: vuelve a intentar las que ya fallaron')
     ap.add_argument('--limit', type=int, default=0)
-    a = ap.parse_args()
+    build(ap.parse_args())
+
+
+def build(a):
+    """Construye (o sigue construyendo) el regionpack; devuelve la lista de contornos que no se pudieron poner."""
     world = os.path.join(editor_core.MAPS, 'World')
     if not a.resume:
         if os.path.exists(FOLDER):
@@ -54,7 +59,7 @@ def main():
     P.snapshot = lambda *x, **k: None       # sin instantaneas de «Volver» (solo cuestan tiempo y disco en una construccion por lotes)
     done = {r.name for r in P.m['regions']}           # ya en el mapa (nombre interno)
     ff = os.path.join(ROOT, 'mh2', NAME + '_fallos.json')
-    prev_failed = json.load(open(ff)) if a.resume and os.path.exists(ff) else []
+    prev_failed = json.load(open(ff)) if a.resume and not getattr(a, 'retry', False) and os.path.exists(ff) else []
     feats = json.load(open(SRC, encoding='utf-8'))['features']
     iname = lambda f: new_region.internal_name(mh2_plan.pretty(f['properties']['name']))
     todo = [f for f in feats if iname(f) not in done and f['properties']['name'] not in prev_failed]
@@ -88,10 +93,10 @@ def main():
         try:
             rep = P.save({'assigns': items, 'paint': True, 'topo': True}, log=lambda *x: None)
             err = rep.get('errors') or []
-        except SystemExit as e:
+        except (SystemExit, Exception) as e:       # el editor rechaza el cambio (o falla): se deshace y cuenta como fallo
             P._drop_pending_snapshot()
             P.reload()
-            err = [str(e)[:160]]
+            err = [str(e)[:160] or type(e).__name__]
         shutil.rmtree(P.history, ignore_errors=True)      # sin instantaneas de «Volver»: llenan el disco (GB)
         os.makedirs(P.history, exist_ok=True)
         return err
@@ -129,6 +134,7 @@ def main():
         json.dump(failed, open(ff, 'w'))
         print('lote %d/%d | %d regiones | %d fallos | %.0f s' % (n + 1, len(batches), ok, len(failed), time.time() - t0), flush=True)
     print('listo: %d regiones, %d fallos, %d en el mapa' % (ok, len(failed), len(P.m['regions'])))
+    return failed
 
 
 if __name__ == '__main__':

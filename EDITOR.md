@@ -192,6 +192,11 @@ salía válido y **equivocado** (5,4 de 9,7 grados², una arista recta de 3,5° 
 guardado. Ahora `Project.outline` compara el área del contorno con la de los triángulos y, si no cuadran (>0,5 %), dibuja la unión de los triángulos; el control del
 guardado (`_mesh_valid`) hace la misma comparación. En WorldModern solo cambia Wilno.
 
+### Recortar: región de origen y migas imposibles de quitar
+- El diálogo de recorte propone siempre como origen la **región seleccionada** (antes, con un recorte fino, el muestreo por puntos no la veía y proponía otra).
+- Un recorte que solo toca migas (trozos de menos de 1e-8 grados², p. ej. el resto de Podelia dentro de Polissia) ahora las quita; y los triángulos diminutos
+  (menos de 1e-9 grados²) que caen dentro de lo recortado se van con ello (antes se quedaban siempre en su región).
+
 ## Mapa y escenario a la vez (para que el juego cargue)
 Las regiones de un escenario tienen que coincidir con las del mapa de su regionpack; si falta o sobra una, el juego da
 «Error creating local game».

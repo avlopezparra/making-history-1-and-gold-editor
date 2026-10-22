@@ -373,6 +373,8 @@ def apply_transfers(m, transfers, islands, P, cache=None):
                 isl = [p for p, d, sx in islands if d == land and sx == sea]
                 c = unary_union(isl).centroid if isl else LineString(pts_all).centroid
                 sc = P(sea).representative_point()
+                if sc.is_empty or c.is_empty:        # mar sin contorno (vacio): ancla en medio de la frontera
+                    sc = c = LineString(pts_all).centroid if len(pts_all) > 1 else Point(pts_all[0])
                 dx, dy = sc.x - c.x, sc.y - c.y
                 k = 0.8 / max((dx * dx + dy * dy) ** 0.5, 1e-9)
                 anchor = (c.x + dx * k, c.y + dy * k)
