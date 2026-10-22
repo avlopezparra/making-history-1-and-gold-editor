@@ -290,11 +290,18 @@ def build(p):
     return out
 
 
+DEFAULT_SCENARIOS = ('The World at War', 'Steps to a Global War', 'The Politics of Appeasement', 'The Limits of Peace',
+                     'The End of Diplomacy', 'Conclusion of the War', 'Tutorial', 'Blitzkrieg', 'Clash of Continents',
+                     'Rise of the Reich', 'Southern Star')
+
+
 def _scen_template(scen, v):
     if v.get('src'):
         p = T.resolve_rel(v['src'])
         return Image.open(p).convert('RGBA'), T.tga_format(p)
-    for other in scenario_core.scenarios():      # escenario sin el archivo: medidas del de otro escenario
+    others = scenario_core.scenarios()           # escenario sin el archivo: el de un escenario del juego (o de otro)
+    others = [o for o in others if o in DEFAULT_SCENARIOS] + [o for o in others if o not in DEFAULT_SCENARIOS and o != scen]
+    for other in others:
         q = os.path.join(scenario_core.SCEN_ROOT, other, v['file'])
         if os.path.isfile(q):
             return Image.open(q).convert('RGBA'), T.tga_format(q)
@@ -341,6 +348,14 @@ def export_png(scen, kind, name, group=None):
         for v in g['variants']:
             if v.get('src') and (best is None or (v.get('w') or 0) * (v.get('h') or 0) > (best.get('w') or 0) * (best.get('h') or 0)):
                 best = v
+    if best is None and kind == 'scenario':     # escenario sin Title/Button: plantilla para editar y volver a importar
+        g = next((g for g in inf['groups'] if not group or g['key'] == group), None)
+        if g is None:
+            raise ValueError('no hay imagen que exportar')
+        img, _ = _scen_template(scen, g['variants'][0])
+        b = io.BytesIO()
+        img.save(b, 'PNG')
+        return b.getvalue(), os.path.splitext(g['variants'][0]['file'])[0] + ' - plantilla.png'
     if best is None:
         raise ValueError('no hay imagen que exportar')
     b = io.BytesIO()

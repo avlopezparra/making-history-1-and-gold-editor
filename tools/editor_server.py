@@ -404,6 +404,30 @@ class Handler(BaseHTTPRequestHandler):
             if u.path == '/api/region/rename':
                 # nombre de una región: map.xml del proyecto (se instala con «Instalar») y los escenarios que usan el regionpack
                 old, new, text = payload['region'], payload['new_name'].strip(), (payload.get('text') or '').strip() or None
+                if new == old:
+                    # solo el nombre visible (stringTable de cada escenario); el interno y map.xml no cambian
+                    if not text:
+                        return self.send(200, {'error': 'falta el nombre visible'})
+                    out = {}
+                    with SCEN_LOCK:
+                        for name in scenario_core.scenarios_using(PROJECT.pack):
+                            try:
+                                sc_ = scenario(name)
+                                st = scenario_core.STORE
+                                if any(x in st.dirty for x in sc_.paths):
+                                    out[name] = ['no se ha tocado: tiene cambios sin guardar en el editor de escenarios']
+                                    continue
+                                reg = next((r for r in sc_.regions() if scenario_core.prop(r, 'strName') == old), None)
+                                sid = scenario_core.prop(reg, 'sidName') if reg is not None else None
+                                notes = scenario_core.set_region_string(sc_, sid, text) if sid else ['%s: no está en este escenario' % old]
+                                res = st.save([x for x in sc_.paths if x in st.dirty])
+                                if res['written']:
+                                    notes.append('guardado: %s' % ', '.join(os.path.basename(w) for w in res['written']))
+                                out[name] = notes
+                            except Exception as e:
+                                traceback.print_exc()
+                                out[name] = ['ERROR: %s' % e]
+                    return self.send(200, {'ok': True, 'scenarios': out, 'only_text': True})
                 try:
                     PROJECT.rename_region(old, new, text)
                 except (ValueError, OSError) as e:
@@ -559,7 +583,7 @@ class Handler(BaseHTTPRequestHandler):
                 try:
                     return self.send(200, scen_post(u.path, payload))
                 except (ValueError, KeyError) as e:
-                    return self.send(200, {'error': str(e)})
+                    return self.send(200, {'error': scenario_i18n.L_msg(str(e))})
             return self.send(404, {'error': 'no encontrado'})
         except Exception as e:
             traceback.print_exc()
@@ -575,6 +599,7 @@ import scenario_layers  # noqa: E402
 import scenario_create  # noqa: E402
 import scenario_new  # noqa: E402
 import scenario_events  # noqa: E402
+import scenario_i18n  # noqa: E402
 import file_identify  # noqa: E402
 
 SCEN = {}
@@ -928,7 +953,8 @@ def scen_get(path, q):
             return {'tabs': [{'key': k, 'label': l} for k, l, _, _ in s.tabs()], 'info': info,
                     'dirty': sorted(os.path.basename(p) for p in scenario_core.STORE.dirty)}
         if path == '/api/scen/tab':
-            return scenario(q['name']).tab_rows(q['tab'])
+            r = scenario(q['name']).tab_rows(q['tab'])
+            return scenario_i18n.L(r) if q['tab'] == 'events' else r      # columnas «Clase», «Tipo», «Qué hace» en el idioma del editor
         if path == '/api/scen/options':
             return scenario(q['name']).options()
         if path == '/api/scen/obj':
@@ -981,7 +1007,7 @@ def scen_get(path, q):
                 xy = pos(e)
                 if xy:
                     pts.append({'id': scenario_core.STORE.eid(e), 'kind': 'city', 'x': xy[0], 'y': xy[1], 'label': P(e, 'strName'),
-                                'owner': P(e, 'strOwner')})
+                                'owner': P(e, 'strOwner'), 'dir': P(e, 'nDirection')})
             for e in s.all('Producer'):
                 xy = pos(e)
                 if xy:
@@ -995,18 +1021,21 @@ def scen_get(path, q):
                     if c:
                         n = sum(int(P(u, 'nNumber')) if (P(u, 'nNumber') or '').isdigit() else 1 for u in scenario_core.objs(e))
                         pts.append({'id': scenario_core.STORE.eid(e), 'kind': kind, 'x': c[0] + off[t][0], 'y': c[1] + off[t][1],
-                                    'label': '%s · %s (%d)' % (P(e, 'strOwner'), P(e, 'strName') or t, n), 'owner': P(e, 'strOwner')})
+                                    'label': '%s · %s (%d)' % (P(e, 'strOwner'), P(e, 'strName') or t, n), 'owner': P(e, 'strOwner'),
+                                    'dir': P(e, 'nDirection'), 'placed': bool(xy)})
             return {'points': pts}
         if path == '/api/scen/event_info':
-            return scenario_events.describe(view_for(q['id']), scenario_core.STORE.get(q['id']))
+            return scenario_i18n.L(scenario_events.describe(view_for(q['id']), scenario_core.STORE.get(q['id'])))
         if path == '/api/scen/ai_rules':
-            return scenario_events.ai_rules(scenario(q['name']), q['country'])
+            return scenario_i18n.L(scenario_events.ai_rules(scenario(q['name']), q['country']))
         if path == '/api/scen/terrains':
             return {'terrains': scenario_events.terrains(scenario(q['name']))}
+        if path == '/api/scen/fleet_ports':
+            return {'ports': scenario_events.fleet_ports(view_for(q['id']), int(q['id']))}
         if path == '/api/scen/air_ranges':
             return {'ranges': scenario_events.air_ranges(scenario(q['name']))}
         if path == '/api/scen/terrain_colors':
-            return scenario_events.terrain_colors(scenario(q['name']))
+            return scenario_i18n.L(scenario_events.terrain_colors(scenario(q['name'])))
         if path == '/api/scen/cultures':
             return {'cultures': scenario_events.cultures(scenario(q['name']))}
         if path == '/api/scen/ai':
@@ -1138,7 +1167,7 @@ def scen_post(path, p):
                 notes = E.terrain_color_set(s, p['terrain'], p['color'])
             else:
                 notes = E.terrain_delete(s, p['id'], p.get('to'))
-            return {'id': i, 'notes': notes, 'dirty': sorted(os.path.basename(x) for x in st.dirty if x in s.paths)}
+            return {'id': i, 'notes': scenario_i18n.L(notes), 'dirty': sorted(os.path.basename(x) for x in st.dirty if x in s.paths)}
         if path == '/api/scen/war_event':
             s = scenario(p['name'])
             i, notes = scenario_core.create_war_event(s, p['attacker'], p['target'], p['date'], p.get('pct', 80))
@@ -1335,9 +1364,13 @@ def scen_post(path, p):
         if path == '/api/scen/move_point':
             # mover una ciudad o recurso a otro punto del mapa (si cae en otra región, pasa a ella con su dueño)
             s = scenario(p['name'])
-            el, x, y = st.get(p['id']), float(p['x']), float(p['y'])
+            el = st.get(p['id'])
+            if el.get('type') in scenario_events.UNIT_TYPES:     # ejércitos, aviación y flotas: cambian de región (o entran en un puerto)
+                notes = scenario_events.move_unit(s, p['id'], p.get('x'), p.get('y'), p.get('port'))
+                return {'notes': scenario_i18n.L(notes), 'dirty': sorted(os.path.basename(z) for z in st.dirty if z in s.paths)}
+            x, y = float(p['x']), float(p['y'])
             if el.get('type') not in ('City', 'Producer'):
-                raise ValueError('solo se pueden mover ciudades y recursos')
+                raise ValueError('solo se pueden mover ciudades, recursos y unidades')
             cur = scenario_core.prop(st.parent.get(el), 'strName')
             try:
                 rname = scenario_layers._land_region_at(s, x, y)[1]
@@ -1357,6 +1390,11 @@ def scen_post(path, p):
             elif rname != cur:
                 notes.append('sigue dependiendo de %s (el punto queda fuera de ella)' % cur)
             return {'notes': notes, 'dirty': sorted(os.path.basename(z) for z in st.dirty if z in s.paths)}
+        if path == '/api/scen/set_direction':
+            # orientación de una ciudad o unidad (nDirection, grados; en ed.exe con clic derecho)
+            s = scenario(p['name'])
+            notes = scenario_events.set_direction(s, p['id'], p['deg'])
+            return {'notes': scenario_i18n.L(notes), 'dirty': sorted(os.path.basename(z) for z in st.dirty if z in s.paths)}
         if path == '/api/scen/open_folder':
             # abrir en el Explorador la carpeta de un escenario o de un regionpack (solo lectura: no cambia nada)
             if p.get('scenario'):

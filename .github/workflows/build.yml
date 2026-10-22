@@ -25,3 +25,7 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/')
         with:
           files: MHEditor.zip
+          body: |
+            Mejorado el agregado de área a una región mediante GeoJSON.
+
+            Improved adding area to a region using GeoJSON.

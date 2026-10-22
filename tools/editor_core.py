@@ -1028,7 +1028,7 @@ class Project:
                 return False
             u = unary_union(tris)
             tot = sum(t.area for t in tris)
-            return u.is_valid and abs(u.area - tot) <= 1e-6 * tot + 1e-9
+            return u.is_valid and abs(u.area - tot) <= 1e-4 * tot + 1e-9      # solapes mínimos de redondeo (p. ej. 7e-5 grados² en Turov, de 9,2) no son una malla rota
         except Exception:
             return False
 

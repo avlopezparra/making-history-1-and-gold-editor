@@ -87,7 +87,7 @@ def create_scenario(name, pack, template=None, display=None, description=None, y
         for k, v in (('strName', name), ('strDisplayName', disp), ('strDescription', desc), ('strVersion', '1.0'),
                      ('nStartYear', str(year)), ('nStartMonth', str(month)), ('nStartDay', str(day)),
                      ('dateStart', '%02d/%02d/%s' % (month, day, year)), ('nScenarioDuration', str(turns)),
-                     ('strMapName', pack), ('strSpriteMapName', pack),
+                     ('strMapName', pack),          # strSpriteMapName se deja el de la plantilla (World): no hay sprite map por regionpack
                      ('fileMapProperties', '/../Modern Europe/system/DisplayLibraries/Maps/%s/xml/properties.xml' % pack)):
             t = sub(k, v, t)
         _write(os.path.join(dst, 'scenario.xml'), t)

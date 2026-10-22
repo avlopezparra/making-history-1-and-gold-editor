@@ -551,7 +551,25 @@ def set_pack(s, pack):
         raise ValueError('scenario.xml no tiene ScenarioDisplaySettings')
     s.s.set_prop(disp, 'strMapName', pack)
     s.s.set_prop(disp, 'fileMapProperties', '/../Modern Europe/system/DisplayLibraries/Maps/%s/xml/properties.xml' % pack)
-    return ['regionpack: %s' % pack]
+    return ['regionpack: %s' % pack] + fix_sprite_map(s)
+
+
+def fix_sprite_map(s):
+    """strSpriteMapName de scenario.xml debe nombrar un archivo que exista en DisplayLibraries/SpriteMaps (en el juego solo
+    hay World.xml). Si nombra otro (p. ej. el del regionpack, «Tamriel»), el juego no carga los gráficos del mapa y todas las
+    regiones salen negras («Error loading sprite map»). Se pone «World»."""
+    sx = s.all('Scenario', lambda f: f == 'scenario.xml')
+    disp = next((o for o in sx[0].iter('object') if o.get('type') == 'ScenarioDisplaySettings'), None) if sx else None
+    if disp is None:
+        return []
+    cur = prop(disp, 'strSpriteMapName')
+    if not cur:
+        return []
+    d = os.path.join(sc.GAME, 'Modern Europe', 'system', 'DisplayLibraries', 'SpriteMaps')
+    if os.path.exists(os.path.join(d, cur + '.xml')) or not os.path.isdir(d):
+        return []
+    s.s.set_prop(disp, 'strSpriteMapName', 'World')
+    return ['strSpriteMapName «%s» no existe en DisplayLibraries/SpriteMaps: pasa a «World» (si no, el mapa sale negro)' % cur]
 
 
 FLAT_CAMERA = 'WorldUnifiedFlat'
@@ -1060,6 +1078,8 @@ def pack_sync_apply(s, pack, switch=True, pop_mode='area'):
     notes += rehome_transferred(s, pm)
     if switch and sc.pack_of(s) != pack:
         notes += set_pack(s, pack)
+    else:
+        notes += fix_sprite_map(s)
     return {'notes': notes, 'plan': plan}
 
 

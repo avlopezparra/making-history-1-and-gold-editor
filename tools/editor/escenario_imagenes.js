@@ -199,12 +199,14 @@
       const vs = g.variants, own = vs.filter(v => v.own).length, any = vs.some(v => v.src);
       const status = own === vs.length && own ? '<span class="mhown">versión propia del escenario</span>'
         : own ? `<span class="mhown"><b>${own}/${vs.length}</b> <span>propias</span></span>` : any ? '<span class="mhdef">sin versión propia en el escenario: se muestra la del juego</span>'
-          : '<span class="mhmiss">sin imagen</span>';
+          : kind === 'scenario' ? '<span class="mhmiss">sin imagen: exporta la plantilla (la de un escenario del juego, con su tamaño), edítala e impórtala</span>'
+            : '<span class="mhmiss">sin imagen</span>';
       h += `<div style="margin-top:6px"><b style="font-size:13px">${esc(g.title)}</b> · ${status}${g.note ? `<div class="muted">${esc(g.note)}</div>` : ''}<div class="mhimgs">` +
         vs.map(v => { const k = v.w ? Math.max(0.25, Math.min(2, 96 / Math.max(v.w, v.h))) : 1;
           return `<figure title="${esc(v.rel)}">${v.src ? `<img class="mhchk" src="${rawUrl(v.src).replace('&max=256', '&max=512')}" style="width:${Math.round(v.w * k)}px">` : `<div class="mhchk" style="width:48px;height:48px;border:1px dashed var(--line)"></div>`}
             ${esc(v.file)}${v.w ? ` <span class="muted">${v.w}×${v.h}</span>` : ''}<br>${v.own ? '<span class="mhown">propia</span>' : v.src ? '<span class="mhdef">del juego</span>' : v.generic ? '<span class="mhdef">usa la genérica</span>' : '<span class="mhmiss">falta</span>'}</figure>`; }).join('') +
-        `</div><div class="row">${any ? dlLink(exportUrl(kind, name, g.key), `${kind}-${name || S.scen}-${g.key}.png`, 'Exportar') : ''}<button class="btn" data-g="${g.key}">Importar…</button></div></div>`;
+        `</div><div class="row">${any ? dlLink(exportUrl(kind, name, g.key), `${kind}-${name || S.scen}-${g.key}.png`, 'Exportar')
+          : kind === 'scenario' ? dlLink(exportUrl(kind, name, g.key), `${vs[0].file.replace(/\.tga$/i, '')} - plantilla.png`, 'Exportar plantilla') : ''}<button class="btn" data-g="${g.key}">Importar…</button></div></div>`;
     }
     sec.innerHTML = h; host.appendChild(sec);
     sec.querySelectorAll('[data-g]').forEach(b => b.onclick = () => importAsset(inf, kind, name, b.dataset.g, opts));

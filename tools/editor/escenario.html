@@ -150,7 +150,7 @@
         <label><input type="checkbox" data-pt="city"> Ciudades</label><label><input type="checkbox" data-pt="producer"> Recursos</label>
         <label><input type="checkbox" data-pt="army"> Ejércitos</label><label><input type="checkbox" data-pt="air"> Aviación</label><label><input type="checkbox" data-pt="fleet"> Flotas</label>
         <label title="Muestra en el mapa hasta dónde pueden bombardear las fuerzas aéreas con bombarderos (todas, o solo la elegida)"><input type="checkbox" id="bombRange"> Alcance de bombarderos</label>
-        <label title="Arrastra una ciudad o un recurso a otro punto; si cae en otra región, pasa a ella con su dueño"><input type="checkbox" id="dragPts"> Mover ciudades y recursos arrastrando</label>
+        <label title="Arrastra una ciudad, un recurso o una unidad a otro punto (si cae en otra región, pasa a ella; una flota soltada en tierra entra en el puerto de su dueño). Clic en una ciudad o unidad y luego clic derecho en el mapa: mira hacia ese punto (como en ed.exe)"><input type="checkbox" id="dragPts"> Mover y girar ciudades, recursos y unidades</label>
         <div id="legend" class="muted"></div>
         <div id="multiPanel" style="display:none"></div>
       </div>
@@ -359,25 +359,46 @@ async function openObj(id) {
 const SELECT_FIELDS = new Set(['strGovType', 'eInternationalPosition', 'strDipRelProcListName', 'strAITreatyEvalListName', 'strHLPDefLists', 'eCountryType',
   'strTerrain', 'strCulture', 'strCultureName', 'strResource']);
 const isSelectField = n => SELECT_FIELDS.has(n) || /^e[A-Z]/.test(n);     // los e… son Enum del juego: todos sus valores en un desplegable
+SELECT_FIELDS.add('strInitialWorkOrder');
+// texto de cada opción de un desplegable (como en ed.exe: «(N/A)», «Normal», «Nuked»)
+const OPT_LABEL = { CITY_STATE_NORMAL: 'Normal', CITY_STATE_NUKED: 'Arrasada por bomba atómica (Nuked)' };
+const optLabel = (n, v) => v === '' ? ({ strInitialWorkOrder: '(N/A)', eCityState: 'Normal (por defecto)' }[n] || '(ninguno)') : OPT_LABEL[v] || String(v).replace('PLAYER_INTERNATIONAL_POSITION__', '');
 function optionsFor(name) { return S.opts[name] || (S.mode === 'file' ? null : null); }
 function renderObj(d, note) {
   const crumbs = d.crumbs.map(c => `<a data-id="${c.id}">${esc(c.label)}</a>`).join(' › ');
   let html = `${note ? `<div class="note ${note.err ? 'err' : ''}">${esc(note.text)}</div>` : ''}
     <div class="crumbs muted">${crumbs}</div><h2>${esc(d.type)} · ${esc(d.label)}</h2><div class="muted">${esc(d.file)}</div>`;
   html += '<div class="grid" id="form">';
+  let regionHtml = '';
   if (d.extra.region !== undefined) {
-    html += `<label>Ubicación (región)</label><input data-name="__region" data-orig="${esc(d.extra.region)}" value="${esc(d.extra.region)}" list="dl-__region">
+    regionHtml = `<label>Ubicación (región)</label><input data-name="__region" data-orig="${esc(d.extra.region)}" value="${esc(d.extra.region)}" list="dl-__region">
       <label>Punto en el mapa</label><select data-name="__movepoint" data-orig=""><option value="">dejarlo donde está (puede quedar fuera de la región)</option><option value="1">moverlo dentro de la región</option></select>`;
   }
+  // ciudad: mismo orden que la ficha de ed.exe (nombre, IPUs, ubicación, orden inicial, % completado, estado) y luego lo demás
+  let props = d.props;
+  if (d.type === 'City') {
+    const first = ['strName', 'sidName'], ed = ['strInitialWorkOrder', 'nInitialPercentComplete', 'eCityState'];
+    const pos = p => first.includes(p.name) ? first.indexOf(p.name) : ed.includes(p.name) ? 10 + ed.indexOf(p.name) : 20;
+    const ED_LABEL = { strInitialWorkOrder: 'Orden de trabajo inicial', nInitialPercentComplete: '% completado', eCityState: 'Estado' };
+    // los que faltan en el archivo se muestran igual en su sitio (vacíos: no se escriben si no se cambian)
+    const missing = ed.filter(n => !d.props.some(p => p.name === n)).map(n => ({ name: n, key: n, value: '', label: ED_LABEL[n], kind: n.startsWith('n') ? 'number' : 'text' }));
+    props = d.props.concat(missing).sort((a, b) => pos(a) - pos(b));
+    const fac = d.children.find(c => c.type === 'Factory'), ipus = fac && /IPUs ([^,]*)/.exec(fac.summary || '');
+    const n = props.filter(p => first.includes(p.name)).length;
+    const ipuHtml = fac ? `<label title="nIPUs (Factory)">IPUs</label><input data-cid="${fac.id}" data-cprop="nIPUs" data-orig="${esc(ipus ? ipus[1] : '')}" value="${esc(ipus ? ipus[1] : '')}" inputmode="decimal">` : '';
+    d._cityHead = { n, html: ipuHtml + regionHtml }; regionHtml = '';
+  }
+  html += regionHtml;
   const lists = new Set(d.extra.region !== undefined ? ['__region'] : []);
-  for (const p of d.props) {
+  for (const [k, p] of props.entries()) {
+    if (d._cityHead && k === d._cityHead.n) html += d._cityHead.html;
     const id = 'f-' + p.name;
     let input;
     if (p.inherit) input = `<input disabled value="${esc(p.inherit)}" title="calculado (inheritFrom/computeFrom)">`;
     else if (p.kind === 'bool') input = `<select data-name="${esc(p.key)}" data-orig="${esc(p.value)}"><option ${p.value === 'true' ? 'selected' : ''}>true</option><option ${p.value === 'false' ? 'selected' : ''}>false</option></select>`;
     else if (isSelectField(p.name) && S.opts[p.name]) {      // campos de opciones cerradas: desplegable con todas las que hay
       const vals = [...new Set([...S.opts[p.name], p.value].filter(x => x !== undefined && x !== null))];
-      input = `<select data-name="${esc(p.key)}" data-orig="${esc(p.value)}">${vals.map(v => `<option value="${esc(v)}" ${v === p.value ? 'selected' : ''}>${esc(String(v).replace('PLAYER_INTERNATIONAL_POSITION__', '') || '(ninguno)')}</option>`).join('')}</select>`;
+      input = `<select data-name="${esc(p.key)}" data-orig="${esc(p.value)}">${vals.map(v => `<option value="${esc(v)}" ${v === p.value ? 'selected' : ''}>${esc(optLabel(p.name, v))}</option>`).join('')}</select>`;
     }
     else {
       const has = S.opts[p.name]; if (has) lists.add(p.name);
@@ -392,9 +413,16 @@ function renderObj(d, note) {
       html += `<label class="muted" title="Texto que ve el jugador (game/stringTable.xml del escenario)">↳ texto visible</label><input data-sid="${esc(p.value)}" data-orig="${esc(p.text ?? '')}" value="${esc(p.text ?? '')}" placeholder="(sin texto)">`;
     else if (p.text) html += `<div class="hint muted">«${esc(p.text)}»</div>`;
   }
-  for (const [n, label, hint] of (EXTRA_PROPS[d.type] || []).filter(x => !d.props.some(p => p.name === x[0]))) {
-    const has = S.opts[n]; if (has) lists.add(n);
-    html += `<label title="${esc(n)} (no está en el archivo; se añade si le das valor)">${esc(label)} <span class="muted">+</span></label><input data-name="${esc(n)}" data-orig="" value="" placeholder="${esc(hint || '')}" ${has ? `list="dl-${esc(n)}"` : ''}>`;
+  if (d._cityHead && props.length <= d._cityHead.n) html += d._cityHead.html;
+  for (const [n, label, hint] of (EXTRA_PROPS[d.type] || []).filter(x => !props.some(p => p.name === x[0]))) {
+    const has = S.opts[n];
+    const lab = `<label title="${esc(n)} (no está en el archivo; se añade si le das valor)">${esc(label)} <span class="muted">+</span></label>`;
+    if (isSelectField(n) && has) {       // tipo cerrado: desplegable (vacío = no se escribe, vale lo del juego)
+      html += lab + `<select data-name="${esc(n)}" data-orig=""><option value="">${esc(hint || '(por defecto)')}</option>${has.filter(v => v !== '').map(v => `<option value="${esc(v)}">${esc(optLabel(n, v))}</option>`).join('')}</select>`;
+      continue;
+    }
+    if (has) lists.add(n);
+    html += lab + `<input data-name="${esc(n)}" data-orig="" value="" placeholder="${esc(hint || '')}" ${has ? `list="dl-${esc(n)}"` : ''}>`;
   }
   html += '</div>';
   for (const n of lists) html += `<datalist id="dl-${esc(n)}">${(S.opts[n] || []).map(v => `<option value="${esc(v)}">`).join('')}</datalist>`;
@@ -435,6 +463,7 @@ function renderObj(d, note) {
   if (S.scen && EV_TYPES.includes(d.type)) eventSection(d);
   if (S.scen && d.type === 'TerrainType') terrainSection(d);
   if (S.scen && d.type === 'CultureTemplate') cultureSection(d);
+  if (S.scen && ['City', 'Army', 'AirForce', 'Fleet'].includes(d.type)) placeSection(d);
   if (S.scen && $('#bombRange').checked) sendRings();
 }
 // puerto de una ciudad: casilla para activarlo y el mar (vecino de su región o, opcionalmente, uno lejano)
@@ -459,7 +488,16 @@ async function portSection(d) {
 async function applyObj() {
   const values = {};
   document.querySelectorAll('#form [data-name]').forEach(i => { if (i.value !== i.dataset.orig) values[i.dataset.name] = i.value; });
+  let child = 0;
+  for (const i of [...document.querySelectorAll('#form [data-cid]')].filter(i => i.value !== i.dataset.orig)) {   // dato de un objeto hijo (IPUs de la fábrica)
+    const r = await api('/api/scen/update', { id: +i.dataset.cid, values: { [i.dataset.cprop]: i.value.trim() } });
+    if (r.error) return renderObj(S.obj, { text: r.error, err: true });
+    child++;
+  }
   const sids = [...document.querySelectorAll('#form [data-sid]')].filter(i => i.value !== i.dataset.orig);
+  if (child && !sids.length && !Object.keys(values).length) {
+    const d = await api('/api/scen/obj?id=' + S.obj.id); S.obj = d; setDirty(d.dirty); return renderObj(d, { text: 'IPUs cambiados. Falta «Guardar».' });
+  }
   for (const i of sids) { const r = await api('/api/scen/set_string', { name: S.scen, sid: i.dataset.sid, value: i.value }); if (r.error) return renderObj(S.obj, { text: r.error, err: true }); setDirty(r.dirty); }
   if (!Object.keys(values).length) {
     if (sids.length) { const d = await api('/api/scen/obj?id=' + S.obj.id); S.obj = d; return renderObj(d, { text: `Texto visible cambiado (${sids.length}). Falta «Guardar» (se escribe en game/stringTable.xml).` }); }
@@ -943,7 +981,7 @@ async function onRegionClick(region, sea) {
 function note(text, err) { $('#legend').innerHTML = `<span class="${err ? 'err-t' : 'ok-t'}">${esc(text)}</span><br>` + $('#legend').innerHTML.replace(/^<span class="(ok|err)-t">.*?<\/span><br>/, ''); }
 document.querySelectorAll('[data-pt]').forEach(x => x.onchange = sendPoints);
 $('#dragPts').onchange = () => {
-  if ($('#dragPts').checked) { document.querySelectorAll('[data-pt="city"],[data-pt="producer"]').forEach(x => { x.checked = true; }); sendPoints(); }
+  if ($('#dragPts').checked) { document.querySelectorAll('[data-pt]').forEach(x => { x.checked = true; }); LY.points = null; sendPoints(); }
   frameMsg({ cmd: 'dragPoints', on: $('#dragPts').checked });
 };
 async function sendPoints() {
@@ -966,6 +1004,7 @@ window.addEventListener('message', e => {
   if (e.origin !== location.origin || !e.data || !e.data.ev) return;
   if (e.data.ev === 'mapPick' && PICK) { const r = PICK; PICK = null; frameMsg({ cmd: 'pick', on: false }); sendOverlay(); r({ x: e.data.x, y: e.data.y }); return; }
   if (e.data.ev === 'pointMoved') { movePoint(e.data.id, e.data.x, e.data.y); return; }
+  if (e.data.ev === 'pointRotate') { setDirection(e.data.id, e.data.deg); return; }
   if (e.data.ev === 'mapReady') { LY.frameReady = true; sendOverlay(); if (document.querySelector('[data-pt]:checked')) sendPoints(); if ($('#bombRange').checked) sendRings(); }
   if (e.data.ev === 'regionClick') onRegionClick(e.data.region, e.data.sea);
   if (e.data.ev === 'regionDblClick') { openRegionCard(e.data.region, e.data.sea); return; }
@@ -1822,6 +1861,41 @@ async function newGeneric(kind) {
   note((done.notes || []).join('; ') + '. Falta «Guardar».');
 }
 
+// orientación de una ciudad o unidad (nDirection: 0 norte, 90 este, 180 sur, 270 oeste)
+async function setDirection(id, deg) {
+  const r = await api('/api/scen/set_direction', { name: S.scen, id, deg });
+  if (r.error) return note(r.error, true);
+  setDirty(r.dirty); note(r.notes.join('; ') + '. Falta «Guardar».');
+  if (S.obj && S.obj.id === id && rview !== 'map') openObj(id);
+}
+// ciudad o unidad: punto en el mapa, orientación y (flotas) puerto
+async function placeSection(d) {
+  const unit = d.type !== 'City', dir = +((d.props.find(p => p.name === 'nDirection') || {}).value ?? (unit ? 225 : 180));
+  const ports = d.type === 'Fleet' ? ((await api('/api/scen/fleet_ports?id=' + d.id)).ports || []) : [];
+  if (!$('#right') || !S.obj || S.obj.id !== d.id) return;
+  const box = document.createElement('div'); box.className = 'sec'; box.id = 'placeSec';
+  box.innerHTML = `<h3>En el mapa</h3><div class="row">
+    ${unit ? '<button class="btn small" id="plPick" title="Elegir el punto en el mapa: si cae en otra región, la unidad pasa a ella">📍 Mover a un punto del mapa</button>' : ''}
+    <span>Orientación</span><input id="plDir" type="range" min="0" max="359" value="${dir}" style="width:140px">
+    <input id="plDirN" type="number" min="0" max="359" value="${dir}" style="width:60px">°
+    <svg width="34" height="34" viewBox="-17 -17 34 34"><circle r="15" fill="none" stroke="currentColor" stroke-opacity=".4"/><line id="plArrow" x1="0" y1="0" x2="0" y2="-13" stroke="#f97316" stroke-width="3" transform="rotate(${dir})"/><text y="-6" x="-3" font-size="7" fill="currentColor" opacity=".6">N</text></svg>
+    <button class="btn small primary" id="plDirGo">Aplicar orientación</button></div>
+    <div class="muted">0° norte, 90° este, 180° sur, 270° oeste. En el mapa, con «Mover y girar…» marcado: clic en la ${unit ? 'unidad' : 'ciudad'} y clic derecho donde debe mirar.</div>
+    ${d.type === 'Fleet' ? `<div class="row" style="margin-top:6px">Meter en el puerto de <select id="plPort">${ports.map(p => `<option value="${esc(p.city)}">${esc(p.city)} (${esc(p.region)} · ${esc(p.sea)})</option>`).join('') || '<option value="">(su país no tiene ciudades con puerto)</option>'}</select>
+      <button class="btn small" id="plPortGo" ${ports.length ? '' : 'disabled'}>Meter en puerto</button></div>` : ''}`;
+  $('#right').appendChild(box);
+  const sync = v => { $('#plDir').value = $('#plDirN').value = v; $('#plArrow').setAttribute('transform', `rotate(${v})`); };
+  $('#plDir').oninput = () => sync($('#plDir').value); $('#plDirN').oninput = () => sync(((+$('#plDirN').value % 360) + 360) % 360);
+  $('#plDirGo').onclick = async () => { await setDirection(d.id, +$('#plDirN').value); LY.points = null; if (rview === 'map') sendPoints(); openObj(d.id); };
+  if ($('#plPick')) $('#plPick').onclick = async () => {
+    const pt = await pickOnMap('Haz clic en el mapa para mover «' + d.label + '»'); if (!pt) return;
+    await movePoint(d.id, pt.x, pt.y); openObj(d.id);
+  };
+  if ($('#plPortGo')) $('#plPortGo').onclick = async () => {
+    const r = await api('/api/scen/move_point', { name: S.scen, id: d.id, port: $('#plPort').value }); if (r.error) return alert(r.error);
+    setDirty(r.dirty); LY.points = null; if (rview === 'map') sendPoints(); await openObj(d.id); note(r.notes.join('; ') + '. Falta «Guardar».');
+  };
+}
 async function movePoint(id, x, y, keep) {
   const r = await api('/api/scen/move_point', { name: S.scen, id, x, y, keep });
   if (r.ask) {      // el punto cae en otra región: ¿pasa a depender de ella?

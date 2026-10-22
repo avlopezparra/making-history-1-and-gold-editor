@@ -208,8 +208,8 @@ def action_text(a, ctx):
     if t == 'ActDevCreateUnits':
         return '%s recibe %s × %s en %s («%s»)' % (g('strCountryName'), g('nNumUnits'), g('strUnitTemplate'), g('strRegionName'), g('strUnitName') or '')
     if t in ('ActTransferRegionOwnership', 'ActTransferRegionControl'):
-        return 'la región %s pasa %s a %s' % (g('nRegionID'), 'a ser' if t.endswith('Ownership') else 'a estar controlada por',
-                                              g('nNewCountryID'))
+        return 'la región %s pasa %s %s' % (g('nRegionID'), 'a ser de' if t.endswith('Ownership') else 'a estar controlada por',
+                                            g('nNewCountryID'))
     if t == 'ActIncDipRelations':
         return 'relación de %s con %s %s %s' % (g('nSourceCountryID'), g('nTargetCountryID'), '−' if (g('nAmount') or '').startswith('-') else '+', (g('nAmount') or '').lstrip('-'))
     if t == 'ActDevCompleteResearchProject':
@@ -251,7 +251,7 @@ def _effects(holder, ctx, name):
     out = []
     for ce in objs(holder):
         if ce.get('name') == name and ce.get('type') == 'CustomEffectDefActions':
-            out.append({'label': prop(ce, 'strLabel') or '', 'actions': [action_text(a, ctx) for a in objs(ce)]})
+            out.append({'label': prop(ce, 'strLabel') or '', 'actions': [action_text(a, ctx) for a in objs(ce) if (a.get('type') or '').startswith('Act')]})
     return out
 
 
@@ -435,8 +435,8 @@ def _outcome(s, dec):
     for ch in objs(dec):
         if ch.get('type') == 'PlayerDecisionChoiceDefCustom':
             t = (_texts(s, ch).get('strTitle') or {}).get('text') or prop(ch, 'strLabel')
-            acts = [action_text(a, ctx) for e in objs(ch) if e.get('name') == 'objChoiceEffects' for a in objs(e)]
-            out.append('«%s»: %s%s' % (t, '; '.join(acts) or 'nada', ' (la IA elige esta, %s %%)' % prop(dec, 'nDefaultChoicePercent') if prop(ch, 'strLabel') == ai else ''))
+            acts = [action_text(a, ctx) for e in objs(ch) if e.get('name') == 'objChoiceEffects' for a in objs(e) if (a.get('type') or '').startswith('Act')]
+            out.append('«%s»: %s%s' % (t, '; '.join(acts) or 'nada', ' (la IA elige esta, %s %%)' % (prop(dec, 'nDefaultChoicePercent') or '100') if prop(ch, 'strLabel') == ai else ''))
     return out
 
 
@@ -1497,6 +1497,100 @@ def terrain_color_set(s, terrain, color):
         st.set_prop(m, 'colColor', color.upper())
     r = st.save([path])
     return ['color de %s = %s guardado en %s (todo el juego)' % (terrain, color.upper(), ', '.join(r['written']) or 'sin cambios')]
+
+
+# ---------------------------------------------------------------------------------------- unidades en el mapa
+# Army / AirForce / Fleet: strRegion (región donde empiezan), vecPosition opcional ([lon, lat, 0]; sin ella el juego las pone
+# en su región) y nDirection (VisibleGO: grados, 0 = norte, 90 = este; por defecto 225). Una flota en puerto tiene strRegion =
+# la región de tierra y strCity = la ciudad con puerto (strPortForRegion) de su dueño.
+UNIT_TYPES = ('Army', 'AirForce', 'Fleet')
+
+
+def _port_cities(s, owner):
+    out = []
+    for r in s.regions(sea=False):
+        for c in objs(r):
+            if c.get('type') == 'City' and prop(c, 'strPortForRegion') and prop(c, 'strOwner') == owner:
+                xy = sc.parse_vec(prop(c, 'vecPosition'))
+                out.append({'city': prop(c, 'strName'), 'region': prop(r, 'strName'), 'sea': prop(c, 'strPortForRegion'), 'x': xy[0] if xy else None, 'y': xy[1] if xy else None})
+    return sorted(out, key=lambda x: x['city'] or '')
+
+
+def fleet_ports(s, i):
+    el = s.s.get(i)
+    return _port_cities(s, prop(el, 'strOwner'))
+
+
+def move_unit(s, i, x=None, y=None, port=None):
+    """Mueve un ejército, fuerza aérea o flota a un punto (cambia su región si cae en otra) o mete una flota en un puerto."""
+    import scenario_layers as sl
+    st = s.s
+    el = st.get(i)
+    t = el.get('type')
+    if t not in UNIT_TYPES:
+        raise ValueError('solo se pueden mover ejércitos, fuerzas aéreas y flotas')
+    owner, old = prop(el, 'strOwner'), prop(el, 'strRegion')
+    name = prop(el, 'strName') or t
+    if port:
+        if t != 'Fleet':
+            raise ValueError('solo las flotas entran en un puerto')
+        pc = next((p for p in _port_cities(s, owner) if p['city'] == port), None)
+        if pc is None:
+            raise ValueError('%s no es una ciudad con puerto de %s' % (port, owner))
+        st.set_prop(el, 'strRegion', pc['region'])
+        st.set_prop(el, 'strCity', pc['city'])
+        if pc['x'] is not None:
+            st.set_prop(el, 'vecPosition', sl._vec(pc['x'], pc['y']))
+        return ['%s pasa al puerto de %s (%s, mar %s)' % (name, pc['city'], pc['region'], pc['sea'])]
+    x, y = float(x), float(y)
+    land = None
+    try:
+        land = sl._land_region_at(s, x, y)[1]
+    except ValueError:
+        pass
+    sea = None
+    if land is None:
+        try:
+            sea = sl.pack_map(sl.scenario_pack(s)).region_at(x, y, sea=True)
+        except Exception:
+            sea = None
+        if sea not in {prop(r, 'strName') for r in s.regions(sea=True)}:
+            sea = None
+    notes = []
+    if t == 'Fleet':
+        if land:                     # en tierra: solo en un puerto de su dueño en esa región (el más cercano al punto)
+            ports = [p for p in _port_cities(s, owner) if p['region'] == land]
+            if not ports:
+                raise ValueError('%s no tiene puerto en %s: una flota en tierra debe estar en una ciudad con puerto de su dueño' % (owner, land))
+            pc = min(ports, key=lambda p: ((p['x'] or 0) - x) ** 2 + ((p['y'] or 0) - y) ** 2)
+            return move_unit(s, i, port=pc['city'])
+        if not sea:
+            raise ValueError('el punto no está en ninguna región de mar del escenario')
+        st.set_prop(el, 'strRegion', sea)
+        for p in [p for p in el if p.tag == 'property' and p.get('name') == 'strCity']:
+            el.remove(p)
+            st.touch(el, structural=True)
+            notes.append('sale del puerto')
+        region = sea
+    else:
+        if not land:
+            raise ValueError('%s: %s debe estar en una región de tierra' % (name, 'un ejército' if t == 'Army' else 'una fuerza aérea'))
+        region = land
+        st.set_prop(el, 'strRegion', land)
+    st.set_prop(el, 'vecPosition', sl._vec(x, y))
+    notes.insert(0, '%s → %.4f, %.4f%s' % (name, x, y, ' (región %s → %s)' % (old, region) if region != old else ''))
+    return notes
+
+
+def set_direction(s, i, deg):
+    """Orientación (nDirection, grados: 0 norte, 90 este, 180 sur, 270 oeste) de una ciudad o unidad."""
+    st = s.s
+    el = st.get(i)
+    if el.get('type') not in UNIT_TYPES + ('City',):
+        raise ValueError('solo ciudades y unidades tienen orientación')
+    d = int(round(float(deg))) % 360
+    st.set_prop(el, 'nDirection', str(d))
+    return ['%s: orientación %d°' % (prop(el, 'strName') or el.get('type'), d)]
 
 
 # ---------------------------------------------------------------------------------------- alcance aéreo

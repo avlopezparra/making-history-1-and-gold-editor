@@ -148,6 +148,7 @@
         <label title="Al dibujar o pintar, lo que no es de nadie (lagos, huecos) también pasa a la región"><input type="checkbox" id="fill"> Rellenar huecos al dibujar/pintar</label>
         <label title="Al dibujar o pintar sobre una región de tierra, no tomar zonas de mar"><input type="checkbox" id="landonly" checked> Solo tierra (no quitar mar)</label>
         <label><input type="checkbox" id="paint" checked> Repintar fronteras en la textura al guardar</label>
+        <label title="Borde naranja y nombre de las regiones nuevas del changelog"><input type="checkbox" id="showNew" checked> Resaltar las regiones nuevas</label>
         <label title="Al guardar una región nueva se crea su objeto Region en cada escenario que usa este regionpack"><input type="checkbox" id="register" checked> Registrar regiones nuevas en los escenarios del regionpack</label>
         <label title="Muestra y deja arrastrar los nodos de todas las regiones a la vista, sin seleccionar. Arrastrar desde un borde crea un nodo; Alt+clic lo borra."><input type="checkbox" id="allv"> Todos los vértices (modificar sin seleccionar)</label>
       </div>
@@ -261,7 +262,7 @@
       <div id="nrNatBox" style="display:none;margin:6px 0;padding:6px 8px;border:1px solid var(--line);border-radius:6px">
         <b>Nación nueva</b> <span class="muted">(se crea en el escenario y esta región es suya)</span>
         <label style="display:block">Nombre <input id="nrNatName" style="width:50%" autocomplete="off"> Color <input type="color" id="nrNatColor"></label>
-        <label style="display:block">Cultura <input id="nrNatCult" value="English" style="width:120px" autocomplete="off"> <label><input type="checkbox" id="nrNatPlay" checked> Jugable</label></label>
+        <label style="display:block">Cultura <input id="nrNatCult" value="English" list="cultList" style="width:160px" autocomplete="off" title="Grupo étnico / cultura: las del escenario salen en la lista (también se puede escribir una nueva)"><datalist id="cultList"></datalist> <label><input type="checkbox" id="nrNatPlay" checked> Jugable</label></label>
         <div style="margin-top:4px"><b>Capital</b> <span class="muted">(obligatoria; más de 2 habitantes)</span></div>
         <label style="display:block"><input type="checkbox" id="nrNatCapAuto" checked> Crear la capital automáticamente (si no, usa una ciudad que ya esté dentro de la región)</label>
         <label style="display:block">Ciudad <input id="nrNatCap" style="width:50%" autocomplete="off"></label>
@@ -794,6 +795,8 @@ async function askNewRegion(polygon, from, opt = {}) {
   $('#nrTitle').textContent = opt.nueva ? 'Nueva región' + (opt.land.length && opt.cut ? ` (recorta: ${opt.land.join(', ')})` : opt.sea.length ? ` (sobre ${opt.sea.slice(0, 3).join(', ')})` : '')
     : overSea ? 'Has dibujado sobre el mar' : `Nueva región sacada de ${M.props.name}`;
   S.nrForceSea = !!opt.forceSea;
+  cultureList();
+  S.nrOnly = !opt.nueva && M ? M.props.name : null;      // recorte de la región seleccionada: la población sale solo de ella, no de las vecinas que toque el dibujo
   $('#nrKindRow').style.display = opt.nueva && !opt.forceSea ? '' : 'none';
   document.querySelector(`input[name=nrKind][value=${opt.forceSea || (opt.nueva && !opt.land.length && opt.sea.length) ? 'sea' : 'land'}]`).checked = true;
   $('#nrSeaChoice').style.display = overSea ? '' : 'none';
@@ -1001,6 +1004,13 @@ function waitDialog(dlg, okValues = ['ok']) {
     dlg.returnValue = ''; dlg.showModal();
   });
 }
+// culturas (grupos étnicos) del escenario abierto para el campo «Cultura» de una nación nueva
+async function cultureList() {
+  const sc = S.scenName || S.baseScen; if (!sc || S.cultFor === sc) return;
+  const o = await (await fetch('/api/scen/options?name=' + encodeURIComponent(sc))).json().catch(() => ({}));
+  const esc = t => String(t).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+  $('#cultList').innerHTML = (o.strCulture || []).map(c => `<option value="${esc(c)}">`).join(''); S.cultFor = sc;
+}
 function autoNatColor(n) { const h = (n * 137.5) % 360, f = (a, k = (a + h / 30) % 12) => Math.round(255 * (0.6 - 0.35 * Math.max(-1, Math.min(k - 3, 9 - k, 1))));
   return '#' + [f(0), f(8), f(4)].map(v => v.toString(16).padStart(2, '0')).join(''); }
 const isSeaKind = () => !!S.nrForceSea || ($('#nrKindRow').style.display !== 'none' && document.querySelector('input[name=nrKind]:checked').value === 'sea');
@@ -1028,7 +1038,7 @@ async function nrPopulation() {
   if (seaKind || !S.nrPolygon) { T.innerHTML = ''; return; }
   T.innerHTML = '<tr><td class="muted">Calculando…</td></tr>';
   const r = await (await fetch('/api/cut_preview', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ polygon: S.nrPolygon, sea: false }) })).json();
-  const ms = (r.mothers || []).filter(m => S.scen && S.scen.regions[m.name] && S.scen.regions[m.name].population != null);
+  const ms = (r.mothers || []).filter(m => S.scen && S.scen.regions[m.name] && S.scen.regions[m.name].population != null && (!S.nrOnly || m.name === S.nrOnly));
   // sin regiones de origen con población (o sin escenario): los habitantes se pueden poner a mano
   const manual = `<tr><td style="padding-top:6px">Habitantes de la región nueva: <input id="nrPopManual" type="number" min="0" step="1" placeholder="automático" style="width:120px">
       <span class="muted">(vacío = densidad media del país)</span></td></tr>`;
@@ -1252,6 +1262,13 @@ async function askRenameRegion(R) {
   const old = R.props.name;
   const text = prompt(`Nuevo nombre para «${old}» (como se verá en el juego; puede llevar acentos):`, old); if (text == null || !text.trim() || text.trim() === old) return;
   const plain = text.trim().normalize('NFD').replace(/[̀-ͯ]/g, '');
+  // los dos nombres pueden ser distintos: solo el visible (stringTable de los escenarios) o también el interno (RegionRename de map.xml)
+  const both = confirm(`¿Cambiar también el NOMBRE INTERNO de «${old}»?\n\nAceptar: el interno y el visible (RegionRename en map.xml; hay que «Instalar»).\nCancelar: solo el nombre que se ve en el juego (el interno sigue siendo «${old}»).`);
+  if (!both) {
+    const r = await scenPost('/api/region/rename', { region: old, new_name: old, text: text.trim() }); if (!r) return;
+    report(`«${old}» se verá como «${text.trim()}» (el nombre interno no cambia).\n\n` + scenarioNotes(r.scenarios), 'ok');
+    if (S.scenName) refreshScen(); return;
+  }
   const name = prompt('Nombre interno (sin acentos; es el que usan los escenarios):', plain); if (name == null || !name.trim()) return;
   if (!confirm(`¿Renombrar «${old}» a «${name.trim()}»${text.trim() !== name.trim() ? ' (texto: «' + text.trim() + '»)' : ''}?
 
@@ -1278,13 +1295,18 @@ async function importShapes(shapes, o = {}) {
   let n = 0;
   // nombres repetidos dentro del GeoJSON (p. ej. 17 «Aguas interregionales»): cada contorno pasa a ser «Nombre 2», «Nombre 3»…
   const used = new Set((S.meta || []).map(m => m.name.toLowerCase()));
+  const seen = new Map(); let skipped = 0;
   const uniq = nm => { if (!nm) return nm; let out = nm, k = 2; while (used.has(out.toLowerCase())) out = `${nm} ${k++}`; used.add(out.toLowerCase()); return out; };
   for (const sh of shapes) {
     const parts = sh.geometry.type === 'Polygon' ? [sh.geometry.coordinates] : sh.geometry.coordinates, counts = new Map();
     for (const part of parts) for (const u of await regionsUnderServer(part[0])) counts.set(u.index, Object.assign(counts.get(u.index) || { ...u, n: 0 }, { n: (counts.get(u.index) || { n: 0 }).n + u.n }));
     const under = [...counts.values()].sort((a, b) => b.n - a.n), land = under.filter(x => !x.sea), water = under.filter(x => x.sea);
     const pr = sh.props, seaKind = sh.sea !== undefined ? sh.sea : pr.mh_type === 'sea_region' || pr.sea === true;
-    const name = uniq(gjName(sh));
+    // el mismo contorno dos veces (p. ej. el mismo GeoJSON elegido dos veces, «x.geojson» y «x (1).geojson»): se omite, no se crea «Nombre 2»
+    const raw = gjName(sh), sig = Math.round(gjAreaKm2(sh.geometry));
+    if (raw && (seen.get(raw.toLowerCase()) || []).some(a => Math.abs(a - sig) <= 0.01 * Math.max(a, sig))) { skipped++; continue; }
+    if (raw) seen.set(raw.toLowerCase(), (seen.get(raw.toLowerCase()) || []).concat(sig));
+    const name = uniq(raw);
     let geom = sh.geometry, extra = [];
     if (!seaKind && o.exclaves && o.exclaves !== 'none' && land.length) {      // trozos sueltos que dejaría el recorte: a las vecinas o dentro de la forma importada
       try {
@@ -1317,7 +1339,8 @@ async function importShapes(shapes, o = {}) {
       for (const x of extra) addOp({ kind: 'assign', polygon: x.polygon, region: x.best_index, fill: false, land_only: true });
     }
   }
-  status(`Importados ${n} de ${shapes.length} contorno(s) como regiones nuevas (falta «Guardar»)`);
+  status(`Importados ${n} de ${shapes.length} contorno(s) como regiones nuevas (falta «Guardar»)` + (skipped ? ` · ${skipped} repetido(s) omitido(s)` : ''));
+  if (skipped) report(`${skipped} contorno(s) repetido(s) (mismo nombre y misma forma) omitido(s): ¿se eligió dos veces el mismo GeoJSON?`, 'ok');
   return n;
 }
 async function askDeleteRegion(R) {
@@ -1798,6 +1821,9 @@ async function reloadMeta() {
 }
 // regiones nuevas del changelog: siempre visibles (borde naranja y nombre), a cualquier zoom
 const NEW = { layer: L.layerGroup().addTo(map), names: new Set(), gen: 0 };
+// casilla «Resaltar las regiones nuevas»: muestra u oculta la capa naranja (se recuerda en este navegador)
+try { if (localStorage.getItem('mh-show-new') === '0') { document.getElementById('showNew').checked = false; map.removeLayer(NEW.layer); } } catch (e) {}
+document.getElementById('showNew').onchange = e => { if (e.target.checked) NEW.layer.addTo(map); else map.removeLayer(NEW.layer); try { localStorage.setItem('mh-show-new', e.target.checked ? '1' : '0'); } catch (x) {} };
 async function drawNewRegions(names) {
   NEW.layer.clearLayers(); NEW.names = new Set(names); const gen = ++NEW.gen;
   for (let i = 0; i < 40 && !(S.meta && S.meta.length); i++) await new Promise(r => setTimeout(r, 250));   // al abrir, esperar la lista de regiones
@@ -2076,7 +2102,11 @@ function drawPoints() {
   PT.layer = L.layerGroup();
   for (const p of PT.pts) {
     if (!PT.show[p.kind]) continue;
-    const draggable = PT.drag && (p.kind === 'city' || p.kind === 'producer') && parent !== window;
+    const draggable = PT.drag && parent !== window;      // ciudades, recursos y unidades (ejércitos, aviación, flotas)
+    if (PT.drag && p.dir != null && p.kind !== 'producer') {   // orientación (nDirection: 0 norte, 90 este): rayita hacia donde mira
+      const r = 0.35, a = (+p.dir || 0) * Math.PI / 180, cl = Math.cos(p.y * Math.PI / 180) || 1;
+      PT.layer.addLayer(L.polyline([[p.y, p.x], [p.y + r * Math.cos(a), p.x + r * Math.sin(a) / cl]], { color: PT.last === p.id ? '#f97316' : '#111', weight: 2, interactive: false }));
+    }
     const m = draggable
       ? L.marker([p.y, p.x], { draggable: true, icon: L.divIcon({ className: '', iconSize: [14, 14], iconAnchor: [7, 7],
           html: `<div style="width:14px;height:14px;border-radius:50%;border:2px solid #f97316;background:${PT_COL[p.kind]};cursor:move"></div>` }) })
@@ -2084,10 +2114,19 @@ function drawPoints() {
       color: PT.sel.has(p.id) ? '#2563eb' : '#111', weight: PT.sel.has(p.id) ? 3.5 : 1, fillColor: PT_COL[p.kind] || '#fff', fillOpacity: 0.95 });
     if (draggable) m.on('dragend', () => { PT.dragEnd = Date.now(); const ll = m.getLatLng(); toHost({ ev: 'pointMoved', id: p.id, x: ll.lng, y: ll.lat }); });
     m.bindTooltip(p.label, { direction: 'top', className: 'rt' });
-    m.on('click', e => { L.DomEvent.stopPropagation(e); toHost({ ev: 'pointClick', id: p.id, kind: p.kind }); });
+    m.on('click', e => { L.DomEvent.stopPropagation(e); PT.last = p.id; toHost({ ev: 'pointClick', id: p.id, kind: p.kind }); });
     PT.layer.addLayer(m);
   }
   PT.layer.addTo(map);
+  if (!PT.rotBound) {       // como en ed.exe: con «mover arrastrando», clic derecho = la ciudad o unidad elegida mira hacia ese punto
+    PT.rotBound = true;
+    map.on('contextmenu', e => {
+      const p = PT.drag && PT.pts.find(x => x.id === PT.last); if (!p || p.kind === 'producer') return;
+      const dx = (e.latlng.lng - p.x) * Math.cos(p.y * Math.PI / 180), dy = e.latlng.lat - p.y;
+      const deg = Math.round((Math.atan2(dx, dy) * 180 / Math.PI + 360) % 360);
+      p.dir = String(deg); drawPoints(); toHost({ ev: 'pointRotate', id: p.id, deg });
+    });
+  }
 }
 // alcance de bombardeo (editor de escenarios): círculo sobre la esfera de 'miles' millas alrededor de cada base aérea
 let RINGS = null;

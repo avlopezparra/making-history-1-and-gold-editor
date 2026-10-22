@@ -39,3 +39,18 @@ Carpeta: `C:\Program Files (x86)\Steam\steamapps\common\Making History Gold` (mi
 - **The Modern World** convertido en `Making History Gold\...\scenarios\The Modern World` (sin imágenes, 18 MB) con el regionpack
   `WorldModern` trasladado a Gold. Validación: los mismos avisos que el original de MH1. Falta probarlo en el juego.
 - **Chile Fixes 1.2**: `mod_gold` / `originales_gold` e instalador para los dos juegos.
+
+
+## Cambio de idioma (MH1 / Gold) — causa y arreglo
+
+**Causa**: los `.reg` escriben en `HKLM\SOFTWARE\WOW6432Node\Muzzy Lane Software\<Making History 2.0 | Making History Gold>` (valor `locale`/`Locale`, `en`/`esp`/`ru`/`de`). Pero existe una copia en `HKCU\Software\Classes\VirtualStore\MACHINE\SOFTWARE\WOW6432Node\Muzzy Lane Software\<misma clave>` con `Locale=en`. El juego (32 bits, sin admin) lee a traves de la virtualizacion de registro y la copia de VirtualStore gana sobre HKLM, asi que cambiar HKLM ya no tiene efecto (HKLM MH1 = `esp`, Gold = `de`, el juego sigue en `en`; los logs muestran `locale/en/...`).
+Los `.reg` dejaron de funcionar porque la clave VirtualStore se creo despues (al guardar el juego algun valor sin admin) y la sombrea.
+
+**Arreglo**: cambiar `Locale` en VirtualStore (HKCU, no requiere admin), o borrar el valor `Locale` de VirtualStore para que se use HKLM.
+- MH1: `reg add "HKCU\Software\Classes\VirtualStore\MACHINE\SOFTWARE\WOW6432Node\Muzzy Lane Software\Making History 2.0" /v Locale /t REG_SZ /d esp /f`
+- Gold: igual con `Making History Gold` y `/d de|en|ru|esp`.
+Idiomas disponibles: carpetas en `system\locale` (en, esp, ru).
+
+### Actualizacion (pruebas)
+El arreglo de VirtualStore **no funciono**: con VirtualStore=esp (y HKLM=esp) el log sigue en `locale/en`; con un valor centinela `zz` tambien `en` (el juego no lee esas claves, o cae a `en`). Se restauro VirtualStore a `en` (backup: `backup_virtualstore_MH1.reg`).
+Pistas: no hay cadena `locale` ni ruta de registro en `bin\*.dll/exe` (salvo MFC/apatch genericas). Steam guarda idioma por juego en `appmanifest_*.acf` / `localconfig.vdf`: MH1 = `english`, Gold = `german`, MH2 = `english`. Hipotesis pendiente: el idioma sale del idioma de Steam del juego (Propiedades > Idioma) o de otro mecanismo; falta probar y/o trazar el acceso a registro (Procmon).

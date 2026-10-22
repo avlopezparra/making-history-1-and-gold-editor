@@ -135,3 +135,18 @@ Carpeta: `C:\ProgramData\Muzzy Lane Software\Output Files\Saves\<jugador>\*.mlc`
   NO se adapta el .mlc: habría que quitar objetos y renumerar referencias en todo el binario sin esquema completo. En su lugar,
   «Partida guardada → escenario» compara la partida con el regionpack (savegame.pack_report), traduce las regiones quitadas por
   el changelog (absorbida_por) y adecua el escenario nuevo al regionpack (pack_sync_apply). Hay que empezar ahí una partida nueva.
+- Sin suma de control: @0xA18 = tamaño del bloque zlib + 16, @0xA24 = 0x1AFC01 fijo en todas las partidas; zlib lleva su propio
+  adler32. Reescribir el .mlc es posible en forma, pero quitar una región no: en TMWR_Russia_Mar 20 2024 el número de Odesa (890)
+  aparece como valor de propiedad 155 veces en ~12 tipos de objeto sin identificar (listas de vecinos, rutas, IA…), y además
+  dentro de listas sin cabecera; habría que renumerar 891-897 igual, sin poder distinguirlos de otros enteros. Solo un
+  renombrado (mismo número de regiones y mismo orden) sería viable cambiando los textos.
+
+## Posición y orientación de ciudades y unidades
+- VisibleGO (gameDefs.xml): `vecPosition` [lon, lat, altura] (por defecto altura 100 = «ponla en su región») y `nDirection`
+  (grados: 0 norte, 90 este, 180 sur, 270 oeste; por defecto 225, ciudades 180). Las ciudades de los escenarios del juego tienen
+  nDirection 0; TMW/TMWR/1836 usan otros valores. Algunos mods (World Aflame, DH) también lo ponen en ejércitos, aviación y flotas.
+  No comprobado en el juego cómo se ve el giro de las unidades.
+- MovableGO: `strRegion` (región de inicio) y `strCity` (ciudad de inicio: flota en puerto). Flota en puerto = strRegion región de
+  tierra + strCity ciudad con `strPortForRegion` del mismo dueño.
+- Editor: «Mover y girar ciudades, recursos y unidades» (arrastrar; clic en la ciudad o unidad y clic derecho = mira hacia ahí,
+  como en ed.exe), y en la ficha: 📍 mover a un punto, orientación y «Meter en puerto» para flotas.
