@@ -196,6 +196,8 @@ def action_text(a, ctx):
     if t == 'ActSetTradeRelations':
         rel = TRADE_ES.get(g('eTradeRelations') or 'TRADE_RELATIONS_NEUTRAL', g('eTradeRelations'))
         return '%s pone %s a %s' % (PLAYER, rel, g('strCountry'))
+    if t == 'ActSetCountryFlagName':
+        return '%s cambia su bandera a %s' % (g('strCountryName'), g('strFlagName'))
     if t == 'ActSetCountryGov':
         return '%s cambia su ideología a %s' % (g('strCountry'), g('strGovType'))
     if t == 'ActIncResourceStock':
@@ -702,6 +704,11 @@ def _action(spec, owner):
                 '<property name="strRegionName" value="%s"/><property name="strUnitName" value="%s"/><property name="nNumUnits" value="%d"/></object>'
                 % (_x(g('country', owner)), _x(g('template')), _x(g('region')), _x(g('name', 'New Army')), int(g('n', 1))),
                 [g('country', owner)], [], [], '%s raises %s %s' % (g('country', owner), g('n', 1), g('template')))
+    if k == 'flag':
+        if not g('flag'):
+            raise ValueError('elige la bandera')
+        return ('<object type="ActSetCountryFlagName" name="objActions"><property name="strCountryName" value="%s"/><property name="strFlagName" value="%s"/></object>' % (_x(g('country', owner)), _x(g('flag'))),
+                [g('country', owner)], [], [], '%s changes its flag' % g('country', owner))
     if k == 'dip':
         a, b = g('a', owner), g('b')
         return ('<object type="ActIncDipRelations" name="objActions"><property name="nSourceCountryID" inheritFrom="{Object:Single:Country}scratch.objCountry%s.nCountryID"/>'

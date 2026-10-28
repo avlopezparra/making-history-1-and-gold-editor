@@ -18,6 +18,7 @@
   const getJ = u => fetch(u).then(r => r.json());
   const fname = rel => String(rel || '').split(/[\\/]/).pop();
   const t = x => (window.mhTr ? window.mhTr(x) : x);      // textos con datos: se traducen por trozos
+  const L = (es, en) => (window.mhTr && window.mhTr('Cerrar') === 'Close' ? en : es);     // ventanas emergentes con datos
 
   const st = document.createElement('style');
   st.textContent = `img.mhico { width:20px; height:14px; object-fit:contain; vertical-align:-2px; margin-right:6px; image-rendering:auto; }
@@ -109,7 +110,7 @@
   function openImport(cfg) {
     const dl = dialog(), q = s => dl.querySelector(s);
     let img = null, last = null;
-    q('#mhTitle').textContent = cfg.title; q('#mhSub').textContent = cfg.sub || '';
+    q('#mhTitle').textContent = cfg.title.split(' · ').map(t).join(' · '); q('#mhSub').textContent = (cfg.sub || '').split(' (').map((x, i) => i ? t(x.replace(/\)$/, '')) + ')' : x).join(' (');
     q('#mhOpts').innerHTML = cfg.opts || ''; q('#mhCards').innerHTML = ''; q('#mhNote').innerHTML = ''; q('#mhFile').value = ''; q('#mhUrl').value = '';
     q('#mhPrev').disabled = !cfg.allowNoImage; q('#mhWrite').disabled = true;
     const note = (t, err) => { q('#mhNote').innerHTML = `<div class="note ${err ? 'err' : ''}" style="white-space:pre-wrap">${esc(t)}</div>`; };
@@ -144,7 +145,8 @@
     };
     dl.showModal();
   }
-  const confirmText = (n, where) => `¿Escribir ${n} archivo(s) en ${where} de «${S.scen}»?\n\nLos archivos del juego (carpeta de contenido) no se tocan: se crea o reemplaza la versión propia del escenario.`;
+  const confirmText = (n, where) => L(`¿Escribir ${n} archivo(s) en ${where} de «${S.scen}»?\n\nLos archivos del juego (carpeta de contenido) no se tocan: se crea o reemplaza la versión propia del escenario.`,
+    `Write ${n} file(s) to ${where === 'la carpeta' ? 'the folder' : where} of «${S.scen}»?\n\nThe game files (content folder) are not touched: the scenario's own version is created or replaced.`);
 
   // ---------------------------------------------------------------- país: bandera y escarapela
   const FIT_OPTS = `<label>Proporción</label><select id="mhFit">
@@ -152,7 +154,7 @@
       <option value="bordes">estirar las columnas de los extremos hasta rellenar</option>
       <option value="izquierda">pegada a la izquierda; rellenar desde la columna derecha (p. ej. Chile)</option>
       <option value="estirar">deformar hasta 2:1</option></select>
-    <label>Huecos cuadrados</label><select id="mhCrop"><option value="estirar">estirar la bandera (como la mayoría)</option><option value="asta">recortar desde el asta</option><option value="centro">recortar al centro</option></select>`;
+    <label>Huecos cuadrados</label><select id="mhCrop"><option value="centro">recortar al centro</option><option value="estirar">estirar la bandera</option><option value="asta">recortar desde el asta</option></select>`;
   async function flagSection(d, host) {
     const name = d.label;
     const r = await getJ(`/api/img/country?scen=${enc(S.scen)}&name=${enc(name)}&resolve=1`).catch(() => ({ files: [] }));
@@ -199,17 +201,71 @@
       const vs = g.variants, own = vs.filter(v => v.own).length, any = vs.some(v => v.src);
       const status = own === vs.length && own ? '<span class="mhown">versión propia del escenario</span>'
         : own ? `<span class="mhown"><b>${own}/${vs.length}</b> <span>propias</span></span>` : any ? '<span class="mhdef">sin versión propia en el escenario: se muestra la del juego</span>'
-          : kind === 'scenario' ? '<span class="mhmiss">sin imagen: exporta la plantilla (la de un escenario del juego, con su tamaño), edítala e impórtala</span>'
+          : kind === 'scenario' ? '<span class="mhmiss">sin imagen: usa la plantilla del editor o expórtala, edítala e impórtala</span>'
             : '<span class="mhmiss">sin imagen</span>';
       h += `<div style="margin-top:6px"><b style="font-size:13px">${esc(g.title)}</b> · ${status}${g.note ? `<div class="muted">${esc(g.note)}</div>` : ''}<div class="mhimgs">` +
-        vs.map(v => { const k = v.w ? Math.max(0.25, Math.min(2, 96 / Math.max(v.w, v.h))) : 1;
-          return `<figure title="${esc(v.rel)}">${v.src ? `<img class="mhchk" src="${rawUrl(v.src).replace('&max=256', '&max=512')}" style="width:${Math.round(v.w * k)}px">` : `<div class="mhchk" style="width:48px;height:48px;border:1px dashed var(--line)"></div>`}
-            ${esc(v.file)}${v.w ? ` <span class="muted">${v.w}×${v.h}</span>` : ''}<br>${v.own ? '<span class="mhown">propia</span>' : v.src ? '<span class="mhdef">del juego</span>' : v.generic ? '<span class="mhdef">usa la genérica</span>' : '<span class="mhmiss">falta</span>'}</figure>`; }).join('') +
+        vs.map(v => { const k = v.w ? Math.max(0.25, Math.min(2, 96 / Math.max(v.w, v.h))) : 1, shown = v.own ? v.src : (v.template || v.src);
+          return `<figure title="${esc(v.rel)}">${shown ? `<img class="mhchk" src="${rawUrl(shown).replace('&max=256', '&max=512')}" style="width:${Math.round((v.w || 48) * k)}px">` : `<div class="mhchk" style="width:48px;height:48px;border:1px dashed var(--line)"></div>`}
+            ${esc(v.file)}${v.w ? ` <span class="muted">${v.w}×${v.h}</span>` : ''}<br>${v.own ? '<span class="mhown">propia</span>' : v.from_template ? '<span class="mhdef">plantilla del editor</span>' : v.src ? '<span class="mhdef">del juego</span>' : v.generic ? '<span class="mhdef">usa la genérica</span>' : '<span class="mhmiss">falta</span>'}</figure>`; }).join('') +
         `</div><div class="row">${any ? dlLink(exportUrl(kind, name, g.key), `${kind}-${name || S.scen}-${g.key}.png`, 'Exportar')
-          : kind === 'scenario' ? dlLink(exportUrl(kind, name, g.key), `${vs[0].file.replace(/\.tga$/i, '')} - plantilla.png`, 'Exportar plantilla') : ''}<button class="btn" data-g="${g.key}">Importar…</button></div></div>`;
+          : kind === 'scenario' ? dlLink(exportUrl(kind, name, g.key), `${vs[0].file.replace(/\.tga$/i, '')} - plantilla.png`, 'Exportar plantilla') + `<button class="btn" data-tpl="${g.key}">Usar plantilla</button>` : ''}<button class="btn" data-g="${g.key}">Importar…</button>${kind === 'nation' && g.key === 'leader' ? '<button class="btn" data-lobby="1">Componer por capas…</button>' : ''}</div></div>`;
     }
     sec.innerHTML = h; host.appendChild(sec);
     sec.querySelectorAll('[data-g]').forEach(b => b.onclick = () => importAsset(inf, kind, name, b.dataset.g, opts));
+    sec.querySelectorAll('[data-lobby]').forEach(b => b.onclick = () => lobbyDialog(name, opts));
+    sec.querySelectorAll('[data-tpl]').forEach(b => b.onclick = async () => {    // copia la plantilla del editor al escenario
+      const g = inf.groups.find(x => x.key === b.dataset.tpl), file = g.variants[0].file;
+      if (!confirm(L(`¿Copiar la plantilla del editor como ${file} de «${S.scen}»?`, `Copy the editor template as ${file} of «${S.scen}»?`))) return;
+      const blob = await (await fetch(exportUrl(kind, name, g.key))).blob();
+      const img = await readFile(blob);
+      const r = await post('/api/img/asset/write', { scen: S.scen, kind, name, group: g.key, img, auto_over: false });
+      if (r.error) return alert(r.error);
+      opts.done ? opts.done() : refreshAll();
+    });
+  }
+  // Retrato del lobby por capas (como leader-lobby.psd): bandera de fondo, monumento abajo a la izquierda, líder a la derecha delante
+  function lobbyDialog(country, opts) {
+    let dl = document.getElementById('mhLobby');
+    if (!dl) {
+      dl = document.createElement('dialog'); dl.id = 'mhLobby'; dl.style.maxWidth = '640px';
+      dl.innerHTML = `<h3 style="margin-top:0"><span>Retrato del lobby por capas</span> <span class="muted" id="mhLbC"></span></h3>
+        <div class="muted">Solo se ve la esquina superior izquierda (273×305). El líder va delante del monumento y de la bandera.</div>
+        <div style="display:flex;gap:14px;flex-wrap:wrap;margin-top:8px">
+          <div style="display:grid;grid-template-columns:auto 1fr;gap:6px 8px;align-items:center;flex:1;min-width:280px">
+            <label>Bandera</label><div><label style="color:inherit"><input type="checkbox" id="mhLbUseFlag" checked> la de la nación</label><br><input type="file" id="mhLbFlag" accept="image/*"></div>
+            <label>Monumento</label><div><input type="file" id="mhLbMon" accept="image/*"><br><label style="color:inherit"><input type="checkbox" id="mhLbMonBg"> quitar el fondo liso</label> · <span>tamaño</span> <input type="range" id="mhLbMonS" min="40" max="160" value="100"></div>
+            <label>Líder</label><div><input type="file" id="mhLbLead" accept="image/*"><br><label style="color:inherit"><input type="checkbox" id="mhLbLeadBg"> quitar el fondo liso</label> · <span>tamaño</span> <input type="range" id="mhLbLeadS" min="40" max="160" value="100">
+              <br><span>mover</span> ↔ <input type="range" id="mhLbDx" min="-120" max="60" value="0" style="width:90px"> ↕ <input type="range" id="mhLbDy" min="-80" max="120" value="0" style="width:90px"></div>
+          </div>
+          <div><img id="mhLbImg" class="mhchk" style="width:273px;height:305px;display:block"><div class="muted" id="mhLbFile"></div></div>
+        </div>
+        <div id="mhLbNote"></div>
+        <div class="row" style="justify-content:flex-end;margin-top:8px"><button class="btn" id="mhLbClose">Cerrar</button><button class="btn primary" id="mhLbWrite">Escribir leader-lobby.tga</button></div>`;
+      document.body.appendChild(dl);
+    }
+    const q = s => dl.querySelector(s), imgs = {};
+    q('#mhLbC').textContent = '· ' + country;
+    ['#mhLbFlag', '#mhLbMon', '#mhLbLead'].forEach(k => q(k).value = '');
+    const body = () => ({ scen: S.scen, country, flag: imgs.flag || null, use_flag: q('#mhLbUseFlag').checked, monument: imgs.mon || null, leader: imgs.lead || null,
+      mon_scale: q('#mhLbMonS').value / 100, lead_scale: q('#mhLbLeadS').value / 100, mon_removebg: q('#mhLbMonBg').checked, lead_removebg: q('#mhLbLeadBg').checked,
+      dx: +q('#mhLbDx').value, dy: +q('#mhLbDy').value });
+    let tm = null;
+    const prev = () => { clearTimeout(tm); tm = setTimeout(async () => {
+      const r = await post('/api/img/lobby/preview', body()).catch(e => ({ error: String(e) }));
+      if (r.error) return q('#mhLbNote').innerHTML = `<div class="note err">${esc(r.error)}</div>`;
+      q('#mhLbNote').innerHTML = ''; q('#mhLbImg').src = r.png; q('#mhLbFile').textContent = r.file; }, 200); };
+    const file = (sel, key) => q(sel).onchange = async () => { const f = q(sel).files[0]; imgs[key] = f ? await readFile(f) : null; prev(); };
+    file('#mhLbFlag', 'flag'); file('#mhLbMon', 'mon'); file('#mhLbLead', 'lead');
+    dl.querySelectorAll('input[type=range],input[type=checkbox]').forEach(i => i.oninput = i.onchange = prev);
+    q('#mhLbClose').onclick = () => dl.close();
+    q('#mhLbWrite').onclick = async () => {
+      if (!confirm(confirmText(1, 'ui\\art\\'))) return;
+      const r = await post('/api/img/lobby/write', body()).catch(e => ({ error: String(e) }));
+      if (r.error) return q('#mhLbNote').innerHTML = `<div class="note err">${esc(r.error)}</div>`;
+      q('#mhLbNote').innerHTML = `<div class="note">${esc(t('Escritos'))}: ${r.written.length}</div>`;
+      IMG.bust = Date.now(); opts && opts.done ? opts.done() : refreshAll();
+    };
+    prev(); dl.showModal();
   }
   function importAsset(inf, kind, name, group, opts) {
     const g = inf.groups.find(x => x.key === group);
@@ -347,8 +403,35 @@
     const bar = document.getElementById('bar'); if (!bar || document.getElementById('mhCatBtn')) return;
     const b = document.createElement('button'); b.id = 'mhCatBtn'; b.type = 'button'; b.textContent = '🖼 Iconos e interfaz';
     b.title = 'Todos los iconos del juego (ideologías, recursos, terrenos, producción, unidades) y las imágenes de la interfaz, con exportar / importar';
-    b.onclick = () => { if (!S.scen) return alert('Abre primero un escenario.'); const dl = catDialog(); dl.querySelector('#mhCatScen').textContent = ' · ' + S.scen; dl.showModal(); catIcons(); };
+    b.onclick = () => { if (!S.scen) return alert(L('Abre primero un escenario.', 'Open a scenario first.')); const dl = catDialog(); dl.querySelector('#mhCatScen').textContent = ' · ' + S.scen; dl.showModal(); catIcons(); };
     const ref = document.getElementById('openfile'); ref && ref.parentNode === bar ? ref.after(b) : bar.appendChild(b);
   }
   addToolbarButton();
+  // Validador: «Unidad / Investigación X sin imagen válida …; por defecto: Y» -> botón «Usar la imagen por defecto»
+  function iconFixes() {
+    const box = document.getElementById('vallist'); if (!box || box.querySelector('[data-mhicon]')) return;
+    const re = /(Unidad|Investigación|Unit|Research(?: project)?)\s+(\S+)\s+(?:sin imagen válida|without a valid image).*(?:por defecto|default):/;
+    const items = [];
+    [...box.children].forEach(el => {
+      const m = re.exec(el.textContent || ''); if (!m) return;
+      const it = [/^(Unidad|Unit)$/.test(m[1]) ? 'unit' : 'research', m[2]]; items.push(it);
+      const b = document.createElement('button'); b.className = 'btn small'; b.dataset.mhicon = '1'; b.textContent = 'Usar la imagen por defecto';
+      b.onclick = () => run([it], b);
+      el.append(document.createElement('br'), b);
+    });
+    if (items.length > 1) {
+      const n = document.createElement('div'); n.className = 'note';
+      n.innerHTML = `<b>${items.length}</b> <span>unidades o investigaciones sin imagen válida.</span> `;
+      const b = document.createElement('button'); b.className = 'btn small primary'; b.dataset.mhicon = '1'; b.textContent = 'Usar la imagen por defecto en todas';
+      b.onclick = () => run(items, b); n.append(b); box.prepend(n);
+    }
+  }
+  async function run(items, b) {
+    b.disabled = true;
+    const r = await fetch('/api/scen/fix_icons', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: S.scen, items }) }).then(x => x.json());
+    if (r.error) { b.disabled = false; return alert(r.error); }
+    b.textContent = L(`Hecho: ${r.done.length} imagen(es) por defecto escritas en ui/ del escenario.`, `Done: ${r.done.length} default image(s) written to the scenario's ui/.`);
+  }
+  const vl = document.getElementById('vallist');
+  vl && new MutationObserver(() => iconFixes()).observe(vl, { childList: true });
 })();

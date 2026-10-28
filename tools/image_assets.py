@@ -56,11 +56,29 @@ def _match(stem, pat, mode):
     return s == pat or (mode == 'prefijo' and s.startswith(pat) and s[len(pat)] in '-_ ')
 
 
+def template_dir():
+    """Plantilla que va con el editor (no depende de ningun escenario instalado)."""
+    return T.plantilla_dir()
+
+
+def _template_rel(rel):
+    """Ruta de la plantilla para una imagen: las de un pais usan la carpeta countries/Plantilla."""
+    parts = rel.replace('\\', '/').split('/')
+    if len(parts) > 4 and parts[:3] == ['art', '2D', 'countries']:
+        parts[3] = 'Plantilla'
+    return '/'.join(parts[2:]) if parts[:2] == ['art', '2D'] else '/'.join(parts)      # bajo _imagenes/ (sin art/2D)
+
+
 def _variant(scen, rel):
     """Una variante: ruta bajo UI/, archivo propio del escenario y del juego (con su formato y medidas)."""
     own = os.path.join(T.scen_dir(scen), 'ui', rel)
     dflt = os.path.join(T.content_ui(), rel)
     v = {'rel': rel.replace('\\', '/'), 'file': os.path.basename(rel), 'own': os.path.isfile(own), 'default': os.path.isfile(dflt)}
+    td = template_dir()
+    trel = _template_rel(v['rel'])
+    if not v['own'] and td and os.path.isfile(os.path.join(td, '_imagenes', *trel.split('/'))):
+        v['template'] = '@tpl/_imagenes/' + trel   # se imita la plantilla del editor (fuera de ui/: no se copia a escenarios nuevos)
+        v['from_template'] = True
     src = own if v['own'] else dflt if v['default'] else None
     if src:
         v['src'] = os.path.relpath(src, scenario_core.SCEN_ROOT) if v['own'] else '@ui/' + v['rel']
@@ -161,7 +179,7 @@ def scenario_display_name(scen):
 # ------------------------------------------------------------------------------------- imitacion
 def _template(scen, v):
     """Imagen y formato a imitar para una variante (propia, del juego o de referencia)."""
-    src = v.get('src') or v.get('template')
+    src = (v.get('src') if v.get('own') else None) or v.get('template') or v.get('src')   # propia > plantilla del editor > juego
     if src:
         p = T.resolve_rel(src)
         fmt = T.tga_format(p) if p.lower().endswith('.tga') else {}
@@ -299,7 +317,11 @@ def _scen_template(scen, v):
     if v.get('src'):
         p = T.resolve_rel(v['src'])
         return Image.open(p).convert('RGBA'), T.tga_format(p)
-    others = scenario_core.scenarios()           # escenario sin el archivo: el de un escenario del juego (o de otro)
+    td = template_dir()                          # escenario sin el archivo: la plantilla del editor, uno del juego u otro
+    if td and os.path.isfile(os.path.join(td, v['file'])):
+        q = os.path.join(td, v['file'])
+        return Image.open(q).convert('RGBA'), T.tga_format(q)
+    others = scenario_core.scenarios()
     others = [o for o in others if o in DEFAULT_SCENARIOS] + [o for o in others if o not in DEFAULT_SCENARIOS and o != scen]
     for other in others:
         q = os.path.join(scenario_core.SCEN_ROOT, other, v['file'])
@@ -359,7 +381,8 @@ def export_png(scen, kind, name, group=None):
     if best is None:
         raise ValueError('no hay imagen que exportar')
     b = io.BytesIO()
-    Image.open(T.resolve_rel(best['src'])).convert('RGBA').save(b, 'PNG')
+    src = best['src'] if best.get('own') or not best.get('template') else best['template']
+    Image.open(T.resolve_rel(src)).convert('RGBA').save(b, 'PNG')
     return b.getvalue(), os.path.splitext(best['file'])[0] + '.png'
 
 

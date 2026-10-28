@@ -1,4 +1,4 @@
-# Making History 1 & Gold Editor 2.3
+# Making History 1 & Gold Editor 3.0
 
 Map (regionpack), scenario and image editor for **Making History: The Calm and The Storm (MH1)** and **Making History Gold**.
 
@@ -9,7 +9,7 @@ Map (regionpack), scenario and image editor for **Making History: The Calm and T
 - **Community:** [Discord](https://discord.com/invite/gFJyCjWEnr)
 - **Report bugs:** alopezcl@protonmail.com (or open an issue)
 
-Made by Alejandro Víctor López Parra (@avlopezparra), 2026. **Version 2.3**.
+Made by Alejandro Víctor López Parra (@avlopezparra), 2026. **Version 3.0**.
 
 ## What it does
 - **Region editor**: move nodes, draw, cut, merge, create, rename and delete regions; topology-safe shape changes; installs the
@@ -47,6 +47,12 @@ hosted online: everyone runs it locally with the game installed.
 
 Environment variables: `MH_ROOT` (where projects and logs are kept), `MH_STEAM_COMMON` (a `steamapps\common` folder in another Steam
 library), `MH_GAME_MH1` / `MH_GAME_GOLD` (game folder of a non-Steam install), `MH_PORT` (port of the `.exe`).
+
+## Claude Code skill
+[`skill/making-history-modding`](skill/making-history-modding/SKILL.md) teaches Claude Code how to mod MH1 and Gold: game folders,
+scenario XML, the map binaries (regions.bin and its `u_flag`), regionpacks and changelogs, events, load errors and this editor.
+Install it by copying the folder to `~/.claude/skills/` (Windows: `%USERPROFILE%\.claude\skills\`), so you end up with
+`~/.claude/skills/making-history-modding/SKILL.md`; Claude Code picks it up in new sessions.
 
 **Troubleshooting**
 - *"An editor is already open..."*: a server already uses that port; open it in the browser or close it first.

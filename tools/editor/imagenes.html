@@ -149,7 +149,7 @@
           <label>Proporción</label>
           <select id="ffit"><option value="centro">Recortar al centro (hasta 2:1)</option><option value="bordes">Estirar las columnas de los extremos</option><option value="izquierda">Pegada a la izquierda, rellenar desde la columna derecha (tipo Chile)</option><option value="estirar">Deformar hasta 2:1</option></select>
           <label>Cuadrados</label>
-          <select id="fcrop"><option value="estirar">Estirar la bandera (como la mayoría)</option><option value="asta">Recortar desde el asta</option><option value="centro">Recortar al centro</option></select>
+          <select id="fcrop"><option value="centro">Recortar al centro</option><option value="estirar">Estirar la bandera</option><option value="asta">Recortar desde el asta</option></select>
           <label>Fondo</label>
           <label style="color:inherit"><input type="checkbox" id="fremovebg" checked> Quitar fondo liso de escarapela y foto</label>
           <label>Comparar con</label>
@@ -214,6 +214,7 @@
 
 <script>
 const $ = s => document.querySelector(s);
+const L = (es, en) => (window.mhTr && window.mhTr('Cerrar') === 'Close' ? en : es);     // ventanas emergentes con datos
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const api = async (url, body) => {
   const r = await fetch(url, body ? {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)} : {});
@@ -378,7 +379,8 @@ function exportPNG() { const c = document.createElement('canvas'); c.width = cv.
 $('#tdl').onclick = () => { const a = document.createElement('a'); a.href = exportPNG(); a.download = T.file.file.replace('.tga', '.png'); a.click(); };
 $('#twrite').onclick = async () => {
   const f = T.file; if (!f) return;
-  if (!confirm(`¿Escribir ${f.file} en «${scen()}»?\n\n${f.fmt.w}×${f.fmt.h}, TGA ${f.fmt.bpp} bits ${f.fmt.type === 10 ? 'RLE' : 'sin comprimir'} (igual que el original).\nSe guarda una copia del archivo actual en backup/.`)) return;
+  if (!confirm(L(`¿Escribir ${f.file} en «${scen()}»?\n\n${f.fmt.w}×${f.fmt.h}, TGA ${f.fmt.bpp} bits ${f.fmt.type === 10 ? 'RLE' : 'sin comprimir'} (igual que el original).`,
+    `Write ${f.file} to «${scen()}»?\n\n${f.fmt.w}×${f.fmt.h}, TGA ${f.fmt.bpp} bits ${f.fmt.type === 10 ? 'RLE' : 'uncompressed'} (same as the original).`))) return;
   try { const r = await api('/api/img/title/write', {scen:scen(), file:f.file, png:exportPNG()});
     note('#tnote', `Escrito ${r.written.join(', ')}.${r.backup ? '\nCopia del anterior en ' + r.backup : ''}`);
   } catch (e) { note('#tnote', e.message, 'err'); }
@@ -432,7 +434,8 @@ $('#fprev').onclick = async () => {
 $('#fwrite').onclick = async () => {
   const n = $('#fcountry').value.trim();
   if (!n) return note('#fnote', 'Escribe el nombre del país (carpeta).', 'err');
-  if (!confirm(`¿Escribir ${lastFlag.files.length} archivos en\n${scen()}\\ui\\art\\2D\\countries\\${n}\\ ?\n\n${C.folders.includes(n) ? 'La carpeta existe: los archivos actuales se copian antes a backup/.' : 'Carpeta nueva.'}`)) return;
+  if (!confirm(L(`¿Escribir ${lastFlag.files.length} archivos en\n${scen()}\\ui\\art\\2D\\countries\\${n}\\ ?\n\n${C.folders.includes(n) ? 'La carpeta existe: se reemplazan sus archivos.' : 'Carpeta nueva.'}`,
+    `Write ${lastFlag.files.length} files to\n${scen()}\\ui\\art\\2D\\countries\\${n}\\ ?\n\n${C.folders.includes(n) ? 'The folder exists: its files are replaced.' : 'New folder.'}`))) return;
   try { const r = await api('/api/img/flag/write', Object.assign(flagBody(), {scen:scen(), country:n}));
     note('#fnote', `Escritos ${r.written.length} archivos en ${r.folder}.${r.backup ? '\nCopia en ' + r.backup : ''}`); loadCountries();
   } catch (e) { note('#fnote', e.message, 'err'); }
@@ -475,9 +478,11 @@ $('#iwrite').onclick = async () => {
   const name = $('#iname').value.trim();
   if (!/^[A-Za-z0-9_]+$/.test(name)) return note('#inote', 'Escribe el strName (solo letras, números y _).', 'err');
   const k = ikind(), exists = (I[k].items.find(x => x.name === name) || {}).registered;
-  if (!confirm(`¿Escribir los iconos «${$('#ifile').value}.tga» (4 medidas${$('#iresearch').checked ? ' + investigación' : ''}) en «${scen()}»` +
-    (($('#iregister').checked) ? `\ny ${exists ? 'actualizar' : 'añadir'} la entrada «${name}» en ${k === 'unit' ? 'UnitTemplateIconTable.xml' : 'FactoryOutputIconTable.xml'}?` : '?') +
-    '\n\nLos archivos existentes se copian antes a backup/.')) return;
+  const tbl = k === 'unit' ? 'UnitTemplateIconTable.xml' : 'FactoryOutputIconTable.xml', reg = $('#iregister').checked, res = $('#iresearch').checked;
+  if (!confirm(L(`¿Escribir los iconos «${$('#ifile').value}.tga» (4 medidas${res ? ' + investigación' : ''}) en «${scen()}»` +
+      (reg ? `\ny ${exists ? 'actualizar' : 'añadir'} la entrada «${name}» en ${tbl}?` : '?'),
+    `Write the icons «${$('#ifile').value}.tga» (4 sizes${res ? ' + research' : ''}) to «${scen()}»` +
+      (reg ? `\nand ${exists ? 'update' : 'add'} the entry «${name}» in ${tbl}?` : '?')))) return;
   try { const r = await api('/api/img/icon/write', Object.assign(iconBody(), {scen:scen(), kind:k, name, register:$('#iregister').checked}));
     note('#inote', `Escritos ${r.written.length} archivos.\n${(r.notes || []).join('\n')}${r.backup ? '\nCopia en ' + r.backup : ''}`); loadIcons();
   } catch (e) { note('#inote', e.message, 'err'); }

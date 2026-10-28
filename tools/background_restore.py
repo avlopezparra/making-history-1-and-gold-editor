@@ -169,3 +169,34 @@ def restore(cur_map, ref_map, tiles_dir, ref_tile, only_bbox=None, log=print, re
         log('tile %02d-%02d: fondo restaurado (%d bloques, %.0f %% de la imagen)' % (c, r, n0, frac * 100))
         done.append((fn, round(frac * 100, 1)))
     return done
+
+
+def repaint_tiles(m, tiles_dir, names=None, only_bbox=None, log=print):
+    """Dibuja encima las fronteras actuales del mapa (tierra y mar, como el juego) en los tiles del proyecto.
+    names: tiles 'CC-RR' a repintar (None = todos los del proyecto, o los de only_bbox). Devuelve los tiles tocados."""
+    done = []
+    files = sorted(f for f in os.listdir(tiles_dir) if f.startswith('OperationalTerrain-') and len(f.split('-')) == 3)
+    for fn in files:
+        c, r = (int(x) for x in fn[:-4].split('-')[1:3])
+        if names is not None and '%02d-%02d' % (c, r) not in names:
+            continue
+        lon0, lat0 = tile_bounds(c, r)
+        tb = (lon0 - LINE_R, lat0 - TILE_DEG - LINE_R, lon0 + TILE_DEG + LINE_R, lat0 + LINE_R)
+        if only_bbox and (only_bbox[2] < tb[0] or only_bbox[0] > tb[2] or only_bbox[3] < tb[1] or only_bbox[1] > tb[3]):
+            continue
+        to_px = lambda x, y, k=1.0, lon0=lon0, lat0=lat0: ((x - lon0) / TILE_DEG * SIZE * k, (lat0 - y) / TILE_DEG * SIZE * k)
+        masks = _border_masks(m, tb, to_px)
+        if not masks:
+            continue
+        for k in range(0, MIPS + 1):
+            s = SIZE >> k
+            p = os.path.join(tiles_dir, tile_name(c, r, k))
+            if not os.path.exists(p):
+                continue
+            b = open(p, 'rb').read()
+            cur = decode(b, s)
+            out, _ = splice(b, _paint(cur, masks, s), cur, s)
+            open(p, 'wb').write(out)
+        log('tile %02d-%02d: líneas de las regiones dibujadas' % (c, r))
+        done.append('%02d-%02d' % (c, r))
+    return done

@@ -355,12 +355,17 @@ class Store:
             self.dirty.discard(path)
             self.restructured.discard(path)
             written.append(rel)
+            old = getattr(self, 'renamed', {}).pop(path, None)      # archivo renombrado (p. ej. country<País>.xml al renombrar un país)
+            if old and os.path.normcase(old) != os.path.normcase(path) and os.path.exists(old):
+                os.remove(old)
+                written.append('(antes %s)' % os.path.basename(old))
         return {'written': written, 'history': stamp if written and BACKUPS else None, 'fixed': fixed}
 
     def revert(self, paths=None):
         for path in list(paths if paths is not None else self.dirty):
             if path in self.docs:
                 del self.docs[path]
+            getattr(self, 'renamed', {}).pop(path, None)
             self.dirty.discard(path)
             self.restructured.discard(path)
         # se reabre lo descartado bajo demanda; limpiar indices huerfanos

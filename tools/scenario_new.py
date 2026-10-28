@@ -20,6 +20,10 @@ HEAD = '<?xml version="1.0" encoding="UTF-8"?>\r\n<objects name="Object Load" ve
 RESOURCES = (('Armaments', 'Arms'), ('Coal', 'Coal'), ('Food', 'Food'), ('Consumer', 'Goods'), ('Metals', 'Metals'), ('Oil', 'Oil'))
 RESEARCH = ('MotorizedInfantry', 'EarlyTanks', 'LightTanks', 'MechanizedInfantry', 'PreWarFighters', 'LightBombers')
 MIN_POP = 2      # «población mayor que 2»: la capital y la nación suman más de MIN_POP habitantes
+BUILTIN_TEMPLATE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'editor', 'plantilla_escenario')
+# datos compartidos que necesita un escenario (los de scenario.xml de la plantilla propia), copiados de ScenarioDefaults
+BUILTIN_SHARED = ('sharedData.xml', 'sharedDataAI.xml', 'sharedDataUnitTemplates.xml', 'sharedDataFactories.xml', 'sharedDataResearch.xml',
+                  'sharedDataTemplates.xml', 'sharedDataUnitTemplateSprites.xml', 'sharedDataCultureTemplates.xml')
 
 
 def _slug(t):
@@ -64,19 +68,32 @@ def create_scenario(name, pack, template=None, display=None, description=None, y
     """Crea la carpeta del escenario vacío (sin naciones ni regiones) que usa el regionpack 'pack'. No toca el mapa."""
     root = sc.SCEN_ROOT
     name = check_name(name, root)
-    tpl = template or pick_template(root)
-    src = os.path.join(root, tpl)
+    # sin plantilla elegida: la del propio editor (editor/plantilla_escenario: scenario.xml, game/, ui/) y los datos
+    # compartidos de ScenarioDefaults (los instala siempre el juego, MH1 y Gold): no depende de ningún escenario concreto
+    own = not template
+    src = BUILTIN_TEMPLATE if own else os.path.join(root, template)
     if not os.path.isfile(os.path.join(src, 'scenario.xml')):
-        raise ValueError('la plantilla %s no existe o no tiene scenario.xml' % tpl)
+        raise ValueError('la plantilla %s no existe o no tiene scenario.xml' % (template or src))
+    shared_src = os.path.join(os.path.dirname(os.path.abspath(root)), 'ScenarioDefaults') if own else src
+    if own and not os.path.isfile(os.path.join(shared_src, 'sharedData.xml')):
+        shared_src = os.path.join(sc.GAME, 'Modern Europe', 'system', 'ScenarioDefaults')
+    if own and not os.path.isfile(os.path.join(shared_src, 'sharedData.xml')):
+        raise ValueError('no se encuentra ScenarioDefaults del juego (sharedData.xml) para crear el escenario')
     dst = os.path.join(root, name)
     try:
         os.makedirs(dst)
-        for f in sorted(os.listdir(src)):      # datos compartidos que tenga la plantilla (los demás los pone el juego)
-            if f.startswith('sharedData') and f.endswith('.xml') and f != 'sharedDataHistoricCountries.xml':
-                shutil.copy2(os.path.join(src, f), dst)
+        for f in sorted(os.listdir(shared_src)):      # datos compartidos (copias propias del escenario)
+            if f.startswith('sharedData') and f.endswith('.xml') and f != 'sharedDataHistoricCountries.xml' \
+                    and (not own or f in BUILTIN_SHARED):
+                shutil.copy2(os.path.join(shared_src, f), dst)
         for d in ('game', 'ui'):
             if os.path.isdir(os.path.join(src, d)):
-                shutil.copytree(os.path.join(src, d), os.path.join(dst, d), ignore=shutil.ignore_patterns('countries', 'stringTable.xml'))
+                # de otro escenario no se copian sus banderas (ui/.../countries); de la plantilla del editor sí (las genéricas)
+                shutil.copytree(os.path.join(src, d), os.path.join(dst, d),
+                                ignore=shutil.ignore_patterns('stringTable.xml') if own else shutil.ignore_patterns('countries', 'stringTable.xml'))
+        for f in ('Title.tga', 'Button.tga', 'ButtonOver.tga'):     # imagenes de la lista de escenarios (plantilla del editor)
+            if os.path.isfile(os.path.join(src, f)) and not os.path.exists(os.path.join(dst, f)):
+                shutil.copy2(os.path.join(src, f), dst)
         if os.path.exists(os.path.join(dst, 'game', 'namespace.xml')):
             _write(os.path.join(dst, 'game', 'stringTable.xml'), '<?xml version="1.0" encoding="UTF-8"?>\r\n<stringTable existence="optional">\r\n</stringTable>\r\n')
         # scenario.xml: el de la plantilla con nombre, descripción, fechas y regionpack propios
@@ -328,7 +345,12 @@ def prepare_region(s, c):
     if not nat:
         return []
     notes = []
-    if nat['name'] not in s.countries():
+    import scenario_layers
+    same = scenario_layers.match_country(s, nat['name'])     # «UnitedStates» = «United States»: no se duplica la nación
+    if same:
+        nat = dict(nat, name=same)
+        c['nacion'] = nat
+    else:
         notes += create_nation(s, nat)
     cap = nat.get('capital') or {}
     if cap.get('existing'):

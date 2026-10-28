@@ -100,6 +100,56 @@ def ancestors(g, names):
     return out
 
 
+UPGRADE_RE = re.compile(r'([ \t]*)<property name="nLandHitBonusPct" value="([^"]*)"\s*/>')
+UPGRADE_GOLD_RE = re.compile(r'([ \t]*)<property name="nLandAttackHitBonusPct" value="([^"]*)"\s*/>(\r?\n)'
+                             r'(?:[ \t]*<property name="nLandDefenseHitBonusPct" value="[^"]*"\s*/>\r?\n)?')
+
+
+def fix_unit_upgrades(path, dst_game):
+    """Gold parte nLandHitBonusPct (UnitUpgrade de MH1) en nLandAttackHitBonusPct + nLandDefenseHitBonusPct con el mismo
+    valor; con la propiedad del otro juego no carga ("is not defined in type UnitUpgrade"). Devuelve cuantas cambio."""
+    t = read(path)
+    nl = '\r\n' if '\r\n' in t[:4000] else '\n'
+    if dst_game == 'gold':
+        t, n = UPGRADE_RE.subn(lambda m: '%s<property name="nLandAttackHitBonusPct" value="%s"/>%s%s<property name='
+                               '"nLandDefenseHitBonusPct" value="%s"/>' % (m.group(1), m.group(2), nl, m.group(1), m.group(2)), t)
+    else:
+        t, n = UPGRADE_GOLD_RE.subn(lambda m: '%s<property name="nLandHitBonusPct" value="%s"/>%s' % m.groups(), t)
+    if n:
+        write_text(path, t)
+    return n
+
+
+PROJ_RE = re.compile(r'([ \t]*)<object type="ResearchProj(?!ectPreReq)\w*"[^>]*>\s*?<property name="strName" value="([^"]*)"\s*/>')
+
+
+def fix_default_prereqs(path):
+    """Si un proyecto es bCompletedByDefault, sus requisitos tambien deben serlo: si no, el juego no inicia
+    ("didn't ever have their pre-reqs met"). Pasa al fusionar un escenario MH1 con requisitos nuevos de Gold
+    (LightBombers -> EarlyBombers). Devuelve los proyectos marcados."""
+    t = read(path)
+    root = ET.parse(path).getroot()
+    g, default = {}, set()
+    for o in root.iter('object'):
+        tp = o.get('type', '')
+        if tp.startswith('ResearchProj') and tp != 'ResearchProjectPreReq':
+            pr = {c.get('name'): c.get('value') for c in o if c.tag == 'property'}
+            if pr.get('strName'):
+                g[pr['strName']] = [c.get('value') for q in o if q.get('type') == 'ResearchProjectPreReq'
+                                    for c in q if c.get('name') == 'strProjectName']
+                if (pr.get('bCompletedByDefault') or '').lower() == 'true':
+                    default.add(pr['strName'])
+    need = sorted(p for p in ancestors(g, default) if p not in default and p in g)
+    if not need:
+        return []
+    nl = '\r\n' if '\r\n' in t[:4000] else '\n'
+    for m in reversed(list(PROJ_RE.finditer(t))):
+        if m.group(2) in need:
+            t = t[:m.end()] + '%s%s\t<property name="bCompletedByDefault" value="true"/>' % (nl, m.group(1)) + t[m.end():]
+    write_text(path, t)
+    return need
+
+
 REF_RE = re.compile(r'([ \t]*)<object type="ResearchProjectInitRef"[^>]*>\s*?(?:(?!</object>).)*?</object>[ \t]*\r?\n?', re.S)
 
 
@@ -259,7 +309,9 @@ def registered_files(scen_dir):
 
 
 def convert(src_dir, dst_game, out_dir=None, src_game=None, colors=False, infra='auto', units_only=False,
-            complete_new=True, remove_partisan_event=True, skip_images=False, log=print):
+            complete_new=True, remove_partisan_event=True, skip_images=False, regionpack='auto', log=print):
+    """regionpack: 'auto' lo convierte si falta en el destino; 'nuevo' lo convierte siempre con otro nombre
+    («<pack> <juego>») y el escenario pasa a usarlo; 'no' no lo toca."""
     src_dir = os.path.abspath(src_dir)
     src_game = src_game or gamepaths.detect(src_dir)
     if src_game is None:
@@ -317,10 +369,21 @@ def convert(src_dir, dst_game, out_dir=None, src_game=None, colors=False, infra=
         rep['archivos'].append({'archivo': rel, 'accion': 'fusionado', 'estadisticas': dict(stats), 'notas': notes})
         log('fusionado %s %s' % (rel, dict(stats)))
 
+    for f in sorted(scenario_files(out_dir)):
+        if f.endswith('.xml') and os.path.exists(os.path.join(out_dir, f)):
+            n = fix_unit_upgrades(os.path.join(out_dir, f), dst_game)
+            if n:
+                rep['notas'].append('mejoras de unidad (UnitUpgrade): %d nLandHitBonusPct adaptados a %s en %s' % (n, gamepaths.GAMES[dst_game]['short'], f))
+
     # 2. investigacion de los jugadores
     def research_file(game_or_dir):
         p = os.path.join(game_or_dir, 'sharedDataResearch.xml')
         return p if os.path.exists(p) else None
+    if research_file(out_dir):
+        fixed = fix_default_prereqs(research_file(out_dir))
+        if fixed:
+            rep['notas'].append('investigación completada por defecto también en sus requisitos nuevos: %s' % ', '.join(fixed))
+            log('bCompletedByDefault en requisitos: %s' % ', '.join(fixed))
     r_dst = research_file(out_dir) or os.path.join(sys_dir(dst_game), 'ScenarioDefaults', 'sharedDataResearch.xml')
     r_src = research_file(src_dir) or os.path.join(sys_dir(src_game), 'ScenarioDefaults', 'sharedDataResearch.xml')
     g_dst, g_src = research_graph(r_dst), research_graph(r_src)
@@ -401,9 +464,22 @@ def convert(src_dir, dst_game, out_dir=None, src_game=None, colors=False, infra=
 
     # regionpack
     m = re.search(r'name="strMapName" value="([^"]*)"', read(sx)) if os.path.exists(sx) else None
-    if m and not os.path.isdir(os.path.join(gamepaths.maps_dir(dst_game), m.group(1))):
+    pack = m.group(1) if m else None
+    missing = pack and not os.path.isdir(os.path.join(gamepaths.maps_dir(dst_game), pack))
+    has_src = pack and os.path.isdir(os.path.join(gamepaths.maps_dir(src_game), pack))
+    if pack and has_src and (regionpack == 'nuevo' or (regionpack == 'auto' and missing)):
+        new_name = pack if missing and regionpack == 'auto' else '%s %s' % (pack, gamepaths.GAMES[dst_game]['short'])
+        if os.path.isdir(os.path.join(gamepaths.maps_dir(dst_game), new_name)):
+            rep['notas'].append('regionpack: ya existe %s en %s; el escenario lo usa tal cual' % (new_name, gamepaths.GAMES[dst_game]['short']))
+        else:
+            import port_regionpack
+            rep['regionpack'] = port_regionpack.port_pack(pack, src_game, dst_game, new_name, log=log)
+            rep['notas'].append('regionpack convertido: %s' % new_name)
+        if new_name != pack:
+            retarget_map(out_dir, pack, new_name)
+    elif missing:
         rep['notas'].append('el regionpack %s no existe en %s: hay que copiarlo (con las texturas de ese juego)'
-                            % (m.group(1), gamepaths.GAMES[dst_game]['short']))
+                            % (pack, gamepaths.GAMES[dst_game]['short']))
 
     # informe (fuera de la carpeta del escenario)
     d = os.path.join(gamepaths.ROOT, 'backup', 'conversiones')
@@ -412,6 +488,21 @@ def convert(src_dir, dst_game, out_dir=None, src_game=None, colors=False, infra=
     json.dump(rep, open(rp, 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
     rep['informe'] = rp
     return rep
+
+
+def map_of(scen_dir):
+    sx = os.path.join(scen_dir, 'scenario.xml')
+    m = re.search(r'name="strMapName" value="([^"]*)"', read(sx)) if os.path.exists(sx) else None
+    return m.group(1) if m else None
+
+
+def retarget_map(scen_dir, old, new):
+    """El escenario pasa a usar el regionpack «new» en vez de «old» (strMapName y rutas de Maps/ en scenario.xml)."""
+    sx = os.path.join(scen_dir, 'scenario.xml')
+    t = read(sx)
+    t = t.replace('name="strMapName" value="%s"' % old, 'name="strMapName" value="%s"' % new)
+    t = t.replace('/Maps/%s/' % old, '/Maps/%s/' % new)
+    write_text(sx, t)
 
 
 def summary(rep):
@@ -447,9 +538,10 @@ def main():
     ap.add_argument('--no-completar-nuevas', action='store_true')
     ap.add_argument('--mantener-evento-partisanos', action='store_true')
     ap.add_argument('--sin-imagenes', action='store_true', help='no copiar las imagenes de las subcarpetas (ui/...)')
+    ap.add_argument('--regionpack', default='auto', choices=('auto', 'nuevo', 'no'))
     a = ap.parse_args()
     rep = convert(a.escenario, a.dst, a.salida, a.src, a.colores, a.infra, a.solo_unidades, not a.no_completar_nuevas,
-                  not a.mantener_evento_partisanos, a.sin_imagenes)
+                  not a.mantener_evento_partisanos, a.sin_imagenes, a.regionpack)
     print(summary(rep))
 
 

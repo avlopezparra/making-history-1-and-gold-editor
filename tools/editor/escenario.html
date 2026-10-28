@@ -26,7 +26,16 @@
   #tabs button.on { background:var(--panel); font-weight:600; position:relative; top:1px; }
   #rtabs .btn.on { background:var(--panel); font-weight:600; }
   #main > #rightwrap { overflow:hidden; } #right { overflow:auto; }
-  #main { display:grid; grid-template-columns:minmax(320px, 42%) 1fr; min-height:0; }
+  #main { display:grid; grid-template-columns:var(--lw, minmax(320px, 42%)) 5px 1fr; min-height:0; }
+  #main.noleft { grid-template-columns:1fr; } #main.noleft #left, #main.noleft #split1 { display:none; }
+  .splitter { cursor:col-resize; background:var(--line); opacity:.6; } .splitter:hover, .splitter.on { background:var(--accent); opacity:1; }
+  #main.resizing iframe { pointer-events:none; } #main.resizing { user-select:none; }
+  .natpick { position:relative; display:inline-flex; gap:4px; align-items:center; }
+  .natlist { position:absolute; top:100%; left:0; z-index:30; width:240px; max-height:260px; overflow:auto; background:var(--panel); border:1px solid var(--line); border-radius:6px; box-shadow:0 6px 18px rgba(0,0,0,.25); }
+  .natlist div { display:flex; gap:6px; align-items:center; padding:2px 6px; cursor:pointer; font-size:12.5px; } .natlist div:hover, .natlist div.on { background:var(--sel); }
+  .natlist img, .natpick img { width:19px; height:13px; object-fit:cover; flex:none; }
+  #ePrev { max-height:120px; overflow:auto; font-size:12.5px; border:1px solid var(--line); border-radius:6px; padding:3px 6px; }
+  #ePrev .same { color:var(--muted); }
   #left { display:flex; flex-direction:column; min-height:0; border-right:1px solid var(--line); background:var(--panel); }
   #left .tools { display:flex; gap:6px; padding:8px; border-bottom:1px solid var(--line); align-items:center; }
   #filter { flex:1; padding:5px 8px; border:1px solid var(--line); border-radius:6px; background:var(--bg); }
@@ -81,7 +90,7 @@
   .sw { display:inline-block; width:11px; height:11px; border-radius:2px; vertical-align:-1px; margin:0 3px 0 8px; border:1px solid rgba(0,0,0,.3); }
   .ok-t { color:var(--ok); } .err-t { color:var(--err); }
   table.mini td, table.mini th { white-space:normal; max-width:none; cursor:default; }
-  @media (max-width: 800px) { #main { grid-template-columns:1fr; grid-template-rows:45% 1fr; } }
+  @media (max-width: 800px) { #main { grid-template-columns:1fr; grid-template-rows:45% 1fr; } .splitter { display:none; } }
 
 .mhead{display:flex;gap:10px;align-items:center;margin-bottom:6px}
 .mhead .mic{width:38px;height:38px;border-radius:10px;background:rgba(59,130,246,.15);display:flex;align-items:center;justify-content:center;color:#3b82f6;flex:none}
@@ -90,6 +99,10 @@
 .mtabs button{flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;padding:8px 4px;border:0;border-radius:9px;background:transparent;color:var(--muted);font-size:12.5px;line-height:1.15;cursor:pointer;text-align:center}
 .mtabs button.on{background:var(--bg);color:#3b82f6;font-weight:600;box-shadow:0 0 0 1px rgba(59,130,246,.35)}
 .mtabs svg{width:18px;height:18px}
+#ptBox{position:absolute;left:8px;bottom:22px;z-index:5;background:color-mix(in srgb, var(--panel) 78%, transparent);backdrop-filter:blur(2px);border:1px solid var(--line);border-radius:8px;padding:4px 8px;font-size:12.5px;max-width:200px}
+#ptBox summary{cursor:pointer;font-weight:600;user-select:none}
+#ptBox label{display:block;padding:1px 0;white-space:nowrap}
+#ptBox:not([open]){opacity:.85}
 .evField{margin:6px 0}.evField label{display:block;font-size:12.5px;margin-bottom:2px}
 .evText{width:100%;min-height:2.6em;resize:vertical;padding:6px 8px;border:1px solid var(--line);border-radius:6px;background:var(--bg);font:inherit;line-height:1.4}
 .colpick{position:fixed;z-index:50;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:8px;box-shadow:0 6px 24px rgba(0,0,0,.3);display:flex;flex-direction:column;gap:6px;font-size:12.5px}
@@ -114,6 +127,8 @@
     <button id="revert" disabled>Revertir</button>
     <button id="refresh" disabled title="Releer del disco el escenario y su regionpack (por si se cambiaron fuera del editor) y comprobar si son coherentes">Refrescar</button>
     <button id="validate" disabled>Validar</button>
+    <button id="regXfer" type="button" disabled title="Copiar regiones (con sus ciudades, recursos y unidades) de otro escenario a este, o exportarlas a un archivo">⇄ Regiones entre escenarios…</button>
+    <button id="gameLogBtn" type="button" onclick="gameLogOpen()" title="Si el juego no carga el escenario o el regionpack, o se cierra: registra lo que dice el juego mientras lo pruebas y explica el fallo">🩺 Registro del juego…</button>
     <label class="pill" title="Levantamientos de partisanos en regiones ocupadas (sharedDataPartisans.xml)"><input type="checkbox" id="partisans" disabled> Partisans</label>
     <label class="pill" title="Inclinación de la cámara al acercarse al mapa 3D en el juego (desactivada = vista siempre desde arriba, cámara WorldUnifiedFlat)"><input type="checkbox" id="tilt" disabled> Inclinar mapa 3D</label>
     <button id="newwar" disabled style="display:none">Nueva guerra…</button>
@@ -133,9 +148,11 @@
       <div class="tools"><input id="filter" type="search" placeholder="Filtrar…"><button class="btn primary" id="newObj" style="display:none" title="Crear un objeto nuevo de esta pestaña (como «Add» de ed.exe)">＋ Nuevo</button><button class="btn" id="newFutureWar" style="display:none" title="Guerra que empieza en una fecha o turno (evento)">＋ Nueva guerra futura</button><span class="muted" id="count"></span></div>
       <div id="listwrap"><table id="list"><thead></thead><tbody></tbody></table></div>
     </div>
+    <div id="split1" class="splitter" title="Arrastra para cambiar el ancho de la lista"></div>
     <div id="rightwrap" style="display:flex;flex-direction:column;min-height:0">
       <div id="rtabs" style="display:flex;gap:2px;padding:6px 10px 0;border-bottom:1px solid var(--line);background:var(--panel)">
-        <button class="btn small on" data-r="obj">Editar objeto</button><button class="btn small" data-r="map">Mapa</button></div>
+        <button class="btn small on" data-r="obj">Editar objeto</button><button class="btn small" data-r="map">Mapa</button>
+        <span style="flex:1"></span><button class="btn small" id="togL" title="Ocultar o mostrar la lista de la izquierda (la tabla bajo «Filtrar…»)">◧ Lista</button><button class="btn small" id="togR" title="Ocultar o mostrar la ficha del objeto a la derecha del mapa">Ficha ◨</button></div>
       <div id="layerbar" style="display:none">
         <label>Capa <select id="layer">
           <option value="owner">Propiedad (nación)</option><option value="historic">Regiones históricas</option><option value="claims">Territorios anhelados (nación)</option>
@@ -147,21 +164,36 @@
         <label title="Selección múltiple: elige varias regiones, varios elementos del mapa (ciudades, unidades militares, minerales) o varias entidades políticas (países) y aplícales acciones en grupo"><input type="checkbox" id="multi"> Selección múltiple</label>
         <select id="multiKind" title="Qué se elige con cada clic"><option value="regions">Regiones</option><option value="elements">Elementos del mapa (ciudades, unidades militares, minerales)</option><option value="countries">Entidades políticas (países)</option></select>
         <span class="sep"></span>
-        <label><input type="checkbox" data-pt="city"> Ciudades</label><label><input type="checkbox" data-pt="producer"> Recursos</label>
-        <label><input type="checkbox" data-pt="army"> Ejércitos</label><label><input type="checkbox" data-pt="air"> Aviación</label><label><input type="checkbox" data-pt="fleet"> Flotas</label>
-        <label title="Muestra en el mapa hasta dónde pueden bombardear las fuerzas aéreas con bombarderos (todas, o solo la elegida)"><input type="checkbox" id="bombRange"> Alcance de bombarderos</label>
-        <label title="Arrastra una ciudad, un recurso o una unidad a otro punto (si cae en otra región, pasa a ella; una flota soltada en tierra entra en el puerto de su dueño). Clic en una ciudad o unidad y luego clic derecho en el mapa: mira hacia ese punto (como en ed.exe)"><input type="checkbox" id="dragPts"> Mover y girar ciudades, recursos y unidades</label>
+        <label title="Arrastra una ciudad, un recurso o una unidad a otro punto (si cae en otra región, pasa a ella; una flota soltada en tierra entra en el puerto de su dueño). Clic en una ciudad o unidad y luego clic derecho en el mapa: mira hacia ese punto (como en ed.exe). Mientras está activado, el mapa no se desplaza al arrastrar (usa la rueda para acercar o alejar)"><input type="checkbox" id="dragPts"> Mover y rotar elementos</label>
         <div id="legend" class="muted"></div>
         <div id="multiPanel" style="display:none"></div>
       </div>
-      <div id="rbody" style="display:flex;flex:1;min-height:0">
+      <div id="rbody" style="display:flex;flex:1;min-height:0;position:relative">
         <iframe id="mapframe" style="flex:1;border:0;display:none;min-width:0"></iframe>
+        <!-- elementos del mapa: recuadro semitransparente abajo a la izquierda (se pliega), como «Capas» del editor de regiones -->
+        <details id="ptBox" open style="display:none">
+          <summary>Elementos del mapa</summary>
+          <label><input type="checkbox" data-pt="city"> Ciudades</label><label><input type="checkbox" data-pt="producer"> Recursos</label>
+          <label><input type="checkbox" data-pt="army"> Ejércitos</label><label><input type="checkbox" data-pt="air"> Aviación</label><label><input type="checkbox" data-pt="fleet"> Flotas</label>
+          <label title="Muestra en el mapa hasta dónde pueden bombardear las fuerzas aéreas con bombarderos (todas, o solo la elegida)"><input type="checkbox" id="bombRange"> Alcance de bombarderos</label>
+        </details>
+        <div id="split2" class="splitter" style="display:none;flex:0 0 5px" title="Arrastra para cambiar el ancho del mapa y de la ficha"></div>
         <div id="right" style="flex:1"><p class="muted">Abre un escenario (como «File › Open» de ed.exe) o un archivo suelto.</p></div>
       </div>
     </div>
   </div>
 </div>
 
+<dialog id="rxDlg"><header><b>Regiones entre escenarios</b><span class="muted" id="rxTo"></span><button class="btn small" style="margin-left:auto" onclick="rxDlg.close()">Cerrar</button></header>
+  <div class="body"><p class="muted">Copia regiones de otro escenario a este (sus datos: dueño, población, cultura, terreno…), con sus ciudades y recursos y, si quieres, sus unidades.
+    La región tiene que existir en este escenario (la define el mapa). Lo que ya esté (misma ciudad, recurso o unidad) se actualiza en vez de duplicarse. Queda en memoria hasta «Guardar».</p>
+    <div class="grid"><label>Origen</label><select id="rxSrc"></select>
+      <label>Regiones</label><div><input id="rxFilter" type="search" placeholder="Filtrar (nombre o país)…" style="width:100%"><div id="rxList" style="columns:2 180px;max-height:220px;overflow:auto;font-size:13px;margin-top:4px"></div>
+        <div class="row" style="margin-top:4px"><button type="button" class="btn small" id="rxAll">Marcar las visibles</button><button type="button" class="btn small" id="rxNone">Ninguna</button><span class="muted" id="rxCount"></span></div></div>
+      <label>Incluir</label><div class="row"><label><input type="checkbox" id="rxCities" checked> ciudades y recursos</label><label><input type="checkbox" id="rxUnits" checked> unidades</label></div></div>
+    <div class="row"><button class="btn" id="rxPlan">Revisar</button><button class="btn" id="rxExport" title="Guarda las regiones marcadas (del escenario de origen) en un archivo .json para importarlas en otro escenario">Exportar a archivo…</button>
+      <button class="btn" id="rxFileBtn">Importar desde archivo…</button><input type="file" id="rxFile" accept=".json" hidden></div>
+    <div id="rxPlanOut" style="margin-top:8px"></div></div></dialog>
 <dialog id="filesDlg"><header><b>Abrir archivo</b><span class="muted" id="cwd"></span><button class="btn small" style="margin-left:auto" onclick="filesDlg.close()">Cerrar</button></header>
   <div class="body"><div id="fileinfo"></div><div class="files"><ul id="filelist"></ul></div></div></dialog>
 <dialog id="warDlg"><header><b>Nueva guerra por fecha</b><button class="btn small" style="margin-left:auto" onclick="warDlg.close()">Cerrar</button></header>
@@ -181,7 +213,8 @@
   <label>Infraestructura (TransportationLevel)</label><select id="convInfra"><option value="auto">automático: ÷10 si hay mucha población y no están ya rebajados</option><option value="si">rebajar nCost y nMaintenanceCost ÷10</option><option value="no">no tocar</option></select>
   <label>Investigación nueva</label><select id="convNew"><option value="1">completar las nuevas cuyos requisitos ya tiene el país</option><option value="">solo las que exigen los proyectos ya completados</option></select>
   <label>Evento de partisanos de MH1</label><select id="convPart"><option value="1">quitarlo al pasar a Gold (Gold los trae de serie)</option><option value="">mantenerlo</option></select>
-  <label>Imágenes (ui/: banderas, retratos…)</label><select id="convImg"><option value="1">no copiarlas (pesan; el juego usa las suyas)</option><option value="">copiarlas</option></select></div>
+  <label>Imágenes (ui/: banderas, retratos…)</label><select id="convImg"><option value="1">no copiarlas (pesan; el juego usa las suyas)</option><option value="">copiarlas</option></select>
+  <label>Regionpack (mapa)</label><select id="convMap"><option value="auto">convertirlo también si no existe en el destino</option><option value="nuevo">convertirlo también, con otro nombre (si el del destino es distinto)</option><option value="no">no convertirlo</option></select></div>
   <div class="row"><button class="btn primary" id="convGo">Convertir</button><span class="muted" id="convWait"></span></div>
   <pre id="convRes" style="white-space:pre-wrap;font-size:12px"></pre><div class="row" id="convAfter"></div></div></dialog>
 <dialog id="newObjDlg" style="border:1px solid var(--line);border-radius:10px;background:var(--panel);color:var(--ink);width:min(560px,94vw);max-height:92vh;overflow:auto">
@@ -192,8 +225,9 @@
   <form method="dialog"><h3 style="margin-top:0">Nuevo escenario</h3>
     <div class="grid"><label>Nombre (carpeta)</label><input id="nsName" required placeholder="p. ej. Mi mundo">
       <label>Nombre visible</label><input id="nsDisp">
-      <label>Regionpack</label><select id="nsPack"></select></div>
-    <p class="muted">Se crea vacío, sin naciones: luego se añaden naciones y se les asignan regiones (aquí o en el editor de regiones).</p>
+      <label>Basado en</label><select id="nsBase"></select>
+      <label id="nsPackL">Regionpack</label><select id="nsPack"></select></div>
+    <p class="muted" id="nsHelp">Se crea vacío, sin naciones: luego se añaden naciones y se les asignan regiones (aquí o en el editor de regiones).</p>
     <div style="display:flex;gap:8px;justify-content:flex-end"><button value="cancel" class="btn" formnovalidate>Cancelar</button><button value="ok" class="btn primary">Crear</button></div></form>
 </dialog>
 <dialog id="genDlg" style="border:1px solid var(--line);border-radius:10px;background:var(--panel);color:var(--ink);width:min(640px,94vw)">
@@ -273,9 +307,11 @@ async function openScenario(name) {
   $('#maplink').href = '/?pack=' + encodeURIComponent(S.pack) + '&scenario=' + encodeURIComponent(name);
   const t = $('#tabs'); t.innerHTML = '';
   const tabs = r.tabs.slice(); tabs.splice(tabs.findIndex(x => x.key === 'nations') + 1, 0, { key: 'surrendered', label: 'Surrendered' });
+  { const i = tabs.findIndex(x => x.key === 'models_air'); tabs.splice(i >= 0 ? i + 1 : tabs.length, 0, { key: 'scale3d', label: '3D Scale' }); }
+  { const i = tabs.findIndex(x => x.key === 'research'); tabs.splice(i >= 0 ? i + 1 : tabs.length, 0, { key: 'startunits', label: 'Starting units' }); }
   for (const tab of tabs) { const b = document.createElement('button'); b.textContent = TAB_ES[tab.key] || tab.label; b.dataset.key = tab.key; b.onclick = () => showTab(tab.key); t.appendChild(b); }
   LY.data = null; LY.points = null; BOMB.ranges = null; CI = null; $('#mapframe').dataset.u = ''; if (rview === 'map') showRight('map');
-  ['#validate', '#revert', '#partisans', '#newwar', '#gjExport', '#gjImport', '#packSync', '#refresh'].forEach(s => $(s).disabled = false);
+  ['#validate', '#regXfer', '#revert', '#partisans', '#newwar', '#gjExport', '#gjImport', '#packSync', '#refresh'].forEach(s => $(s).disabled = false);
   $('#partisans').checked = !!r.info.partisans;
   $('#tilt').disabled = false; $('#tilt').checked = r.info.tilt !== false;
   $('#dl-nations').innerHTML = (S.opts.strOwner || []).map(v => `<option value="${esc(v)}">`).join('');
@@ -285,7 +321,7 @@ async function openScenario(name) {
   const row = pos && pos.obj && S.rows.find(r => r.cols.includes(pos.obj));
   if (row) { if (rview !== 'map') showRight('obj'); await openObj(row.id); }
 }
-const TAB_ES = {"global": "Datos generales", "nations": "Naciones", "surrendered": "Rendidas", "regions": "Regiones de tierra", "seas": "Regiones de mar", "cities": "Ciudades", "producers": "Recursos", "armies": "Ejércitos", "airforces": "Fuerzas aéreas", "navies": "Flotas", "govtypes": "Ideologías", "cultures": "Culturas (etnias)", "alliances": "Alianzas", "wars": "Guerras", "trade": "Comercio", "aid": "Ayudas", "access": "Acceso militar", "players": "Jugador / IA", "colors": "Colores", "diplomacy": "Diplomacia", "historic": "Países históricos", "events": "Eventos", "terrains": "Tipos de terreno", "models_land": "Aspecto 3D de unidades por país (tierra)", "models_air": "Aspecto 3D de unidades por país (aire)", "infra": "Infraestructura", "units": "Plantillas de unidad", "outputs": "Producción de fábricas", "research": "Investigación"};   // nombres de las pestañas (en inglés con i18n)
+const TAB_ES = {"global": "Datos generales", "nations": "Naciones", "surrendered": "Rendidas", "regions": "Regiones de tierra", "seas": "Regiones de mar", "cities": "Ciudades", "producers": "Recursos", "armies": "Ejércitos", "airforces": "Fuerzas aéreas", "navies": "Flotas", "govtypes": "Ideologías", "cultures": "Culturas (etnias)", "alliances": "Alianzas", "wars": "Guerras", "trade": "Comercio", "aid": "Ayudas", "access": "Acceso militar", "players": "Jugador / IA", "colors": "Colores", "diplomacy": "Diplomacia", "historic": "Países históricos", "events": "Eventos", "terrains": "Tipos de terreno", "models_land": "Aspecto 3D de unidades por país (tierra)", "models_air": "Aspecto 3D de unidades por país (aire)", "scale3d": "Escala 3D (ciudades y unidades)", "startunits": "Unidades al empezar", "infra": "Infraestructura", "units": "Plantillas de unidad", "outputs": "Producción de fábricas", "research": "Investigación"};   // nombres de las pestañas (en inglés con i18n)
 const NEW_KINDS = { govtypes: ['govtype', 'Nueva ideología'], cities: ['city', 'Nueva ciudad'], producers: ['producer', 'Nuevo recurso'], armies: ['army', 'Nuevo ejército'],
   nations: ['country', 'Nueva nación'], navies: ['fleet', 'Nueva flota'], airforces: ['airforce', 'Nueva fuerza aérea'], alliances: ['alliance', 'Nueva alianza'], wars: ['war', 'Nueva guerra'],
   trade: ['trade', 'Nuevo comercio'], aid: ['aid', 'Nueva ayuda'], access: ['access', 'Nuevo acceso militar'], diplomacy: ['dip', 'Nueva relación'],
@@ -310,6 +346,8 @@ async function showTab(key) {
   S.tab = key; S.mode = 'tab'; syncNewBtn(); remember({ tab: key, obj: null });
   document.querySelectorAll('#tabs button').forEach(b => b.classList.toggle('on', b.dataset.key === key));
   if (key === 'surrendered') return showSurrendered();
+  if (key === 'scale3d') return showScale3D();
+  if (key === 'startunits') return showStartUnits();
   const r = await api(`/api/scen/tab?name=${encodeURIComponent(S.scen)}&tab=${key}`);
   S.cols = r.columns; S.rows = r.rows; S.sort = [0, 1]; renderList();
   if (S.rows.length && key === 'global') await openObj(S.rows[0].id);
@@ -323,6 +361,8 @@ function renderList() {
   $('#list tbody').innerHTML = rows.map(r => `<tr data-id="${esc(r.id)}" class="${on(r) ? 'on' : ''}">` + r.cols.map((c, i) =>
     `<td title="${esc(c)}">${i === 0 && r.color ? `<span class="sw" style="margin-left:0;background:${r.color}"></span>` : ''}${esc(c)}</td>`).join('') + '</tr>').join('');
   $('#count').textContent = `${rows.length} de ${S.rows.length}`;
+  if (S.tab === 'startunits' && S.mode !== 'layer' && S.suChecked)      // «Unidades al empezar»: la primera columna es una casilla
+    document.querySelectorAll('#list tbody tr').forEach(tr => { tr.firstElementChild.innerHTML = `<input type="checkbox" ${S.suChecked.has(tr.dataset.id) ? 'checked' : ''} style="pointer-events:none">`; });
   syncNewBtn();
 }
 $('#list').addEventListener('click', e => {
@@ -338,6 +378,8 @@ $('#list').addEventListener('click', e => {
     }
     return;
   }   // lista de valores de la capa (como Region Paint de MH2)
+  if (tr && S.tab === 'startunits' && S.mode !== 'layer') { const id = tr.dataset.id; S.suChecked.has(id) ? S.suChecked.delete(id) : S.suChecked.add(id); const c = tr.querySelector('input'); if (c) c.checked = S.suChecked.has(id); return; }
+  if (tr && S.tab === 'scale3d' && S.mode !== 'layer') { document.querySelectorAll('#list tr').forEach(x => x.classList.toggle('on', x === tr)); scaleOne(+tr.dataset.id); return; }
   if (tr && S.tab === 'historic') {   // como HistoricNations de MH2: el mapa con sus regiones resaltadas; clic para añadir / quitar
     const row = S.rows.find(r => String(r.id) === tr.dataset.id); if (!row) return;
     $('#layer').value = 'historic'; $('#layerEdit').checked = true; LY.pendingHist = row.cols[0]; LY.fitHist = true;
@@ -530,17 +572,23 @@ function setDirty(list) {
 
 // ------------------------------------------------------------------ pestana Mapa (como en ed.exe)
 let rview = 'obj';
-document.querySelectorAll('#rtabs button').forEach(b => b.onclick = () => showRight(b.dataset.r));
+document.querySelectorAll('#rtabs button[data-r]').forEach(b => b.onclick = () => showRight(b.dataset.r));
 function mapUrl() {
   const reg = S.obj && S.obj.extra && S.obj.extra.map;
   return `/?pack=${encodeURIComponent(S.pack || 'World')}&scenario=${encodeURIComponent(S.scen)}&color=pais${reg ? '&region=' + encodeURIComponent(reg) : ''}`;
 }
 function showRight(v) {
-  rview = v; document.querySelectorAll('#rtabs button').forEach(b => b.classList.toggle('on', b.dataset.r === v));
+  rview = v; document.querySelectorAll('#rtabs button[data-r]').forEach(b => b.classList.toggle('on', b.dataset.r === v));
   // «Mapa»: el mapa y, a su derecha, la ficha del objeto (así se edita sin perder el sitio del mapa); «Editar objeto»: solo la ficha
-  $('#right').style.display = ''; $('#mapframe').style.display = v === 'map' ? '' : 'none';
-  $('#right').style.flex = v === 'map' ? '0 0 min(440px, 42%)' : '1'; $('#right').style.borderLeft = v === 'map' ? '1px solid var(--line)' : '';
+  const hideR = v === 'map' && lsGet('mh-hideR') === '1', rw = +lsGet('mh-rw');
+  $('#right').style.display = hideR ? 'none' : ''; $('#mapframe').style.display = v === 'map' ? '' : 'none';
+  $('#split2').style.display = v === 'map' && !hideR ? '' : 'none'; $('#togR').style.display = v === 'map' ? '' : 'none';
+  $('#togR').classList.toggle('on', !hideR);
+  $('#right').style.flex = v === 'map' ? (rw ? `0 0 ${rw}px` : '0 0 min(440px, 42%)') : '1';
   $('#layerbar').style.display = v === 'map' && S.scen ? '' : 'none';
+  $('#ptBox').style.display = v === 'map' && S.scen ? '' : 'none';
+  try { if (localStorage.getItem('mh-ptbox') === '0') $('#ptBox').open = false; } catch (e) {}
+  $('#ptBox').ontoggle = () => { try { localStorage.setItem('mh-ptbox', $('#ptBox').open ? '1' : '0'); } catch (e) {} };
   if (v === 'obj' && S.mode === 'layer') showTab(S.tab || 'global');   // vuelve la lista de la pestaña
   if (v === 'map' && LY.data) layerList();
   if (v === 'map' && S.scen) {
@@ -550,6 +598,33 @@ function showRight(v) {
     if (!LY.data) loadLayerData(); else { fillLayerValues(); sendOverlay(); }
   }
 }
+
+// lista de la izquierda y ficha junto al mapa: ocultar / mostrar y cambiar su ancho arrastrando el separador (se recuerda)
+function lsGet(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
+function lsSet(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
+function applyLeft() {
+  const hide = lsGet('mh-hideL') === '1', lw = +lsGet('mh-lw');
+  $('#main').classList.toggle('noleft', hide); $('#togL').classList.toggle('on', !hide);
+  $('#main').style.setProperty('--lw', lw ? lw + 'px' : 'minmax(320px, 42%)');
+}
+$('#togL').onclick = () => { lsSet('mh-hideL', lsGet('mh-hideL') === '1' ? '0' : '1'); applyLeft(); };
+$('#togR').onclick = () => { lsSet('mh-hideR', lsGet('mh-hideR') === '1' ? '0' : '1'); showRight(rview); };
+function splitDrag(bar, move, done) {
+  bar.onmousedown = e => {
+    e.preventDefault(); bar.classList.add('on'); $('#main').classList.add('resizing');
+    const mm = ev => move(ev.clientX), mu = () => { bar.classList.remove('on'); $('#main').classList.remove('resizing'); removeEventListener('mousemove', mm); removeEventListener('mouseup', mu); done(); };
+    addEventListener('mousemove', mm); addEventListener('mouseup', mu);
+  };
+}
+splitDrag($('#split1'), x => {
+  const w = Math.max(200, Math.min(x - $('#main').getBoundingClientRect().left, innerWidth - 320));
+  $('#main').style.setProperty('--lw', w + 'px'); $('#main').dataset.lw = Math.round(w);
+}, () => { if ($('#main').dataset.lw) lsSet('mh-lw', $('#main').dataset.lw); });
+splitDrag($('#split2'), x => {
+  const r = $('#rbody').getBoundingClientRect(), w = Math.max(220, Math.min(r.right - x, r.width - 200));
+  $('#right').style.flex = `0 0 ${w}px`; $('#right').dataset.w = Math.round(w);
+}, () => { if ($('#right').dataset.w) lsSet('mh-rw', $('#right').dataset.w); });
+applyLeft();
 
 // ------------------------------------------------------------------ capas del mapa: ver y editar con clics
 const LY = { data: null, points: null };
@@ -751,13 +826,20 @@ function renderElements() {
     if (only('city')) fields.push(['ipus', 'IPUs'], ['population', 'Población']);
     if (only('producer')) fields.push(['output', 'Producción base']);
     if (kinds.size && [...kinds].every(k => ['army', 'air', 'fleet'].includes(k))) fields.push(['owner', 'País']);
-    h += fields.length ? `<div class="act">Editar en lote <select id="eField">${fields.map(f => `<option value="${f[0]}">${f[1]}</option>`).join('')}</select>
-        <input id="eValue" style="width:140px" placeholder="valor"><button class="btn small primary" data-e="set">Aplicar</button></div>`
+    if (!fields.some(f => f[0] === EB.field)) EB.field = fields.length ? fields[0][0] : '';
+    const own = EB.field === 'owner', flag = c => `/api/img/flag?scen=${encodeURIComponent(S.scen)}&country=${encodeURIComponent(c)}`;
+    h += fields.length ? `<div class="act">Editar en lote <select id="eField">${fields.map(f => `<option value="${f[0]}" ${f[0] === EB.field ? 'selected' : ''}>${f[1]}</option>`).join('')}</select>
+        ${own ? `<span class="natpick"><img id="eFlag" alt="" style="${EB.value ? '' : 'visibility:hidden'}" ${EB.value ? `src="${flag(EB.value)}"` : ''} onerror="this.style.visibility='hidden'">
+          <input id="eValue" style="width:150px" placeholder="Elige un país…" autocomplete="off" value="${esc(EB.value)}"><div class="natlist" id="eNat" style="display:none"></div></span>
+          <button class="btn small${EB.picking ? ' primary' : ''}" id="ePick" title="Haz clic después en una región o una unidad del mapa: se usa su país">🎯 Elegir en el mapa</button>`
+        : `<input id="eValue" style="width:140px" placeholder="valor" value="${esc(EB.value)}">`}
+        <button class="btn small primary" data-e="set" ${EB.value === '' ? 'disabled' : ''}>Aplicar</button></div><div id="ePrev"></div>`
       : '<div class="muted">Para editar en lote, elige elementos del mismo tipo (ciudades, recursos, o unidades).</div>';
     h += `<div class="act"><button class="btn small danger" data-e="delete" style="color:#dc2626">Eliminar ${ids.length}…</button></div>`;
   }
   P.innerHTML = h; bindMultiHead(P);
   frameMsg({ cmd: 'selPoints', ids });
+  if ($('#eField')) bindBatch(ids, pts);
   P.querySelectorAll('[data-edit]').forEach(b => b.onclick = () => openElsewhere(+b.dataset.edit));
   $('#mClear').onclick = () => { SEL.elements.clear(); renderMulti(); };
   P.querySelectorAll('.chip button').forEach(b => b.onclick = () => { SEL.elements.delete(+b.dataset.x); renderMulti(); });
@@ -765,13 +847,57 @@ function renderElements() {
     const body = { name: S.scen, action: 'elements', ids, op: b.dataset.e };
     if (b.dataset.e === 'delete') {
       if (!confirm(`¿Eliminar ${ids.length} elemento(s) del escenario?\n${ids.map(i => pts.get(i).label).slice(0, 12).join(', ')}${ids.length > 12 ? '…' : ''}`)) return;
-    } else { body.field = $('#eField').value; body.value = $('#eValue').value; if (body.value === '') return note('Escribe el valor', true); }
+    } else {
+      body.field = EB.field; body.value = EB.value; if (body.value === '') return note('Escribe el valor', true);
+      if (body.field === 'owner' && !LY.data.countries[body.value]) return note(`${body.value}: no es un país del escenario`, true);
+    }
     const r = await api('/api/scen/bulk', body);
     if (r.error) return note(r.error, true);
-    setDirty(r.dirty); if (b.dataset.e === 'delete') SEL.elements.clear();
+    setDirty(r.dirty); if (b.dataset.e === 'delete') SEL.elements.clear(); EB.value = ''; EB.picking = false;
     LY.points = null; await sendPoints(); LY.data = await api('/api/scen/mapdata?name=' + encodeURIComponent(S.scen)); renderMulti();
     note((r.notes.join('; ') || 'sin cambios') + '. Falta «Guardar».');
   });
+}
+// «Editar en lote»: el valor elegido (país con su bandera, desde la lista o con un clic en el mapa) y lo que cambiaría antes de «Aplicar»
+const EB = { field: '', value: '', picking: false };
+function bindBatch(ids, pts) {
+  const flag = c => `/api/img/flag?scen=${encodeURIComponent(S.scen)}&country=${encodeURIComponent(c)}`;
+  const preview = () => {
+    const box = $('#ePrev'), apply = $('#multiPanel [data-e="set"]');
+    if (apply) apply.disabled = EB.value === '';
+    if (EB.value === '') { box.innerHTML = '<span class="muted">Elige el valor para ver qué cambia.</span>'; return; }
+    if (EB.field !== 'owner') { box.innerHTML = `<b>${ids.length}</b> <span>elementos pasan a</span> <b>${esc(EB.value)}</b>`; return; }
+    const ok = !!LY.data.countries[EB.value], ch = ids.filter(i => pts.get(i).owner !== EB.value);
+    box.innerHTML = (ok ? '' : '<div class="err-t">No es un país del escenario</div>') +
+      `<div><span>Vista previa</span>: <b>${ch.length}</b> <span>cambian de país</span>, <b>${ids.length - ch.length}</b> <span>ya son de</span> ${esc(EB.value)}</div>` +
+      ids.map(i => { const p = pts.get(i), same = p.owner === EB.value;
+        return `<div class="${same ? 'same' : ''}">${esc(E_KIND[p.kind] || '')} · ${esc(p.label)}: ${esc(p.owner || '—')} → <b>${same ? '' : esc(EB.value)}</b>${same ? '<span>(sin cambio)</span>' : ''}</div>`; }).join('');
+  };
+  $('#eField').onchange = () => { EB.field = $('#eField').value; EB.value = ''; EB.picking = false; renderMulti(); };
+  const inp = $('#eValue');
+  if (EB.field !== 'owner') { inp.oninput = () => { EB.value = inp.value.trim(); preview(); }; preview(); return; }
+  const list = $('#eNat'), all = Object.keys(LY.data.countries).sort();
+  const choose = c => { EB.value = c; inp.value = c; list.style.display = 'none'; const f = $('#eFlag'); f.style.visibility = ''; f.src = flag(c); preview(); };
+  const fill = () => {
+    const q = inp.value.trim().toLowerCase(), xs = all.filter(c => c.toLowerCase().includes(q));
+    list.innerHTML = xs.map(c => `<div data-n="${esc(c)}" class="${c === EB.value ? 'on' : ''}"><img loading="lazy" alt="" src="${flag(c)}" onerror="this.style.visibility='hidden'">${esc(c)}</div>`).join('') || '<div class="muted">Ningún país</div>';
+    list.style.display = '';
+    list.querySelectorAll('[data-n]').forEach(d => d.onmousedown = e => { e.preventDefault(); choose(d.dataset.n); });
+  };
+  inp.onfocus = fill;
+  inp.oninput = () => { fill(); const m = all.find(c => c.toLowerCase() === inp.value.trim().toLowerCase()); EB.value = m || inp.value.trim(); preview(); };
+  inp.onblur = () => { list.style.display = 'none'; };
+  inp.onkeydown = e => { if (e.key === 'Enter') { const d = list.querySelector('[data-n]'); if (d) choose(d.dataset.n); } if (e.key === 'Escape') list.style.display = 'none'; };
+  $('#ePick').onclick = () => {
+    EB.picking = !EB.picking; $('#ePick').classList.toggle('primary', EB.picking);
+    if (EB.picking) note('Haz clic en una región o una unidad del mapa: su país será el valor');
+  };
+  EB.choose = choose; preview();
+}
+function batchPicked(country, where) {
+  EB.picking = false; $('#ePick') && $('#ePick').classList.remove('primary');
+  if (!country) return note(`${where}: no tiene país`, true);
+  if (EB.choose && $('#eNat')) EB.choose(country); else { EB.value = country; renderMulti(); }
 }
 function renderMulti() {
   const P = $('#multiPanel');
@@ -793,7 +919,8 @@ function renderMulti() {
       <div class="act">Regiones históricas de <select id="mHist">${opt(nations, first.owner)}</select><button class="btn small" data-do="hist">Añadir</button></div>
       <div class="act">Eliminar las ${items.length}: su área pasa a <input id="mDelInto" list="mDelRegs" placeholder="(queda vacía)" style="width:150px" autocomplete="off"><datalist id="mDelRegs">${Object.keys(D.regions).filter(n => !items.includes(n)).sort().map(n => `<option>${esc(n)}</option>`).join('')}</datalist>
         <button class="btn small" data-do="delregs" style="color:#dc2626" title="Desaparecen del regionpack y de los escenarios que lo usan">Eliminar…</button>
-        <button class="btn small" data-do="gjsel" title="Las regiones elegidas (y sus ciudades, recursos y unidades) en un .zip de GeoJSON">Exportar GeoJSON</button></div>
+        <button class="btn small" data-do="gjsel" title="Las regiones elegidas (y sus ciudades, recursos y unidades) en un .zip de GeoJSON">Exportar GeoJSON</button>
+        ${PANEL ? '<button class="btn small" data-do="xpack" title="Copiarlas (y, si se quiere, sus ciudades, unidades y minerales) a otro regionpack y escenario">Exportar a otro regionpack…</button>' : ''}</div>
       ${items.length > 1 ? `<div class="act">Unificar en <select id="mInto">${opt(items)}</select><button class="btn small" data-do="merge" title="Las demás desaparecen del regionpack y de los escenarios; su área, ciudades, población y unidades pasan a la elegida">Unificar…</button></div>` : ''}`;
   }
   if (items.length && !isR) {
@@ -828,15 +955,70 @@ function renderMulti() {
   P.querySelectorAll('[data-do]').forEach(b => b.onclick = () => multiAction(b.dataset.do, items));
 }
 // unificar regiones: cambia el regionpack (mapa) y los escenarios que lo usan; se hace desde el servidor del mapa
-async function mergeRegions(items, into, del = false) {
+// qué hacer con el área de unas regiones que se eliminan: pasar a una región que ya existe, dejar el hueco o crear con ella una
+// región nueva (de tierra o de mar). 'transferTo' (países): también la opción de que las regiones pasen a ese país sin borrarlas.
+function areaFateDialog(title, regions, transferTo) {
+  let d = document.getElementById('fateDlg');
+  if (!d) { d = document.createElement('dialog'); d.id = 'fateDlg'; d.style.cssText = 'border:1px solid var(--line);border-radius:10px;background:var(--panel,#fff);color:var(--ink,#111);max-width:520px'; document.body.appendChild(d); }
+  const others = Object.keys(LY.data.regions).filter(n => !regions.includes(n)).sort();
+  d.innerHTML = `<form method="dialog"><h3 style="margin-top:0">${esc(title)}</h3>
+    <div class="muted" style="margin-bottom:8px">${regions.length} región(es): ${esc(regions.slice(0, 12).join(', '))}${regions.length > 12 ? '…' : ''}</div>
+    ${transferTo ? `<label style="display:block"><input type="radio" name="fate" value="transfer" checked> Sus regiones pasan a <b>${esc(transferTo)}</b> (no se borran)</label>
+      <div class="muted" style="margin:2px 0 6px 22px">o elimina sus regiones del mapa:</div>` : ''}
+    <label style="display:block"><input type="radio" name="fate" value="into" ${transferTo ? '' : 'checked'}> Incorporar su área a la región <input id="fateInto" list="fateRegs" style="width:170px" autocomplete="off"><datalist id="fateRegs">${others.map(n => `<option>${esc(n)}</option>`).join('')}</datalist></label>
+    <label style="display:block"><input type="radio" name="fate" value="new"> Crear una región nueva con su área: <input id="fateName" placeholder="nombre" style="width:140px">
+      <select id="fateSea"><option value="land">de tierra</option><option value="sea">de mar</option></select></label>
+    <label style="display:block"><input type="radio" name="fate" value="empty"> Dejar el espacio vacío (un hueco)</label>
+    <div class="muted" style="margin-top:6px">Al eliminar regiones cambian el regionpack y los escenarios que lo usan; el mapa del juego cambia al «Instalar».</div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px"><button value="cancel">Cancelar</button><button value="ok" style="background:#dc2626;color:#fff;border:0;border-radius:6px;padding:5px 12px">Aceptar</button></div></form>`;
+  d.querySelector('#fateInto').oninput = () => { d.querySelector('input[value=into]').checked = true; };
+  d.querySelector('#fateName').oninput = () => { d.querySelector('input[value=new]').checked = true; };
+  return new Promise(res => {
+    // con los botones (el evento «close» llega tarde o nunca con la ventana en segundo plano)
+    let done = false;
+    const fin = v => { if (done) return; done = true; if (d.open) d.close(v); if (v !== 'ok') return res(null);
+      const mode = d.querySelector('input[name=fate]:checked').value;
+      res({ mode, into: d.querySelector('#fateInto').value.trim(), name: d.querySelector('#fateName').value.trim(), sea: d.querySelector('#fateSea').value === 'sea' });
+    };
+    d.querySelectorAll('button[value]').forEach(x => x.onclick = e => { e.preventDefault(); fin(x.value); });
+    d.onclose = () => fin(d.returnValue);
+    d.returnValue = ''; d.showModal();
+  });
+}
+// aplica lo elegido en areaFateDialog a esas regiones; devuelve false si no se hizo
+async function applyAreaFate(regions, f) {
+  if (f.mode === 'into') {
+    if (!LY.data.regions[f.into]) { note('Elige una región que exista para incorporar el área', true); return false; }
+    return await mergeRegions(regions.concat(f.into), f.into, true, true) !== false;
+  }
+  if (f.mode === 'empty') return await mergeRegions(regions, null, true, true) !== false;
+  if (f.mode === 'new') {
+    if (!f.name) { note('Escribe el nombre de la región nueva', true); return false; }
+    const base = regions[0];
+    // se unifican en la primera, que luego cambia de tipo (si es de mar) y de nombre
+    if (regions.length > 1 && await mergeRegions(regions, base, false, true) === false) return false;
+    if (f.sea) {
+      const c = await api('/api/region/convert', { regions: [base], to: 'sea', scenarios: true });
+      if (c.error) { note(c.error, true); return false; }
+    }
+    const r = await api('/api/region/rename', { region: base, new_name: f.name.normalize('NFD').replace(/[\u0300-\u036f]/g, ''), text: f.name });
+    if (r.error) { note(r.error, true); return false; }
+    if (PANEL) parent.postMessage({ cmd: 'reloadAll' }, location.origin);
+    LY.data = null; await openScenario(S.scen); if (PANEL) { await loadLayerData(); renderMulti(); sendOverlay(); }
+    note(`Región nueva «${f.name}» ${f.sea ? 'de mar' : 'de tierra'} con el área de ${regions.join(', ')}.` + ' Falta «Instalar» para el mapa del juego.');
+    return true;
+  }
+  return false;
+}
+async function mergeRegions(items, into, del = false, quiet = false) {
   if (!$('#save').disabled) return alert('Guarda o revierte antes los cambios de este escenario: al unificar se reescriben los escenarios que usan el regionpack.');
   const others = items.filter(x => x !== into);
   const msg = del
     ? `¿Eliminar ${others.join(', ')}?\n\nDesaparecen del regionpack «${S.pack}» y de los escenarios que lo usan. ` + (into ? `Su área, ciudades, población y unidades pasan a «${into}».` : 'Su área queda vacía (hueco); sus unidades van a la región más cercana de su país y sus ciudades y recursos se pierden.') + ' El mapa del juego cambia al «Instalar» en el editor de regiones.'
     : `¿Unificar ${others.join(', ')} en «${into}»?\n\nDesaparecen del regionpack «${S.pack}» y de los escenarios que lo usan; su área, ciudades, población y unidades pasan a «${into}». El mapa del juego cambia al «Instalar» en el editor de regiones.`;
-  if (!confirm(msg)) return;
+  if (!quiet && !confirm(msg)) return;
   const r = await api('/api/regions/merge', { regions: items, into, delete: del });
-  if (r.errors && r.errors.length) return note(r.errors.join('; '), true);
+  if (r.errors && r.errors.length) { note(r.errors.join('; '), true); return false; }
   SEL.regions.clear(); renderMulti();
   LY.data = null; $('#mapframe').dataset.u = ''; await openScenario(S.scen);
   if (PANEL) { parent.postMessage({ cmd: 'reloadAll' }, location.origin); await loadLayerData(); renderMulti(); sendOverlay(); }
@@ -899,8 +1081,19 @@ async function multiAction(what, items) {
     Object.assign(body, { action: 'country_transfer', from: items, to: $('#mDest').value, regions: $('#mTrR').checked, units: $('#mTrU').checked });
   }
   if (what === 'cdelete') {
-    if (!confirm(`¿Eliminar ${items.join(', ')} del escenario?\n\nSus regiones y unidades pasan a ${$('#mDest').value}; se quitan de alianzas, guerras, comercio y acuerdos, y el juego deja de cargar sus archivos (los archivos no se borran).\n\nNo probado en el juego: haz una copia del escenario antes.`)) return;
-    Object.assign(body, { action: 'country_delete', countries: items, to: $('#mDest').value });
+    const regs = Object.entries(LY.data.regions).filter(([, v]) => items.includes(v.owner)).map(([k]) => k);
+    if (regs.length) {
+      const f = await areaFateDialog(`Eliminar ${items.join(', ')}: ¿qué hacer con sus regiones?`, regs, $('#mDest').value);
+      if (!f) return;
+      var dest = $('#mDest').value;
+      if (f.mode !== 'transfer') {
+        if (!$('#save').disabled) return alert('Guarda o revierte antes los cambios de este escenario: al eliminar regiones se reescriben los escenarios que usan el regionpack.');
+        if (!await applyAreaFate(regs, f)) return;
+        // una región nueva de tierra sigue siendo del país eliminado: «country_delete» la pasa a 'dest' con lo demás
+      }
+    }
+    if (!regs.length && !confirm(`¿Eliminar ${items.join(', ')} del escenario?\n\nSus regiones y unidades pasan a ${$('#mDest').value}; se quitan de alianzas, guerras, comercio y acuerdos, y el juego deja de cargar sus archivos (los archivos no se borran).\n\nNo probado en el juego: haz una copia del escenario antes.`)) return;
+    Object.assign(body, { action: 'country_delete', countries: items, to: (typeof dest !== 'undefined' && dest) || $('#mDest').value });
   }
   if (what === 'csurr') {
     const city = $('#mSurCity').value.trim(); if (!city) return note('Escribe la ciudad que será su capital anhelada', true);
@@ -922,6 +1115,7 @@ async function multiAction(what, items) {
   if (what === 'trade' || what === 'aid') Object.assign(body, { action: what, origin: $('#mOrg').value, targets: items.filter(x => x !== $('#mOrg').value) });
   if (what === 'embargo') Object.assign(body, { action: 'embargo', origin: $('#mOrg').value, targets: items.filter(x => x !== $('#mOrg').value), turn: +$('#mTurn').value || 1 });
   if (what === 'gjsel' && !items.length) return note('Elige al menos una región', true);
+  if (what === 'xpack') { if (items.length) parent.postMessage({ cmd: 'exportToPack', regions: items }, location.origin); return; }
   if (items.length < (['war', 'warev', 'trade', 'aid', 'embargo', 'merge'].includes(what) ? 2 : 1)) return note(what === 'merge' ? 'Elige al menos dos regiones' : 'Elige al menos dos países', true);
   if (what === 'gjsel') {          // solo las regiones elegidas, con lo que hay en ellas
     const a = document.createElement('a');
@@ -929,7 +1123,12 @@ async function multiAction(what, items) {
     a.download = S.scen + ' seleccion.geojson.zip'; a.click(); return;
   }
   if (what === 'merge') return mergeRegions(items, $('#mInto').value);
-  if (what === 'delregs') return mergeRegions(items, ($('#mDelInto').value || '').trim() || null, true);
+  if (what === 'delregs') {
+    if (!$('#save').disabled) return alert('Guarda o revierte antes los cambios de este escenario: al eliminar regiones se reescriben los escenarios que usan el regionpack.');
+    const f = await areaFateDialog(`¿Qué hacer con el área de las ${items.length} región(es) que se eliminan?`, items);
+    if (f) await applyAreaFate(items, f);
+    return;
+  }
   const r = await api('/api/scen/bulk', body);
   if (r.error) return note(r.error, true);
   setDirty(r.dirty);
@@ -1005,7 +1204,14 @@ window.addEventListener('message', e => {
   if (e.data.ev === 'mapPick' && PICK) { const r = PICK; PICK = null; frameMsg({ cmd: 'pick', on: false }); sendOverlay(); r({ x: e.data.x, y: e.data.y }); return; }
   if (e.data.ev === 'pointMoved') { movePoint(e.data.id, e.data.x, e.data.y); return; }
   if (e.data.ev === 'pointRotate') { setDirection(e.data.id, e.data.deg); return; }
+  if (e.data.ev === 'gapClick') {      // zona sin región: crearla en el editor de regiones (allí se elige terrestre o marítima)
+    if (confirm(`Región vacía (${e.data.x.toFixed(2)}, ${e.data.y.toFixed(2)}).\n\n¿Abrir el editor de regiones con esta zona elegida para crear ahí una región terrestre o marítima?`))
+      window.open(`/?pack=${encodeURIComponent(S.pack || 'World')}&scenario=${encodeURIComponent(S.scen)}&gap=${e.data.x.toFixed(4)},${e.data.y.toFixed(4)}`, '_blank');
+    return;
+  }
   if (e.data.ev === 'mapReady') { LY.frameReady = true; sendOverlay(); if (document.querySelector('[data-pt]:checked')) sendPoints(); if ($('#bombRange').checked) sendRings(); }
+  if (EB.picking && multiOn() && multiKind() === 'elements' && e.data.ev === 'regionClick') { const r = LY.data && LY.data.regions[e.data.region]; return batchPicked(r && r.owner, e.data.region); }
+  if (EB.picking && multiOn() && multiKind() === 'elements' && e.data.ev === 'pointClick') { const p = (LY.points || []).find(x => x.id === e.data.id); return batchPicked(p && p.owner, p ? p.label : ''); }
   if (e.data.ev === 'regionClick') onRegionClick(e.data.region, e.data.sea);
   if (e.data.ev === 'regionDblClick') { openRegionCard(e.data.region, e.data.sea); return; }
   if (e.data.ev === 'pointClick') {
@@ -1115,6 +1321,72 @@ async function playableSection(d) {
 }
 
 // ------------------------------------------------------------------ Surrendered, país e IA
+// escala de los modelos 3D (fScale de DisplayLibraries/SpriteLibraries): lista a la izquierda, edición a la derecha
+// unidades que se pueden fabricar desde el inicio: proyectos de investigación completados para todos o para un país
+async function showStartUnits(msg) {
+  const country = S.suCountry || '';
+  const r = await api(`/api/scen/start_research?name=${encodeURIComponent(S.scen)}&country=${encodeURIComponent(country)}`);
+  if (r.error) return note(r.error, true);
+  const on = p => country ? p.country : p.default;
+  S.cols = ['✓', 'Proyecto', 'Desbloquea', 'Tipo', 'Rama']; S.sort = [1, 1];
+  S.rows = r.projects.map(p => ({ id: p.name, cols: [on(p) ? '✓' : '', p.name, p.outputs.join(', '), p.unit_kind || p.type, p.branch] }));
+  S.suChecked = new Set(r.projects.filter(on).map(p => p.name));
+  renderList();
+  if (rview !== 'obj') showRight('obj');
+  $('#right').innerHTML = `${msg ? `<div class="note">${esc(msg)}</div>` : ''}<h2>Unidades al empezar</h2>
+    <p class="muted">Un país puede fabricar una unidad (o un edificio) cuando tiene completado el proyecto de investigación que la desbloquea.
+      Marca en la lista los proyectos completados al empezar: <b>para todos los países</b> (bCompletedByDefault en sharedDataResearch.xml) o <b>para un país</b>
+      (su player&lt;País&gt;.xml). «The Modern World» completa así muchas más unidades que el juego de serie.</p>
+    <div class="row">Para <select id="suCountry"><option value="">todos los países</option>${r.countries.map(c => `<option ${c === country ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select>
+      ${country && r.has_player === false ? '<span class="err-t">sin player' + esc(country) + '.xml</span>' : ''}</div>
+    <div class="row" style="margin-top:6px"><button class="btn small" id="suUnits">Marcar las que desbloquean unidades</button><button class="btn small" id="suNone">Desmarcar todas</button>
+      <button class="btn primary" id="suApply">Aplicar</button></div>
+    <div class="muted" style="margin-top:6px">Un proyecto con requisitos (columna «Proyecto» de la pestaña Investigación) necesita también los suyos completados.</div>`;
+  $('#suCountry').onchange = () => { S.suCountry = $('#suCountry').value; showStartUnits(); };
+  $('#suUnits').onclick = () => { r.projects.filter(p => p.units.length).forEach(p => S.suChecked.add(p.name)); renderList(); };
+  $('#suNone').onclick = () => { S.suChecked.clear(); renderList(); };
+  $('#suApply').onclick = async () => {
+    const x = await api('/api/scen/start_research', { name: S.scen, country, on: [...S.suChecked] }); if (x.error) return alert(x.error);
+    setDirty(x.dirty); showStartUnits(x.notes.join('; ') + '. Falta «Guardar».');
+  };
+}
+async function showScale3D(msg) {
+  const r = await api('/api/scen/sprites?name=' + encodeURIComponent(S.scen));
+  if (r.error) return note(r.error, true);
+  S.scaleRows = r.sprites;
+  S.cols = ['Modelo', 'Escala', 'Tipo', 'Archivo']; S.sort = [2, 1];
+  S.rows = r.sprites.map(x => ({ id: x.id, cols: [x.name, x.scale + (x.dirty ? ' *' : ''), x.kind, x.file + (x.where === 'scenario' ? ' (escenario)' : '')] }));
+  renderList();
+  if (rview !== 'obj') showRight('obj');
+  $('#right').innerHTML = `${msg ? `<div class="note">${esc(msg)}</div>` : ''}<h2>Escala 3D de ciudades, recursos y unidades</h2>
+    <p class="muted">fScale de los modelos 3D (Modern Europe/system/DisplayLibraries/SpriteLibraries). Son archivos del juego: valen para todos los escenarios.
+      Los cambios quedan en memoria hasta «Guardar en el juego», que anota los valores anteriores para poder deshacerlo.
+      Los SpriteLib del propio escenario (si los tiene) se guardan con «Guardar escenario».</p>
+    ${r.pending.length ? `<div class="note err">Sin guardar en el juego: ${esc(r.pending.join(', '))}</div>` : ''}
+    <div class="sec"><h3>Cambiar las que muestra la lista (filtro: «${esc($('#filter').value || 'todas')}»)</h3>
+      <div class="row">Multiplicar por <input id="scMul" type="number" step="0.05" value="1.25" style="width:80px"> <button class="btn" id="scMulGo">Aplicar a las de la lista</button>
+      <span class="muted">o fijar a</span> <input id="scSet" type="number" step="0.001" style="width:90px" placeholder="valor"> <button class="btn" id="scSetGo">Fijar</button></div></div>
+    <div class="sec" id="scOne"><span class="muted">Elige un modelo en la lista para cambiar solo ese.</span></div>
+    <div class="row"><button class="btn primary" id="scSave" ${r.pending.length ? '' : 'disabled'}>Guardar en el juego</button>
+      <button class="btn" id="scDiscard" ${r.pending.length ? '' : 'disabled'}>Descartar cambios</button>
+      <button class="btn" id="scUndo" ${r.can_undo ? '' : 'disabled'} title="Vuelve a los valores de antes del último «Guardar en el juego»">Deshacer el último guardado</button></div>`;
+  const visible = () => { const f = $('#filter').value.trim().toLowerCase(); return S.rows.filter(x => !f || x.cols.join(' ').toLowerCase().includes(f)); };
+  const set = async values => { const x = await api('/api/scen/sprites', { op: 'set', values }); if (x.error) return alert(x.error); showScale3D(x.notes.join('; ')); };
+  $('#scMulGo').onclick = () => { const k = +$('#scMul').value; if (!(k > 0)) return; const v = {}; for (const x of visible()) { const sp = S.scaleRows.find(y => y.id === x.id); v[x.id] = +sp.scale * k; } set(v); };
+  $('#scSetGo').onclick = () => { const k = +$('#scSet').value; if (!(k > 0)) return; const v = {}; for (const x of visible()) v[x.id] = k; set(v); };
+  $('#scSave').onclick = async () => { if (!confirm('¿Escribir las escalas en los archivos del juego (DisplayLibraries/SpriteLibraries)? Afecta a todos los escenarios; se puede deshacer.')) return;
+    const x = await api('/api/scen/sprites', { op: 'save' }); if (x.error) return alert(x.error); showScale3D(x.notes.join('; ')); };
+  $('#scDiscard').onclick = async () => { const x = await api('/api/scen/sprites', { op: 'discard' }); showScale3D((x.notes || [x.error]).join('; ')); };
+  $('#scUndo').onclick = async () => { if (!confirm('¿Deshacer el último cambio de escalas guardado en el juego?')) return;
+    const x = await api('/api/scen/sprites', { op: 'undo' }); if (x.error) return alert(x.error); showScale3D(x.notes.join('; ')); };
+}
+// clic en una fila de la pestaña Escala 3D: editar solo ese modelo
+function scaleOne(id) {
+  const sp = (S.scaleRows || []).find(x => x.id === id); if (!sp || !$('#scOne')) return;
+  $('#scOne').innerHTML = `<b>${esc(sp.name)}</b> <span class="muted">${esc(sp.file)}</span><div class="row" style="margin-top:4px">fScale <input id="scV" type="number" step="0.0001" value="${esc(sp.scale)}" style="width:110px">
+    <button class="btn small primary" id="scVGo">Aplicar</button></div>`;
+  $('#scVGo').onclick = async () => { const x = await api('/api/scen/sprites', { op: 'set', values: { [id]: +$('#scV').value } }); if (x.error) return alert(x.error); showScale3D(x.notes.join('; ')); };
+}
 async function showSurrendered() {
   if (!LY.data) LY.data = await api('/api/scen/mapdata?name=' + encodeURIComponent(S.scen));
   const list = LY.data.surrendered;
@@ -1188,7 +1460,27 @@ async function claimsSection(d) {
   };
   load('Historic');
 }
+// cambiar el nombre de un país: solo cómo se ve en el juego, o también el nombre interno (archivos, referencias, SID)
+function renameSection(d) {
+  const box = document.createElement('div'); box.className = 'sec'; box.id = 'renSec';
+  box.innerHTML = `<h3>Cambiar el nombre</h3><div class="row"><input id="renNew" value="${esc(d.label)}" style="width:220px">
+    <label title="Marcado: cambia el nombre interno en todo el escenario (dueños, diplomacia, IA, eventos, alianzas…), renombra country/player${esc(d.label)}.xml al guardar y crea sus SID. Sin marcar: solo el texto que se ve en el juego">
+    <input type="checkbox" id="renCode"> aplicarlo al código (nombre interno, archivos y referencias)</label>
+    <button class="btn small primary" id="renGo">Cambiar nombre</button></div>
+    <div class="muted">Sin marcar: solo cambia cómo se ve en el juego (más seguro). Marcado: el país pasa a llamarse así en todos los archivos del escenario.</div>`;
+  $('#right').appendChild(box);
+  $('#renGo').onclick = async () => {
+    const nw = $('#renNew').value.trim(), code = $('#renCode').checked; if (!nw || (nw === d.label && code)) return;
+    if (code && !confirm(`¿Cambiar el nombre interno de ${d.label} a ${nw} en todo el escenario? Sus archivos se renombran al guardar.`)) return;
+    const r = await api('/api/scen/rename_country', { name: S.scen, old: d.label, new: nw, code });
+    if (r.error) return alert(r.error);
+    setDirty(r.dirty); LY.data = null; LY.points = null;
+    if (code) { S.opts = await api('/api/scen/options?name=' + encodeURIComponent(S.scen)); await refreshList(); }
+    if (r.id) { const nd = await api('/api/scen/obj?id=' + r.id); S.obj = nd; renderObj(nd, { text: r.notes.join('; ') + '. Falta «Guardar».' }); }
+  };
+}
 async function countrySection(d) {
+  renameSection(d);
   if (!LY.data) LY.data = await api('/api/scen/mapdata?name=' + encodeURIComponent(S.scen));
   const c = LY.data.countries[d.label]; if (!c) return;
   const sur = LY.data.surrendered.find(x => x.country === d.label);
@@ -1416,7 +1708,7 @@ async function eventSection(d) {
 // efectos de las plantillas: tipo + sus datos
 const EFF_TYPES = [['war', 'Declarar la guerra'], ['embargo', 'Embargo comercial'], ['lift', 'Levantar un embargo'], ['gov', 'Cambiar la ideología'],
   ['resource', 'Dar recursos (ayuda)'], ['independence', 'Crear o liberar un país'], ['annex', 'Anexionar un país'], ['units', 'Crear unidades'],
-  ['dip', 'Cambiar las relaciones'], ['culture', 'Cambiar la cultura de regiones (experimental)'], ['none', 'Nada']];
+  ['dip', 'Cambiar las relaciones'], ['flag', 'Cambiar la bandera'], ['culture', 'Cambiar la cultura de regiones (experimental)'], ['none', 'Nada']];
 function effFields(p, type) {
   const own = '(el país del evento)', I = CI;
   const F = {
@@ -1430,6 +1722,7 @@ function effFields(p, type) {
     units: () => `<label>País</label>${csel(p + 'country', '', own)}<label>Unidad</label><select id="${p}template">${optList(I.units)}</select>
       <label>Cantidad</label><input id="${p}n" type="number" value="1" min="1"><label>Región</label><input id="${p}region" list="${p}regDl"><datalist id="${p}regDl">${optList(I.land)}</datalist>
       <label>Nombre del grupo</label><input id="${p}name" value="New Army">`,
+    flag: () => `<label>País</label>${csel(p + 'country', '', own)}<label>Bandera (nombre del .tga, sin extensión)</label><input id="${p}flag">`,
     dip: () => `<label>Con</label>${csel(p + 'b')}<label>Cambio (−1000 a 1000)</label><input id="${p}amount" type="number" value="100">`,
     culture: () => `<label>Regiones</label><input id="${p}regions" list="${p}regDl" placeholder="Región1, Región2"><datalist id="${p}regDl">${optList(I.land)}</datalist>
       <label>Cultura</label><select id="${p}culture">${optList(I.cultures || [])}</select><div class="hint muted">El juego no tiene una acción para esto: se usa ActAlterProperty sobre strCulture. Pruébalo en el juego.</div>`,
@@ -1440,7 +1733,7 @@ function effFields(p, type) {
 function effRead(p, type) {
   const v = k => { const el = document.getElementById(p + k); return el ? el.value.trim() : undefined; };
   const o = { type };
-  for (const k of ['to', 'country', 'gov', 'resource', 'amount', 'from', 'loser', 'winner', 'template', 'n', 'region', 'name', 'b', 'culture']) { const x = v(k); if (x !== undefined && x !== '') o[k] = x; }
+  for (const k of ['to', 'country', 'gov', 'resource', 'amount', 'from', 'loser', 'winner', 'template', 'n', 'region', 'name', 'b', 'culture', 'flag']) { const x = v(k); if (x !== undefined && x !== '') o[k] = x; }
   if (type === 'culture') o.regions = (v('regions') || '').split(',').map(x => x.trim()).filter(Boolean);
   return o;
 }
@@ -1475,6 +1768,72 @@ async function historicPanel(country) {
   $('#hrFit').onclick = () => { if (hs.length) frameMsg({ cmd: 'fit', regions: hs }); };
 }
 
+// ------------------------------------------------------------------ regiones entre escenarios: importar de otro escenario o de un archivo, exportar
+const RX = { rows: [], bundle: null };
+$('#regXfer').onclick = async () => {
+  $('#rxTo').textContent = '→ ' + S.scen;
+  const others = [...$('#scen').options].map(o => o.value).filter(n => n && n !== S.scen);
+  $('#rxSrc').innerHTML = others.map(n => `<option>${esc(n)}</option>`).join('') + `<option value="${esc(S.scen)}">${esc(S.scen)} (este, para exportar)</option>`;
+  RX.bundle = null; $('#rxPlanOut').innerHTML = ''; await rxLoad(); rxDlg.showModal();
+};
+async function rxLoad() {
+  const src = $('#rxSrc').value; RX.bundle = null;
+  const r = await api(`/api/scen/tab?name=${encodeURIComponent(src)}&tab=regions`);
+  RX.rows = (r.rows || []).map(x => ({ name: x.cols[0], owner: x.cols[1] }));
+  rxDraw();
+}
+function rxDraw() {
+  const f = $('#rxFilter').value.trim().toLowerCase(), keep = new Set([...$('#rxList').querySelectorAll('input:checked')].map(i => i.value));
+  $('#rxList').innerHTML = RX.rows.map(x => `<label style="display:${!f || (x.name + ' ' + x.owner).toLowerCase().includes(f) ? 'block' : 'none'}"><input type="checkbox" value="${esc(x.name)}" ${keep.has(x.name) ? 'checked' : ''}> ${esc(x.name)} <span class="muted">${esc(x.owner)}</span></label>`).join('');
+  rxCount();
+}
+const rxSel = () => [...$('#rxList').querySelectorAll('input:checked')].map(i => i.value);
+const rxCount = () => { $('#rxCount').textContent = `${rxSel().length} marcadas`; };
+$('#rxSrc').onchange = () => { $('#rxPlanOut').innerHTML = ''; rxLoad(); };
+$('#rxFilter').oninput = rxDraw; $('#rxList').onchange = rxCount;
+$('#rxAll').onclick = () => { $('#rxList').querySelectorAll('label').forEach(l => { if (l.style.display !== 'none') l.querySelector('input').checked = true; }); rxCount(); };
+$('#rxNone').onclick = () => { $('#rxList').querySelectorAll('input').forEach(i => { i.checked = false; }); rxCount(); };
+$('#rxExport').onclick = async () => {
+  const regs = rxSel(); if (!regs.length) return alert('Marca al menos una región');
+  const b = await api(`/api/scen/region_export?name=${encodeURIComponent($('#rxSrc').value)}&units=${$('#rxUnits').checked ? 1 : 0}&regions=${encodeURIComponent(regs.join('|'))}`);
+  if (b.error) return alert(b.error);
+  const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([JSON.stringify(b)], { type: 'application/json' }));
+  a.download = `regiones_${$('#rxSrc').value}_${regs.length}.json`.replace(/[\\/:*?"<>|]/g, '_'); a.click(); URL.revokeObjectURL(a.href);
+};
+$('#rxFileBtn').onclick = () => $('#rxFile').click();
+$('#rxFile').onchange = async () => {
+  const f = $('#rxFile').files[0]; $('#rxFile').value = ''; if (!f) return;
+  try { RX.bundle = JSON.parse(await f.text()); } catch (e) { return alert('El archivo no es un .json válido'); }
+  rxPlan();
+};
+$('#rxPlan').onclick = () => { RX.bundle = null; rxPlan(); };
+function rxBody(extra) {
+  const base = { name: S.scen, cities: $('#rxCities').checked, units: $('#rxUnits').checked, ...extra };
+  if (RX.bundle) return { ...base, bundle: RX.bundle };
+  return { ...base, src: $('#rxSrc').value, regions: rxSel() };
+}
+async function rxPlan() {
+  if (!RX.bundle) {
+    if ($('#rxSrc').value === S.scen) return alert('Para importar, elige otro escenario de origen (este solo sirve para exportar)');
+    if (!rxSel().length) return alert('Marca al menos una región');
+  }
+  const p = await api('/api/scen/region_import', rxBody({ dry: true }));
+  if (p.error) return alert(p.error);
+  const miss = p.owners.filter(o => !o.exists);
+  $('#rxPlanOut').innerHTML = `<div class="sec"><b>${p.regions} región(es) de «${esc(p.source || '?')}»</b>: ${p.found.length} existen en este escenario${p.missing.length ? `, <span class="err-t">${p.missing.length} no (no se importan: ${esc(p.missing.slice(0, 12).join(', '))})</span>` : ''}.
+    <div>${p.cities} ciudades, ${p.producers} recursos, ${p.units} unidades. Ya existen (se actualizan, no se duplican): ${p.duplicates.cities} ciudades, ${p.duplicates.producers} recursos, ${p.duplicates.units} unidades.</div>
+    ${miss.length ? '<div style="margin-top:6px"><b>Países que no existen aquí</b>: elige a cuál pasan sus regiones, ciudades y unidades</div>' + miss.map(o =>
+      `<div class="row">${esc(o.name)} → <select data-map="${esc(o.name)}"><option value="">(elige país)</option>${p.countries.map(c => `<option>${esc(c)}</option>`).join('')}</select></div>`).join('') : ''}
+    <div class="row" style="margin-top:6px"><button class="btn primary" id="rxGo" ${p.found.length ? '' : 'disabled'}>Importar en «${esc(S.scen)}»</button></div></div>`;
+  $('#rxGo').onclick = async () => {
+    const mapping = {}; for (const s of $('#rxPlanOut').querySelectorAll('[data-map]')) { if (!s.value) return alert('Elige a qué país pasa ' + s.dataset.map); mapping[s.dataset.map] = s.value; }
+    const r = await api('/api/scen/region_import', rxBody({ mapping }));
+    if (r.error) return alert(r.error);
+    setDirty(r.dirty); LY.data = null; LY.points = null; refreshList(); rxDlg.close();
+    note(r.notes.join('; ') + '. Falta «Guardar».');
+    if (rview === 'map') { loadLayerData(); frameMsg({ cmd: 'reloadScen' }); }
+  };
+}
 // ------------------------------------------------------------------ alianzas: pasar un país a otra alianza (o a una nueva)
 async function moveToAlliance(country, btn, d) {
   if (!LY.data) LY.data = await api('/api/scen/mapdata?name=' + encodeURIComponent(S.scen));
@@ -1880,7 +2239,7 @@ async function placeSection(d) {
     <input id="plDirN" type="number" min="0" max="359" value="${dir}" style="width:60px">°
     <svg width="34" height="34" viewBox="-17 -17 34 34"><circle r="15" fill="none" stroke="currentColor" stroke-opacity=".4"/><line id="plArrow" x1="0" y1="0" x2="0" y2="-13" stroke="#f97316" stroke-width="3" transform="rotate(${dir})"/><text y="-6" x="-3" font-size="7" fill="currentColor" opacity=".6">N</text></svg>
     <button class="btn small primary" id="plDirGo">Aplicar orientación</button></div>
-    <div class="muted">0° norte, 90° este, 180° sur, 270° oeste. En el mapa, con «Mover y girar…» marcado: clic en la ${unit ? 'unidad' : 'ciudad'} y clic derecho donde debe mirar.</div>
+    <div class="muted">0° norte, 90° este, 180° sur, 270° oeste. En el mapa, con «Mover y rotar…» marcado: clic en la ${unit ? 'unidad' : 'ciudad'} y clic derecho donde debe mirar.</div>
     ${d.type === 'Fleet' ? `<div class="row" style="margin-top:6px">Meter en el puerto de <select id="plPort">${ports.map(p => `<option value="${esc(p.city)}">${esc(p.city)} (${esc(p.region)} · ${esc(p.sea)})</option>`).join('') || '<option value="">(su país no tiene ciudades con puerto)</option>'}</select>
       <button class="btn small" id="plPortGo" ${ports.length ? '' : 'disabled'}>Meter en puerto</button></div>` : ''}`;
   $('#right').appendChild(box);
@@ -1924,12 +2283,24 @@ $('#selRegs').onclick = async () => {      // selección de regiones en el mapa 
 $('#newScen').onclick = async () => {
   const info = await api('/api/pack/info'), dlg = $('#nsDlg');
   $('#nsPack').innerHTML = (info.packs || [info.pack]).map(p => `<option>${esc(p)}</option>`).join(''); $('#nsPack').value = S.pack || info.pack;
+  // base: vacío (sin naciones) o una copia entera de un escenario; «Scenario Template» (todo el mapa de un país, para repartir) primero
+  const scens = [...$('#scen').options].map(o => o.value).filter(Boolean);
+  const tpl = scens.find(n => /^scenario template$/i.test(n));
+  $('#nsBase').innerHTML = '<option value="">vacío (sin naciones)</option>' + (tpl ? `<option value="${esc(tpl)}">${esc(tpl)} (plantilla)</option>` : '')
+    + scens.filter(n => n !== tpl).map(n => `<option value="${esc(n)}">copia de ${esc(n)}</option>`).join('');
+  $('#nsBase').value = tpl || '';
+  const sync = () => { const b = $('#nsBase').value; $('#nsPack').style.display = $('#nsPackL').style.display = b ? 'none' : '';
+    $('#nsHelp').textContent = b ? `Copia entera de «${b}» (archivos, naciones, regiones y su regionpack) con el nombre nuevo; «${b}» no se toca.` : 'Se crea vacío, sin naciones: luego se añaden naciones y se les asignan regiones (aquí o en el editor de regiones).'; };
+  $('#nsBase').onchange = sync; sync();
   const ok = await new Promise(res => { dlg.onclose = () => res(dlg.returnValue === 'ok'); dlg.returnValue = ''; dlg.showModal(); });
   if (!ok || !$('#nsName').value.trim()) return;
-  const r = await api('/api/scen/new_scratch', { name: $('#nsName').value.trim(), pack: $('#nsPack').value, display: $('#nsDisp').value.trim() || null });
+  const base = $('#nsBase').value;
+  const r = base ? await api('/api/scen/new_from', { src: base, name: $('#nsName').value.trim(), display: $('#nsDisp').value.trim() || null })
+    : await api('/api/scen/new_scratch', { name: $('#nsName').value.trim(), pack: $('#nsPack').value, display: $('#nsDisp').value.trim() || null });
   if (r.error) return alert(r.error);
   const o = document.createElement('option'); o.value = o.textContent = r.name; $('#scen').appendChild(o);
-  $('#scen').value = r.name; await openScenario(r.name); note(`Escenario «${r.name}» creado sobre ${$('#nsPack').value}. Añade naciones con «＋ Nuevo» en la pestaña Naciones.`);
+  $('#scen').value = r.name; await openScenario(r.name);
+  note(base ? `Escenario «${r.name}» creado como copia de «${base}» (regionpack ${r.pack || '?'}).` : `Escenario «${r.name}» creado sobre ${$('#nsPack').value}. Añade naciones con «＋ Nuevo» en la pestaña Naciones.`);
 };
 // si las regiones del escenario no cuadran con su regionpack, el juego no lo carga: ofrecer adecuarlo antes de guardar
 async function saveScen(body) {
@@ -2184,9 +2555,15 @@ $('#warGo').onclick = async () => {
 
 // ------------------------------------------------------------------ abrir archivo
 $('#openfile').onclick = () => { filesDlg.showModal(); browse(localStorage.getItem('mh-cwd') || 'Modern Europe\\system\\scenarios'); };
-async function browse(rel) {
-  const r = await api('/api/files/list?rel=' + encodeURIComponent(rel));
-  if (r.error) return; try { localStorage.setItem('mh-cwd', r.rel); } catch (e) {}
+async function browse(rel, retry = true) {
+  let r;
+  try { r = await api('/api/files/list?rel=' + encodeURIComponent(rel)); } catch (e) { r = { error: String(e) }; }
+  if (r.error) {     // carpeta recordada que ya no existe (escenario borrado, cambio MH1 ↔ Gold…): se vuelve a la de escenarios
+    const home = 'Modern Europe\\system\\scenarios';
+    if (retry) return browse(rel === home ? '.' : home, rel !== home);
+    $('#fileinfo').innerHTML = `<div class="note err">${esc(r.error)}</div>`; return;
+  }
+  try { localStorage.setItem('mh-cwd', r.rel); } catch (e) {}
   $('#cwd').textContent = r.rel === '.' ? '(carpeta del juego)' : r.rel; $('#fileinfo').innerHTML = '';
   const up = r.rel === '.' ? '' : `<li data-dir="${esc(r.rel + '\\..')}">📁 ..</li>`;
   $('#filelist').innerHTML = up + r.entries.map(e => e.dir ? `<li data-dir="${esc(e.rel)}">📁 ${esc(e.name)}</li>`
@@ -2250,7 +2627,7 @@ $('#convGo').onclick = async () => {
   const to = $('#convTo').value;
   $('#convGo').disabled = true; $('#convWait').textContent = 'Convirtiendo… (puede tardar un minuto)';
   const r = await api('/api/scen/convert', { name: S.scen, to, out: $('#convOut').value.trim(), colors: !!$('#convColors').value,
-    infra: $('#convInfra').value, units_only: !!$('#convUnits').value, complete_new: !!$('#convNew').value, remove_partisan_event: !!$('#convPart').value, skip_images: !!$('#convImg').value });
+    infra: $('#convInfra').value, units_only: !!$('#convUnits').value, complete_new: !!$('#convNew').value, remove_partisan_event: !!$('#convPart').value, skip_images: !!$('#convImg').value, regionpack: $('#convMap').value });
   $('#convGo').disabled = false; $('#convWait').textContent = '';
   if (r.error) { $('#convRes').textContent = 'ERROR: ' + r.error; return; }
   $('#convRes').textContent = r.resumen;

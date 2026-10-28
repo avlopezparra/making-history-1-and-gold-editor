@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<namespace name="Name Space" version="0.1">
+	<file name="scenarioDefs.xml" />
+	<stringTable filename="stringTable.xml" />
+</namespace>

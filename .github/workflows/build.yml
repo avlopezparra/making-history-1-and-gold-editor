@@ -25,4 +25,4 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/')
         with:
           files: MHEditor.zip
-          generate_release_notes: true
+          body_path: CHANGELOG_3.0.md

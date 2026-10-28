@@ -130,6 +130,47 @@
       n = it.nextNode();
     }
   }
+  // ---- modo oscuro: por defecto el del sistema; si el usuario lo cambia, se recuerda (mh-theme = light | dark).
+  // Las reglas @media (prefers-color-scheme: dark) de la página pasan a un <style> propio que se activa o no sin recargar
+  // (recargar el editor de escenarios descarta lo no guardado).
+  const DARKQ = window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)') : null;
+  let darkStyle = null;
+  const themePref = () => { try { return localStorage.getItem('mh-theme'); } catch (e) { return null; } };
+  const isDark = () => (themePref() || (DARKQ && DARKQ.matches ? 'dark' : 'light')) === 'dark';
+  function captureDark() {
+    if (darkStyle) return;
+    let css = '';
+    for (const sh of [...document.styleSheets]) {
+      let rules; try { rules = sh.cssRules; } catch (e) { continue; }
+      for (let i = rules.length - 1; i >= 0; i--) {
+        const r = rules[i];
+        if (r.media && /prefers-color-scheme:\s*dark/.test(r.media.mediaText)) { css = [...r.cssRules].map(x => x.cssText).join('\n') + '\n' + css; sh.deleteRule(i); }
+      }
+    }
+    darkStyle = document.createElement('style'); darkStyle.id = 'mhDarkTheme'; darkStyle.textContent = css;
+    document.head.appendChild(darkStyle);
+  }
+  function applyTheme() {
+    captureDark();
+    const d = isDark(); darkStyle.disabled = !d;
+    document.documentElement.style.colorScheme = d ? 'dark' : 'light';
+    document.documentElement.dataset.theme = d ? 'dark' : 'light';
+    for (const b of document.querySelectorAll('.mhThemeBtn')) { b.textContent = d ? '☀' : '☾'; b.title = lang() === 'en' ? (d ? 'Light mode' : 'Dark mode') : (d ? 'Modo claro' : 'Modo oscuro'); }
+  }
+  window.MH_APPLY_THEME = applyTheme;
+  if (DARKQ && DARKQ.addEventListener) DARKQ.addEventListener('change', () => { if (!themePref()) applyTheme(); });
+  function themeToggle(after) {
+    const b = document.createElement('button'); b.type = 'button'; b.className = 'mhThemeBtn';
+    b.style.cssText = 'margin-left:6px;min-width:30px;font-size:15px;line-height:1;cursor:pointer';
+    b.onclick = () => {
+      try { localStorage.setItem('mh-theme', isDark() ? 'light' : 'dark'); } catch (e) {}
+      applyTheme();
+      for (const f of document.querySelectorAll('iframe')) { try { f.contentWindow.MH_APPLY_THEME && f.contentWindow.MH_APPLY_THEME(); } catch (e) {} }
+      try { if (parent !== window && parent.MH_APPLY_THEME) parent.MH_APPLY_THEME(); } catch (e) {}
+    };
+    after.after(b); applyTheme();
+  }
+  try { applyTheme(); } catch (e) {}      // en cuanto se carga (las hojas de estilo del <head> ya están)
   function selector() {
     const sel = document.createElement('select');
     sel.title = 'Idioma del editor / Editor language';
@@ -151,12 +192,22 @@
       box.style.cssText = slot ? 'display:flex;flex-direction:column;gap:2px;margin-left:6px' : 'display:inline-flex;gap:6px;align-items:center';
       if (slot) box.append(discord(), hub(), updBtn()); else box.append(hub(), discord(), updBtn());
       (slot || bar).appendChild(box);
+      if (slot) {     // los tres apilados no más altos que el botón «Ver / propiedad» de la barra
+        const fit = () => {
+          const ref = document.getElementById('viewBtn') || document.querySelector('.tool'); if (!ref || !ref.offsetHeight) return;
+          box.style.height = ref.offsetHeight + 'px'; box.style.gap = '1px';
+          for (const a of box.children) Object.assign(a.style, { flex: '1 1 0', minHeight: '0', display: 'flex', alignItems: 'center', justifyContent: 'center',
+            padding: '0 8px', fontSize: '10px', lineHeight: '1', borderRadius: '4px', overflow: 'hidden' });
+        };
+        requestAnimationFrame(fit); [300, 1000, 3000].forEach(t => setTimeout(fit, t)); window.addEventListener('resize', fit);
+      }
+      themeToggle(sel);
       setTimeout(() => checkUpdates(false), 1500);
     }   // #creditsSlot: sitio propio de la página (p. ej. junto a Topología)
     else { Object.assign(sel.style, { position: 'fixed', right: '8px', bottom: '8px', zIndex: 9999 }); document.body.appendChild(sel); }
   }
   // créditos, Discord (novedades y actualizaciones) y dónde avisar de errores
-  const VERSION = '2.3';
+  const VERSION = '3.0';
   const DISCORD = 'https://discord.com/invite/gFJyCjWEnr', BUGS = 'alopezcl@protonmail.com',
     UPDATES = 'https://github.com/avlopezparra/making-history-1-and-gold-editor/releases/', HUB = 'https://gamebanana.com/games/6530';
   // botón «Join Discord» aparte, en el morado de Discord
@@ -213,6 +264,7 @@
           <p><a href="${UPDATES}" target="_blank" rel="noopener">${en ? 'Check for updates' : 'Buscar actualizaciones'}</a> · <a href="${DISCORD}" target="_blank" rel="noopener">${en ? 'Join the Discord' : 'Únete al Discord'}</a></p>
           <p><a href="${HUB}" target="_blank" rel="noopener">${en ? 'GameBanana hub of the game' : 'Hub del juego en GameBanana'}</a> · ${en ? 'upload your regionpacks and scenarios' : 'sube tus regionpacks y escenarios'}</p>
           <p>${en ? 'Report bugs to' : 'Informa de errores a'} <a href="mailto:${BUGS}">${BUGS}</a></p>
+          <p>${en ? 'Support the editor:' : 'Apoya el editor:'} <a href="https://paypal.me/alopcl" target="_blank" rel="noopener">${en ? 'Donate' : 'Donar'}</a></p>
           <form method="dialog" style="text-align:right"><button>${en ? 'Close' : 'Cerrar'}</button></form>`;
         document.body.appendChild(d);
       }

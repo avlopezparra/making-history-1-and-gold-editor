@@ -730,9 +730,7 @@ class Project:
                     d = int(asg['region'])
                     into = asg.get('into')
                     into = int(into) if into is not None else None
-                    if into is not None and (R[into].u_type == SEA) != (R[d].u_type == SEA) and R[d].u_type == SEA:
-                        report['errors'].append('%s es mar: solo puede pasar a otra región de mar o quedar vacía' % R[d].name)
-                        continue
+                    # (un mar, lago o río también puede pasar a una región de tierra: sus flotas y puertos van al mar vecino)
                     add(P(d), d, into)
                     report.setdefault('deleted', []).append({'index': d, 'name': self.rname(d), 'raw': R[d].name,
                                                              'into': self.rname(into) if into is not None else None,
@@ -778,6 +776,8 @@ class Project:
                 for s in owners(poly, exclude={r}):
                     if asg.get('land_only') and R[s].u_type == SEA:
                         continue
+                    if asg.get('same_type_only') and (R[s].u_type == SEA) != (R[r].u_type == SEA):
+                        continue          # casilla «puede quitar área del tipo contrario» desmarcada: tierra solo de tierra, mar solo de mar
                     part = poly.intersection(P(s))
                     if kind == 'assign' and part.area < max(1e-6, 1e-4 * poly.area):
                         # roces de un contorno importado con el borde de una vecina (trozos de milímetros): no se traspasan,
@@ -850,6 +850,13 @@ class Project:
             progress.step(70, 'Comprobando el mapa')
             self.log_change(report, new_pairs, centers, R, payload)
             self.reload()
+            # islas nuevas: su tierra y su costa en el fondo (si no, en el juego solo se ve mar)
+            isl = [c['name'] for c in created if not c.get('sea') and self.is_island(c['name'])]
+            if isl and payload.get('paint', True):
+                try:
+                    report['islands_painted'] = self.paint_islands(isl, log=log)
+                except Exception as e:      # el fondo no debe impedir guardar el mapa
+                    report.setdefault('warnings', []).append('no se pudo pintar en el fondo %s: %s' % (', '.join(isl), e))
             report['map_xml'] = self.inherit_links(created)
             report['new_pairs'] = [[R[a].name, R[b].name] for a, b in new_pairs]
             if report.get('deleted'):
@@ -933,12 +940,15 @@ class Project:
             # la madre es la que aporta más área (de ella hereda dueño, terreno y cultura en los escenarios)
             land = [(poly.intersection(P(s)), s) for s in owners(poly) if R[s].u_type != SEA]
             land = drop_slivers([(p, s) for p, s in land if p.area > MIN_AREA])
+            # la parte que cae en el MAR también pasa a la región nueva (antes solo se tomaba la tierra), salvo que se pida lo contrario
+            water = [] if asg.get('same_type_only') else [(poly.intersection(P(s)), s) for s in owners(poly) if R[s].u_type == SEA]
+            water = [(p, s) for p, s in water if p.area > 1e-8 and p.area < P(s).area * 0.999]
             if land:
                 for p, s in land:
                     if p.area >= P(s).area * 0.999 and s not in self._deleting:
                         report['errors'].append('%s: el polígono cubre toda %s (bórrala o renómbrala en vez de recortarla)' % (name, R[s].name))
                         return
-                pieces = land
+                pieces = land + water
                 mothers_area = {self.rname(s): round(p.area, 6) for p, s in land}
                 mother = max(land, key=lambda x: x[0].area)[1]
                 u_type = int(asg.get('u_type') or R[mother].u_type)
@@ -964,7 +974,7 @@ class Project:
         else:
             under = owners(poly)
             for s in under:
-                if R[s].u_type == SEA:
+                if R[s].u_type == SEA and not asg.get('same_type_only'):     # tierra nueva sobre el mar: le quita el mar (salvo que no se permita)
                     pieces.append((poly.intersection(P(s)), s))
             u_type = int(asg.get('u_type') or 1)
             if asg.get('fill') or not any(p.area > MIN_AREA for p, _ in pieces):     # sobre huecos (p. ej. un mapa vacío) tambien
@@ -992,6 +1002,131 @@ class Project:
                         'nation': asg.get('nation'), 'equivalent': asg.get('equivalent'), 'mothers': mothers_area})
         for p, s in pieces:
             add(p, s, idx)
+
+    def split_by_proximity(self, r):
+        """Reparte la región r (p. ej. un río, un lago o un mar estrecho que se quiere borrar) entre sus vecinas de TIERRA por
+        cercanía: cada punto va a la vecina más próxima (diagrama de Voronoi con puntos de sus fronteras). [{polygon, into, into_name}]"""
+        from shapely.geometry import MultiPoint, mapping as _mp
+        from shapely.ops import voronoi_diagram
+        with self.lock:
+            R = self.m['regions']
+            geo = self.region_geom(self.rname(r))
+            if geo is None or geo.is_empty:
+                return []
+            near = geo.buffer(0.3)
+            pts, owner = [], []
+            for n in set(R[r].neighbors):
+                if n == r or R[n].u_type == SEA:
+                    continue
+                g = self.region_geom(self.rname(n))
+                if g is None:
+                    continue
+                edge = g.boundary.intersection(near)
+                if edge.is_empty:
+                    continue
+                for seg in getattr(edge, 'geoms', [edge]):
+                    if not hasattr(seg, 'interpolate') or seg.length <= 0:
+                        continue
+                    k = max(2, min(200, int(seg.length / 0.02)))
+                    for i in range(k + 1):
+                        pts.append(seg.interpolate(seg.length * i / k)); owner.append(n)
+            if not pts:
+                return []
+            cells = voronoi_diagram(MultiPoint(pts), envelope=geo.envelope.buffer(1))
+            from shapely.strtree import STRtree
+            tree = STRtree(pts)
+            by = {}
+            for c in getattr(cells, 'geoms', [cells]):
+                hit = [int(j) for j in tree.query(c) if c.covers(pts[int(j)])]
+                if not hit:
+                    continue
+                part = c.intersection(geo)
+                if not part.is_empty:
+                    by.setdefault(owner[hit[0]], []).append(part)
+            out = []
+            for n, parts in by.items():
+                u = unary_union(parts)
+                if u.area > MIN_AREA:
+                    out.append({'polygon': _mp(u.buffer(1e-7)), 'into': n, 'into_name': self.rname(n), 'area': round(u.area, 6)})
+            return out
+
+    def small_gaps(self, max_area=0.05, eps=0.03, pair=None, region=None):
+        """Huecos pequeños (sin región) entre regiones: agujeros cerrados y rendijas estrechas de menos de max_area grados².
+        Cada uno con la región (de tierra si la hay) con la que más borde comparte. pair=(a, b): solo los que tocan a las dos."""
+        from shapely.geometry import mapping as _mp, Polygon as _Poly
+        with self.lock:
+            R = self.m['regions']
+            idx = [g.index for g in R]
+            if region is not None and not pair:
+                pair = (region, region)          # solo alrededor de esta región (con cualquier vecina, también el mar al que casi toca)
+            if pair:
+                a, b = pair
+                win = (self.region_geom(self.rname(a)).union(self.region_geom(self.rname(b)))).envelope.buffer(eps * 4)
+                wb = win.bounds
+                idx = [i for i in idx if self.bbox[i] and not (self.bbox[i][2] < wb[0] or self.bbox[i][0] > wb[2]
+                                                               or self.bbox[i][3] < wb[1] or self.bbox[i][1] > wb[3])]
+            geos = {i: self.region_geom(self.rname(i)) for i in idx}
+            geos = {i: g for i, g in geos.items() if g is not None and not g.is_empty}
+            u = unary_union(list(geos.values()))
+            holes = []
+            for part in getattr(u, 'geoms', [u]):
+                if part.geom_type == 'Polygon':
+                    holes += [_Poly(h) for h in part.interiors]
+            slits = u.buffer(eps, join_style=2).buffer(-eps, join_style=2).difference(u)
+            # también las rendijas de MAR entre dos regiones de tierra (p. ej. un mar de relleno que se cuela entre provincias
+            # importadas que no encajaban): se pasan a la tierra para que queden contiguas
+            land_u = unary_union([g for i, g in geos.items() if R[i].u_type != SEA] or [_Poly()])
+            sea_slits = land_u.buffer(eps, join_style=2).buffer(-eps, join_style=2).difference(land_u) if not land_u.is_empty else _Poly()
+            gaps = unary_union(holes + ([slits] if not slits.is_empty else []) + ([sea_slits] if not sea_slits.is_empty else []))
+            from shapely.strtree import STRtree
+            keys = list(geos)
+            tree = STRtree([geos[i] for i in keys])
+            out = []
+            for gp in getattr(gaps, 'geoms', [gaps]):
+                if gp.geom_type != 'Polygon' or gp.area <= MIN_AREA or gp.area > max_area:
+                    continue
+                ring = gp.buffer(1e-5)
+                touch = []
+                for j in tree.query(ring):
+                    i = keys[int(j)]
+                    a_ = geos[i].intersection(ring).area
+                    if a_ > 0:
+                        touch.append((i, a_, R[i].u_type == SEA))
+                if not touch:
+                    continue
+                if pair and not ({pair[0], pair[1]} <= {t[0] for t in touch}):
+                    continue
+                landt = [t for t in touch if not t[2]]
+                best = region if region is not None else max(landt or touch, key=lambda t: t[1])[0]
+                out.append({'polygon': _mp(gp), 'into': best, 'into_name': self.rname(best), 'area': round(gp.area, 8)})
+            return out
+
+    def validate(self):
+        """Todo lo que impediría guardar o daría problemas, de una vez: mallas rotas, regiones vacías, nombres repetidos,
+        mares con u_flag mal, regiones nuevas sin dueño ni madre. [{level, region, msg}]"""
+        out = []
+        with self.lock:
+            R = self.m['regions']
+            seen = {}
+            for g in R:
+                n = self.rname(g.index)
+                seen.setdefault(n.lower(), []).append(n)
+                tris = [t for x in mhmap.region_shapes(self.m, g.index) for t in x.triangles() if len(set(t)) == 3]
+                if not tris:
+                    out.append({'level': 'error', 'region': n, 'msg': 'región sin área (malla vacía)'})
+                    continue
+                main, detail, ok, why = self.outline(g.index)
+                if not ok and not self._mesh_ok(self.m, g.index):
+                    out.append({'level': 'error', 'region': n, 'msg': 'malla rota (triángulos solapados o contorno inválido: %s)' % why})
+                if g.u_type == SEA and g.u_flag != 1:
+                    out.append({'level': 'error', 'region': n, 'msg': 'región de mar con u_flag %s (debe ser 1: sale roja en el juego)' % g.u_flag})
+            for k, v in seen.items():
+                if len(v) > 1:
+                    out.append({'level': 'error', 'region': v[0], 'msg': 'nombre repetido %d veces' % len(v)})
+        for x in self.new_regions_info():
+            if x.get('ownerless'):
+                out.append({'level': 'aviso', 'region': x['name'], 'msg': 'región nueva sin dueño ni región de origen: al adecuar un escenario hay que elegirle país'})
+        return out
 
     def crumbs(self, r, max_deg2=0.05, max_ratio=0.02):
         """Trozos sueltos de la región r (exclaves diminutos, tiras de dos nodos, restos de geometría imperfecta): todas sus partes
@@ -1070,6 +1205,84 @@ class Project:
                     gc[name] = poly       # se vacía en reload(); el mapa cambia solo al guardar o deshacer (que recargan)
                 return poly
         return None
+
+    # ------------------------------------------------------------------ islas en el fondo
+    ISLAND_MAX_AREA = 0.3     # grados²: un polígono mayor es un halo de mar alrededor de la isla, no la isla
+
+    def is_island(self, name):
+        """Región de tierra sin vecinas de tierra."""
+        inv = {v: k for k, v in self.renames.items()}
+        g = next((x for x in self.m['regions'] if x.name == inv.get(name, name)), None)
+        R = self.m['regions']
+        return g is not None and g.u_type != SEA and not any(R[n].u_type != SEA for n in g.neighbors if n != g.index)
+
+    def _painted_land(self, geom):
+        """Tierra que ya se ve en el fondo dentro de 'geom' (píxeles no azules), como polígono; None si no hay."""
+        from shapely.geometry import box as _box
+        ppd = SIZE / 15.0
+        x0, y0, x1, y1 = geom.bounds
+        cells = []
+        for c in range(int((x0 + 180) // 15), int((x1 + 180) // 15) + 1):
+            for r in range(int((105 - y1) // 15), int((105 - y0) // 15) + 1):
+                if not (0 <= c < 24 and 0 <= r < 13):
+                    continue
+                im = decode(open(self.tile_path(tile_name(c, r)), 'rb').read(), SIZE).convert('RGB')
+                lon0, lat0 = -180 + c * 15, 105 - r * 15
+                px0, px1 = max(0, int((x0 - lon0) * ppd)), min(SIZE, int((x1 - lon0) * ppd) + 1)
+                py0, py1 = max(0, int((lat0 - y1) * ppd)), min(SIZE, int((lat0 - y0) * ppd) + 1)
+                pix = im.load()
+                for py in range(py0, py1):
+                    for px in range(px0, px1):
+                        p = pix[px, py]
+                        if p[0] + p[1] > p[2] * 1.2 and p[0] + p[1] > 60:
+                            cells.append(_box(lon0 + px / ppd, lat0 - (py + 1) / ppd, lon0 + (px + 1) / ppd, lat0 - py / ppd))
+        land = unary_union(cells).intersection(geom) if cells else None
+        return land if land is not None and not land.is_empty else None
+
+    def paint_islands(self, names, land=None, log=print):
+        """Pinta en el fondo (tiles/ del proyecto; llega al juego al «Instalar») las islas 'names': arena con halo de agua clara y
+        línea de costa oscura, como las islas del juego. La forma de la tierra: 'land' ({región: geometría}, p. ej. de un GeoJSON);
+        si no, el polígono de la región si es pequeño (es la isla); si no, la tierra que ya se ve en el fondo dentro de ella (solo
+        se le pone la costa). Devuelve {'painted': {región: cómo}, 'skipped': {región: por qué}, 'tiles': [...]}."""
+        land = land or {}
+        ch = {'erase': [], 'paint': [], 'islands': []}
+        done, skipped = {}, {}
+        with self.lock:
+            for n in names:
+                g = self.region_geom(n)
+                if g is None:
+                    skipped[n] = 'no existe en el mapa'; continue
+                shp = land.get(n)
+                how = 'forma dada'
+                if shp is None and g.area <= self.ISLAND_MAX_AREA:
+                    shp, how = g, 'su polígono'
+                fill = shp is not None
+                if shp is None:
+                    shp, how = self._painted_land(g), 'tierra ya pintada (solo costa)'
+                if shp is None:
+                    skipped[n] = 'su polígono es un halo de mar (%.2f grados²) y el fondo no tiene tierra dentro: da su forma con un GeoJSON' % g.area
+                    continue
+                if fill:
+                    ch['islands'].append(mapping(shp))
+                for poly in getattr(shp, 'geoms', [shp]):
+                    for ring in [poly.exterior] + list(poly.interiors):
+                        ch['paint'].append(dict(mapping(ring), kind='land'))
+                done[n] = how
+            tiles = paint_tiles(ch, os.path.join(self.map_dir, 'art', 'OperationalTerrain'), self.tiles, originals=self.tiles, log=log) if done else []
+        return {'painted': done, 'skipped': skipped, 'tiles': ['%02d-%02d' % t for t in tiles]}
+
+    def install_tiles(self, tiles):
+        """Copia al juego solo esos tiles del fondo (y sus mipmaps) desde tiles/ del proyecto: un cambio de fondo sin tocar el mapa."""
+        dst = os.path.join(self.map_dir, 'art', 'OperationalTerrain')
+        out = []
+        for t in tiles:
+            c, r = (int(x) for x in t.split('-'))
+            for lv in range(5):
+                f = tile_name(c, r, lv)
+                if os.path.exists(os.path.join(self.tiles, f)):
+                    shutil.copy2(os.path.join(self.tiles, f), os.path.join(dst, f))
+                    out.append(f)
+        return out
 
     def check(self):
         """Reglas del formato sobre todo el mapa del proyecto."""
@@ -1502,6 +1715,8 @@ class Project:
             pairs = [(os.path.join(self.xml, f), os.path.join(dest, 'xml', f), os.path.join(self.backup_dir, f)) for f in XML_FILES]
             if os.path.exists(os.path.join(self.xml, 'map.xml')):     # nombres de regiones cambiados (RegionRename)
                 pairs.append((os.path.join(self.xml, 'map.xml'), os.path.join(dest, 'xml', 'map.xml'), os.path.join(self.backup_dir, 'map.xml')))
+            if os.path.exists(os.path.join(self.dir, 'art', 'MiniMap.tga')):     # minimapa importado en «Imagen de fondo»
+                pairs.append((os.path.join(self.dir, 'art', 'MiniMap.tga'), os.path.join(dest, 'art', 'MiniMap.tga'), os.path.join(self.backup_dir, 'MiniMap.tga')))
             pairs += [(os.path.join(self.tiles, f), os.path.join(dest, 'art', 'OperationalTerrain', f),
                        os.path.join(self.backup_dir, 'OperationalTerrain', f)) for f in os.listdir(self.tiles)]
             for src, dst, bak in pairs:

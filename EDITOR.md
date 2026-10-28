@@ -537,7 +537,7 @@ genera **todas** las variantes imitando cada original: mismo lienzo, misma zona 
 formato. Se escribe solo tras confirmar y nunca en la carpeta de contenido del juego.
 | Ficha / sitio | Imágenes |
 |---|---|
-| Nación | bandera (13 archivos) y escarapela (6) con exportar/importar; **portada** `UI2DPolicyArea/Domestic/national-info-bg-<strflagname>.tga` (256×256, imagen 254×158; sin ella el juego usa `national-info-bg.tga`) y **retrato del lobby** `countries/<strFlagName>/leader-lobby.tga` |
+| Nación | bandera (13 archivos) y escarapela (6) con exportar/importar; **portada** `UI2DPolicyArea/Domestic/national-info-bg-<strflagname>.tga` (256×256, imagen 254×158; sin ella el juego usa `national-info-bg.tga`) y **retrato del lobby** `countries/<strFlagName>/leader-lobby.tga` («Componer por capas…»: marco `plantilla_escenario/_imagenes/leader-lobby-referential.tga` como el `leader-lobby.psd` de The Modern World; bandera en el hueco 256×128 en (7,58), monumento PNG abajo a la izquierda, líder PNG a la derecha y delante; solo cuenta la esquina 273×305) |
 | Global Data › Scenario | `Title.tga` desde una imagen **o desde el nombre** (texto con contorno y sombra), `Button.tga` y `ButtonOver.tga` (generado con **brillo +8**, ≈ +20 de 255, como los del juego; o una imagen propia) |
 | Ideologías | `icons/government-type-icon/<strIconName>-icon*.tga`, `UI2DSpecialFeedback/liberation-<x>.tga`, `UI2DPolicyArea/EndTurn/notification-end-turn-liberate-<x>.tga` |
 | Terrenos | `Terrain/<strTerrain>.tga`, `-small.tga`, `UI2DRegion/top-image-<x>.bmp` |
@@ -586,3 +586,139 @@ formato. Se escribe solo tras confirmar y nunca en la carpeta de contenido del j
 - **Importar**: por defecto los exclaves los absorben las vecinas.
 - Casilla **Regiones nuevas** (naranja) a la derecha de «Controlador». Al pasar el cursor se ve el nombre del juego si no es el interno (texto del stringTable o RegionRename). **Renombrar** pregunta además si cambiar el código SID. Más mensajes del servidor traducidos al inglés.
 - Pendiente: tras «Dibujar», ofrecer las mismas opciones que tras «Recortar»; convertir zonas vacías en tierra o mar ya se puede seleccionando el hueco («Crear una región nueva aquí…» con tipo tierra/mar).
+- **Plantilla del editor** (`tools/editor/plantilla_escenario/`, junto a los XML de la plantilla de escenario; va dentro de MHEditor.exe): `Title.tga`, `Button.tga`, `ButtonOver.tga` y
+  `_imagenes/countries/Plantilla/` (banderas y retrato modelo; fuera de `ui/` para no copiarse a los escenarios nuevos). Cuando un escenario no tiene versión propia, es la plantilla
+  preferida (se muestra como «plantilla del editor», se exporta e imita al importar; sombras de banderas). «Usar plantilla» la
+  copia al escenario, y «Nuevo escenario» ya los crea con ella. No depende de ningún escenario instalado.
+- Banderas: «Huecos cuadrados» = **recortar al centro** por defecto.
+
+## Instrucciones 9 (editor de regiones)
+- **Duplicados al importar**: si regiones del mapa tienen el nombre de un contorno (o «Nombre 2») o quedan tapadas en un 80 % por los contornos, se ofrece borrarlas y quedarse con las del GeoJSON en el mismo guardado (sale de errores como «Glenumbra: el polígono cubre toda Glenumbra 2»).
+- **World protegido**: guardar cambios en «World» pide confirmación; si no, no se guarda y se recomienda «Guardar como…».
+- **Barra**: «+ Nuevo» escenario a la derecha del selector; el 📁 del regionpack va junto a su selector, igual que el del escenario.
+- **Instalar/Guardar con escenarios con cambios sin guardar**: se pregunta si guardarlos antes (no se salta en silencio).
+- **Changelog**: las entradas con equivalencias llevan `equivalence_base: "World"` (también las antiguas al volver a escribirse).
+- **Importar**: casilla «Cerrar huecos pequeños entre los contornos (hasta X grados²)» (`/api/geojson/close_gaps`): cada rendija se suma al contorno vecino con más borde. En el GeoJSON de Tamriel cierra ~1000 rendijas.
+- Más textos traducidos al inglés.
+- Pendiente: borrar países y territorios desde la selección múltiple (está en el editor de escenarios), restaurar fondo en regionpacks sin World (preguntar World o reimportar imagen), importar países desde un escenario vanilla a un regionpack parcial, importar la imagen del minimapa, y la causa de que a veces no salga la equivalencia vanilla en el panel (no reproducida).
+
+### Instrucciones 9 (continuación)
+- **Casilla «Puede quitar área de regiones del tipo contrario (tierra ↔ mar)»** en «Sumar área desde GeoJSON» (Avanzado) y en la importación masiva; marcada por defecto. Antes «Sumar área» a una región de tierra no quitaba nada al mar («Solo tierra»), así que no se podía añadir la Isla de Pascua a Coquimbo. Probado en copia de WorldMoreRegions: PukaoSea → Coquimbo. Desmarcada: tierra solo de tierra, mar solo de mar (`same_type_only`).
+- **Exportar GeoJSON**: cada región lleva `vanilla_equivalent` (lista) y `equivalence_base: "World"`; al volver a importar ese archivo se rellena «Equivale a región vanilla».
+- **Equivalencias con World (automático)…** (changelog): calcula por solape de áreas (mismo tipo) a qué regiones de World equivale cada región sin equivalencia (las que se llaman igual que una de World ya equivalen a ella) y, si se acepta, las anota en el changelog. En WorldMoreRegions: 1975 regiones en ~1 minuto.
+- **Regionpack nuevo desde un GeoJSON**: casilla en «+ Nuevo» regionpack; al crearlo se abre el importador con «dejar sin nación» (sin escenario).
+- Traducido el aviso «ATENCIÓN: estos escenarios usan … no cuadran con su mapa».
+- **WorldMoreRegions, no se puede elegir otra región**: no reproducido en copia (con clics reales se cambia de región en «Ver» y en «Editar forma»).
+
+## Instrucciones 10 (editor de regiones)
+- **Cerrar huecos** (Archivo; y en el panel de la región, «Cerrar huecos con <vecina>»): busca agujeros y rendijas sin región de menos de N grados² y también las rendijas de MAR que se cuelan entre dos regiones de tierra (p. ej. el «World Ocean» de relleno entre provincias importadas, como en TamrielDemo), y los suma a la región de tierra vecina con más borde. Para todo el regionpack o solo entre un par de regiones (`/api/gaps/small`).
+- **Validar** (Archivo): lista de una vez, copiable, de todo lo que bloquearía el guardado o daría problemas: mallas rotas, regiones sin área, nombres repetidos, mares con u_flag mal, regiones nuevas sin dueño, escenarios que no cuadran con el mapa (`/api/validate`).
+- **Preguntar «¿Terminar el dibujo?»** (Opciones): el dibujo se cerraba solo con doble clic, clic cerca del primer punto o Enter; con la opción se pregunta y se puede seguir dibujando.
+- **Regiones superpuestas**: un segundo clic en el mismo sitio elige la región de debajo (y así sucesivamente).
+- **Borrar ríos, lagos o mares**: ahora también pueden pasar a una región de tierra (sus flotas y puertos van al mar vecino de esa región), o **repartirse entre las vecinas de tierra por cercanía** (Voronoi con puntos de sus fronteras, `/api/region/split_proximity`).
+- **Restaurar fondo** en un regionpack hecho desde cero: la primera vez pregunta si usar el fondo de World o reimportar la imagen de la que salió.
+- Pendientes de las instrucciones 9: borrar países/territorios desde la selección múltiple (editor de escenarios), importar países de un escenario vanilla a un regionpack parcial (hoy: «Equivalencias con World (automático)» + «Adecuar», que sustituye cada región vanilla por la primera región nueva equivalente), importar la imagen del minimapa, y el panel de equivalencia que a veces no sale (no reproducido).
+- **Espacios vacíos**: al pasar el cursor dicen «Región vacía»; con clic (en «Ver» y en «Editar forma» › Modificar) se seleccionan y el panel ofrece unirlos a una región contigua elegida, «Crear una región de tierra aquí…» o «Crear una región de mar aquí…». Probado en copia: hueco del antiguo Mar de Azov → región de mar nueva.
+- **Borrar un mar/lago/río**: por defecto queda vacío; unirlo a una región vecina (de tierra o de mar) o repartirlo entre las vecinas de tierra por cercanía son opciones del diálogo.
+- **Rellenar espacios vacíos** (apagado por defecto): casilla en «Sumar área desde GeoJSON» (Avanzado) y, al importar, «Rellenar los huecos vacíos que queden bajo los contornos»: solo con ella la geometría nueva ocupa también los espacios sin región.
+- **Imagen de fondo › Líneas** (desactivada por defecto): «Dibujar las líneas de las regiones» pinta encima las fronteras actuales
+  (tierra y mar, como el juego; las costas no) en los tiles importados al terminar la importación, y en los tiles de la zona al
+  «Restaurar fondo» (`background_restore.repaint_tiles`).
+
+## Instrucciones 11 (editor de regiones)
+- Barra: el idioma y el ☀/☾ pasan a la fila «Ver», a la derecha de «Colorear»; «Cerrar huecos» a la fila de arriba, tras «Imagen de fondo». «Donar» (paypal.me/alopcl) en Créditos.
+- **Selección**: `resetInteraction()` deja limpio el estado de interacción (dibujo o arrastre a medias, mapa sin arrastrar, selección múltiple abierta sin verse, petición de punto…); se llama al elegir una herramienta (Modificar…), al Refrescar, tras Guardar y tras Descartar. No se reprodujo el fallo en copia (con clics reales se selecciona tras Guardar y tras Descartar).
+- **Recortar un mar → «Crear una región nueva con esa parte»**: ya se puede; el diálogo deja elegir tierra (isla) o mar.
+- **Crear región** que toca tierra y mar: la parte de mar también pasa a la región nueva (antes solo la tierra).
+- **GeoJSON importado en «Avanzado»**: las regiones con la forma cambiada y sin guardar se conservan en cualquier recarga del mapa (antes se perdían al aplicar un dueño, etc.).
+- **Cerrar huecos de una región**: «Todos los de esta región» (panel) cierra rendijas y huecos alrededor de ella con cualquier vecina, también un mar al que casi toca.
+- **«Adecuar» TMWR → WorldMoreRegions**: las 9 islas que faltaban (GilbertIslands, …) no se añadían porque el changelog (importado de MH2) dice «UnitedKingdom»/«NewZealand» y el escenario «United Kingdom»/«New Zealand». Los nombres de país ahora se emparejan sin espacios, mayúsculas ni acentos (`match_country`). Probado en copia: 0 faltan, 0 sobran.
+- **Guardar escenario tras Adecuar**: la lista de archivos sin guardar incluye todo lo de la carpeta del escenario; las confirmaciones de Adecuar/Guardar escenario usan un diálogo propio con botones traducidos (`mhConfirm`).
+- **Equivalencias automáticas**: una región que se llama como una de World pero está en otro sitio (Piedmont de EE. UU. frente al Piamonte de Italia) ya no se da por equivalente a sí misma: se calcula por solape (Piedmont → North Carolina) y se avisa de renombrarla. En WorldMoreRegions: Piedmont, Burgundy, Rockall, Athabasca, Llanos.
+
+
+## Instrucciones 12: islas sin vecinas de tierra
+
+- «Registrar en el escenario…» ya no falla con una isla cuyas únicas vecinas son mares (p. ej. Rapa Nui, solo junto a PukaoSea).
+  Si no hay vecina de tierra con datos, «Sale de» propone primero su equivalente en World según el changelog (Coquimbo) y luego
+  las 8 regiones de tierra con datos más cercanas; también «(ninguna)», que registra la región con el propietario elegido y la
+  densidad media del país.
+- «Adecuar» hace lo mismo (`scenario_layers.island_source`): región de origen = equivalente del changelog que tenga el escenario y,
+  si no, la región de tierra con datos más cercana. Si el changelog dice de qué país es la isla, se usa ese dueño.
+- Las equivalencias ya no sustituyen (borran) una región vanilla que sigue existiendo en el regionpack: Coquimbo se queda y Rapa
+  Nui sale de ella.
+
+## Instrucciones 13: seleccionar siempre
+
+- «Ver / propiedad» pasa a llamarse «Ver». En «Editar forma» hay un botón «Seleccionar» a la izquierda de «Modificar».
+- Un clic que no cae en una región cargada en el navegador (aún sin cargar, zoom lejano, más de 1500 regiones a la vista,
+  recarga a medias) pregunta al servidor qué región hay en ese punto (`/api/region_at`) y la selecciona igual; con «Múltiple»
+  se añade a la selección. Si no hay región, sigue siendo un clic en un hueco.
+- Con «Múltiple» abierto las regiones se cargan desde zoom 2 y el cursor sobre ellas es la mano de clic, no la de arrastrar.
+
+## Instrucciones 14: «Múltiple» y qué hacer con el área al eliminar
+
+- Con «Múltiple» abierto ningún botón de herramienta queda marcado salvo «Múltiple», y no hay región amarilla seleccionada.
+- «Eliminar…» (regiones de la selección múltiple) y «Eliminar países…» abren un diálogo: su área se incorpora a una región que
+  ya existe, se crea con ella una región nueva (de tierra o de mar, con nombre) o queda vacía (hueco). Al eliminar países también
+  se puede elegir lo de antes: sus regiones pasan al país de destino sin borrarlas. Sus unidades siguen yendo al país de destino.
+- Región nueva: se unifican en la primera, que cambia de tipo si es de mar y se renombra. `/api/region/convert` con
+  `scenarios: true` también la quita como tierra de los escenarios (lo de dentro va a la región de tierra más cercana) y la añade
+  a waterWorld.xml.
+
+- «Dibujar» y «Rellenar» ya no se muestran en la barra; «Ajuste» sigue.
+
+- «Validar» (editor de regiones): lista como la del editor de escenarios, errores primero, el mismo problema en varias regiones en una fila con las regiones como botones (clic = ir a ella); «Copiar» sigue dando el texto.
+
+- «Imagen de fondo» → «Importar minimapa…»: cualquier imagen pasa a art/MiniMap.tga del proyecto (RGBA, al tamaño del original, 256×128 en World) y «Instalar» la copia al regionpack.
+
+## Instrucciones 15
+
+- Registro automático de las regiones nuevas: si un escenario tiene cambios sin guardar en el editor de escenarios, un diálogo
+  (traducido) ofrece Guardarlos / Descartarlos / Registrar igualmente (`force_scenarios`: se registra en memoria, sin guardar,
+  y queda para «Guardar escenario»). Vale para «Guardar» y para «Registrar en el escenario…». Ya no sale el aviso en español.
+- «Tratar los exclaves que deje este recorte» viene marcado.
+- Recortar de un mar → «Anexar a otro territorio (no vecino)» ya se puede elegir (estaba desactivado para mares; el servidor ya lo admitía).
+- Región nueva: el título sigue a la elección (de tierra / de mar). La ciudad nueva no pide población (las ciudades no tienen; va 0).
+- «Registrar en el escenario…»: con una región de origen no vecina (equivalente o la más cercana) el % por defecto es su área
+  respecto a la de origen, no la mitad; se muestra cuántos habitantes resultan.
+- «Exportar a otro regionpack…» (ficha de la región y selección múltiple): elige regionpack y escenario de destino y si van sus
+  ciudades, unidades y minerales; cambia a ese regionpack y abre «Importar GeoJSON» con ellas (`/api/regions/export_json`), donde
+  se ven las que ya existen y los duplicados de puntos.
+- «Importar GeoJSON»: ✕ en cada fila para quitarla; un contorno sin nombre toma el del archivo (con número si hay varios).
+- Etiqueta al pasar el cursor: muestra el nombre visible del escenario (texto de `sidName`, nuevo campo `text` de
+  `live_scenario_info`) y, si es otro, el interno: «Gran Landia (interno: Landia) | dueño · terreno». Con zoom lejano (regiones
+  sin dibujar) el nombre se pide a `/api/region_at`. Traducida (internal / on the map / No owner / Sea).
+
+## Escenarios que no cargan por regiones sin instalar (2026-10-28)
+- Causa: «Guardar» registra las regiones nuevas en los escenarios del juego, pero el mapa del juego solo cambia con «Instalar».
+  Entre medias el juego rechaza el escenario («InitGameValidateRegions - Got Region named "Musandam" that isn't part of the map»).
+  Pasó con Steps to a Global War (25), The Modern World Reloaded (3) y The Modern World (1, WorldModern).
+- Ahora: tras guardar, si algún escenario tiene regiones que el mapa instalado no tiene (`uninstalled_in_scenarios`,
+  `/api/pack/not_loadable`, `not_loadable` en el informe de guardar), se pregunta «Instalar ahora / Más tarde». El indicador del
+  escenario muestra «⚠ el juego no lo cargará: N región(es) aún sin instalar [Instalar]» en vez de «coincide» o «sobran» (antes
+  «Adecuar» las habría quitado).
+- Arreglo de los datos: «Instalar» el regionpack marcando los escenarios que lo usan (se adecuan: se añaden las regiones que les
+  falten). Probado en copia con WorldMoreRegions: tras instalar, ambos escenarios cuadran y no queda ninguno sin cargar.
+- Prevención (regiones nuevas, p. ej. islas): al guardar (y al deshacer/rehacer o «Registrar en el escenario…»), si algún escenario
+  queda con regiones que el mapa del juego no tiene, el editor instala el mapa en ese momento (`keep_game_loadable`) y adecua los
+  demás escenarios del regionpack a los que les falten o sobren regiones. Si no puede instalar, avisa y ofrece «Instalar».
+  Probado en copia: isla nueva guardada → mapa instalado solo → el escenario cuadra y carga. La población de una isla la pone el
+  usuario a mano (no se ajusta sola).
+- Datos (2026-10-28, con OK): equivalencias Piemonte→Piedmont, Burgundy→Champagne, Savoy→Burgundy, Athabasca→Churchill River,
+  PeaceValley→Athabasca, Llanos→Costa Central, Vichada→Llanos (Piedmont→North Carolina ya estaba); WorldMoreRegions instalado con
+  Steps to a Global War y The Modern World Reloaded adecuados; WorldModern instalado (The Modern World ya cuadraba) y The Modern
+  World Reloaded 1022 adecuado (le faltaba Juan Fernandez Desventuradas).
+- Fondo: Desventuradas de WorldChile copiadas al fondo de WorldModern; isla de Salas y Gómez (solo imagen) en WorldModern y
+  WorldChile. Escrito en tiles/ de los proyectos (respaldo en backup/fondo_antes_20261028); llega al juego con «Instalar».
+
+## Islas en el fondo y naciones duplicadas (2026-10-28)
+- Causa: el editor solo pintaba líneas tierra-tierra y mar-mar; las costas no. Una isla nueva quedaba sin tierra ni costa en el
+  fondo (en el juego, una mancha azul). Muchas islas nuevas son además un halo de mar grande (Rapa Nui 6,2 grados²).
+- «Pintar la isla en el fondo…» (ficha de una región de tierra): arena con agua clara y costa oscura. Forma: «Dibujar contorno»
+  en el mapa, un GeoJSON, o sin archivo (su polígono si es pequeño, ≤ 0,3 grados²; si no, la tierra que ya se ve en el fondo,
+  solo con costa). `/api/region/paint_island`, `Project.paint_islands`. Al guardar, las islas nuevas se pintan solas.
+- `/api/install_tiles`: copia al juego solo unos tiles del fondo (sin mapa ni escenarios), para cambios quirúrgicos.
+- Naciones: la importación de GeoJSON y `prepare_region` reconocen la misma nación escrita distinto («UnitedStates» = «United
+  States»). `duplicate_countries` / `merge_country`: fusiona el duplicado en el bueno (regiones, unidades, históricas, jugables,
+  vistas). Changelog de WorldMoreRegions unificado (respaldo backup/changelog_WMR_antes_naciones_20261028.json).

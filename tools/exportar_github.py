@@ -15,11 +15,11 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 OUT = os.path.abspath(sys.argv[1]) if len(sys.argv) > 1 else os.path.join(os.path.dirname(ROOT), 'making-history-github')
 
-DOCS = ['AGENTS.md', 'EDITOR.md', 'MAPA_FORMATO.md', 'REVERSING_NOTAS.md', 'ESCENARIOS_NOTAS.md', 'GOLD_NOTAS.md', 'tools/MH2_NST_FORMATO.md']
+DOCS = ['AGENTS.md', 'EDITOR.md', 'MAPA_FORMATO.md', 'REVERSING_NOTAS.md', 'ESCENARIOS_NOTAS.md', 'GOLD_NOTAS.md', 'CHANGELOG_3.0.md', 'tools/MH2_NST_FORMATO.md']
 LAUNCHERS = ['Region Editor.bat', 'Scenario Editor.bat', 'Editor (window).bat', 'Scenario Editor (window).bat', 'Game Log.bat']
 SKIP_PY = {'probe2.py', 'probe_regions.py'}          # pruebas sueltas de ingeniería inversa
 
-README = """# Making History 1 & Gold Editor 2.3
+README = """# Making History 1 & Gold Editor 3.0
 
 Map (regionpack), scenario and image editor for **Making History: The Calm and The Storm (MH1)** and **Making History Gold**.
 
@@ -30,7 +30,7 @@ Map (regionpack), scenario and image editor for **Making History: The Calm and T
 - **Community:** [Discord](https://discord.com/invite/gFJyCjWEnr)
 - **Report bugs:** alopezcl@protonmail.com (or open an issue)
 
-Made by Alejandro Víctor López Parra (@avlopezparra), 2026. **Version 2.3**.
+Made by Alejandro Víctor López Parra (@avlopezparra), 2026. **Version 3.0**.
 
 ## What it does
 - **Region editor**: move nodes, draw, cut, merge, create, rename and delete regions; topology-safe shape changes; installs the
@@ -68,6 +68,12 @@ hosted online: everyone runs it locally with the game installed.
 
 Environment variables: `MH_ROOT` (where projects and logs are kept), `MH_STEAM_COMMON` (a `steamapps\\common` folder in another Steam
 library), `MH_GAME_MH1` / `MH_GAME_GOLD` (game folder of a non-Steam install), `MH_PORT` (port of the `.exe`).
+
+## Claude Code skill
+[`skill/making-history-modding`](skill/making-history-modding/SKILL.md) teaches Claude Code how to mod MH1 and Gold: game folders,
+scenario XML, the map binaries (regions.bin and its `u_flag`), regionpacks and changelogs, events, load errors and this editor.
+Install it by copying the folder to `~/.claude/skills/` (Windows: `%USERPROFILE%\\.claude\\skills\\`), so you end up with
+`~/.claude/skills/making-history-modding/SKILL.md`; Claude Code picks it up in new sessions.
 
 **Troubleshooting**
 - *"An editor is already open..."*: a server already uses that port; open it in the browser or close it first.
@@ -164,7 +170,7 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/')
         with:
           files: MHEditor.zip
-          generate_release_notes: true
+          body_path: CHANGELOG_3.0.md
 """
 
 
@@ -188,6 +194,7 @@ def main():
             os.makedirs(os.path.join(OUT, 'tools'), exist_ok=True)
             shutil.copy2(os.path.join(HERE, f), os.path.join(OUT, 'tools', f)); n += 1
     shutil.copytree(os.path.join(HERE, 'editor'), os.path.join(OUT, 'tools', 'editor'), ignore=shutil.ignore_patterns('__pycache__'))
+    shutil.copytree(os.path.join(ROOT, 'skill'), os.path.join(OUT, 'skill'))   # skill de Claude Code
     for f in DOCS + LAUNCHERS:
         if os.path.exists(os.path.join(ROOT, f)):
             os.makedirs(os.path.dirname(os.path.join(OUT, f)) or OUT, exist_ok=True)

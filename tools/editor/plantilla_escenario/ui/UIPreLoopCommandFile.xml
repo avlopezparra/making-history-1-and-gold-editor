@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<objects name="UIPreLoopCommandFile" version="0.1" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" >
+	<object name="objCreateRoot" type="CmdCreateRoot" />
+	<object name="objDelay" type="CmdDelay">
+		<property name="nMillis" value="1"/>
+	</object>
+	<object name="objReadyToStartGame" type="CmdCreateAction">
+		<object type="ActReadyToStartGame" name="objAction"/>
+	</object>
+</objects>

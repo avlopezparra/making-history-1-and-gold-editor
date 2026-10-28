@@ -59,6 +59,10 @@ def _region_features(s, project, sea, colors=False, ncolors=False):
         import terrain_colors
         terr = terrain_colors.terrain_of(project, s)
     out = []
+    try:
+        eqs = project.equivalences()          # «equivale a región vanilla» del changelog (regiones de World)
+    except Exception:
+        eqs = {}
     for g in project.m['regions']:
         if (g.u_type == SEA) != sea:
             continue
@@ -69,6 +73,9 @@ def _region_features(s, project, sea, colors=False, ncolors=False):
         r = data.get(name)
         props = {'mh_type': 'sea_region' if sea else 'land_region', 'name': name, 'map_name': g.name,
                  'center': [g.cx, g.cy], 'neighbors': sorted({project.rname(n) for n in g.neighbors if n != g.index})}
+        if eqs.get(name):        # equivalencia con el World vanilla: al volver a importar el archivo se recupera
+            props['vanilla_equivalent'] = list(eqs[name])
+            props['equivalence_base'] = 'World'
         if r is not None:
             for k, v in _props(r).items():
                 if k == 'strName':
@@ -431,3 +438,35 @@ def import_fc(s, project, fc, types=None, index=None, opts=None):
                 st.attach(us, e)
     s._opts = None
     return {'notes': notes, 'counts': counts}
+
+
+def close_gaps(geoms, max_area=0.05, eps=0.05):
+    """Huecos pequeños entre contornos importados (rendijas y agujeros de menos de max_area grados², típicos de un GeoJSON
+    dibujado a mano): cada uno se suma al contorno con el que más borde comparte. Devuelve las geometrías (GeoJSON) nuevas
+    y cuántos huecos se cerraron. Los huecos grandes (lagos, mares interiores) no se tocan."""
+    from shapely.geometry import shape, mapping, Polygon
+    from shapely.ops import unary_union
+    from shapely import make_valid
+    polys = [make_valid(shape(g)) for g in geoms]
+    u = unary_union(polys)
+    closed = u.buffer(eps, join_style=2).buffer(-eps, join_style=2)
+    holes = []
+    for part in getattr(u, 'geoms', [u]):
+        if part.geom_type == 'Polygon':
+            holes += [Polygon(h) for h in part.interiors]
+    gaps = unary_union(holes + [closed.difference(u)]) if holes or not closed.difference(u).is_empty else None
+    n = 0
+    if gaps is not None and not gaps.is_empty:
+        for gp in getattr(gaps, 'geoms', [gaps]):
+            if gp.geom_type != 'Polygon' or gp.area <= 0 or gp.area > max_area:
+                continue
+            ring = gp.buffer(1e-6)
+            best, bl = None, 0.0
+            for i, p in enumerate(polys):
+                l = p.intersection(ring).area
+                if l > bl:
+                    best, bl = i, l
+            if best is not None:
+                polys[best] = make_valid(unary_union([polys[best], gp]))
+                n += 1
+    return [mapping(p) for p in polys], n

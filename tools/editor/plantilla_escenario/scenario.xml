@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<objects name="Object Load" version="0.1" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+	<object type="Scenario" name="">
+		<property name="strContentPackName" value="Modern Europe"/>
+		<property name="strName" value="New Scenario"/>
+		<property name="strDisplayName" value="New Scenario"/>
+		<property name="strDescription" value=""/>
+		<property name="strVersion" value="1.0"/>
+		<property name="fileGame" value="game.xml"/>
+		<property name="nTurnDuration" value="1"/>
+		<property name="nScenarioDuration" value="480"/>
+		<property name="nStartYear" value="1936"/>
+		<property name="nStartMonth" value="1"/>
+		<property name="nStartDay" value="1"/>
+		<property name="dateStart" value="01/01/1936"/>
+		<property name="dateEnd" value="12/31/1945"/>
+		<object type="SharedDataFileRef" name="objSharedDataFileRefs">
+			<property name="nFileRefID" value="0"/>
+			<property name="strFileLoadName" value="Shared Data"/>
+			<property name="fileSharedData" value="sharedData.xml"/>
+		</object>
+		<object type="SharedDataFileRef" name="objSharedDataFileRefs">
+			<property name="nFileRefID" value="2"/>
+			<property name="bScenario" value="true"/>
+			<property name="strFileLoadName" value="Shared Data - AI"/>
+			<property name="fileSharedData" value="sharedDataAI.xml"/>
+		</object>
+		<object type="SharedDataFileRef" name="objSharedDataFileRefs">
+			<property name="nFileRefID" value="4"/>
+			<property name="bScenario" value="true"/>
+			<property name="strFileLoadName" value="Shared Data - Historic Countries"/>
+			<property name="fileSharedData" value="sharedDataHistoricCountries.xml"/>
+		</object>
+		<object type="SharedDataFileRef" name="objSharedDataFileRefs">
+			<property name="nFileRefID" value="5"/>
+			<property name="bScenario" value="true"/>
+			<property name="strFileLoadName" value="Shared Data - Unit Templates"/>
+			<property name="fileSharedData" value="sharedDataUnitTemplates.xml"/>
+		</object>
+		<object type="SharedDataFileRef" name="objSharedDataFileRefs">
+			<property name="nFileRefID" value="6"/>
+			<property name="bScenario" value="true"/>
+			<property name="strFileLoadName" value="Shared Data - Factories"/>
+			<property name="fileSharedData" value="sharedDataFactories.xml"/>
+		</object>
+		<object type="SharedDataFileRef" name="objSharedDataFileRefs">
+			<property name="nFileRefID" value="7"/>
+			<property name="bScenario" value="true"/>
+			<property name="strFileLoadName" value="Shared Data - Research"/>
+			<property name="fileSharedData" value="sharedDataResearch.xml"/>
+		</object>
+		<object type="SharedDataFileRef" name="objSharedDataFileRefs">
+			<property name="nFileRefID" value="8"/>
+			<property name="bScenario" value="true"/>
+			<property name="strFileLoadName" value="Shared Data - Templates"/>
+			<property name="fileSharedData" value="sharedDataTemplates.xml"/>
+		</object>
+		<object type="SharedDataFileRef" name="objSharedDataFileRefs">
+			<property name="nFileRefID" value="9"/>
+			<property name="bScenario" value="true"/>
+			<property name="strFileLoadName" value="Shared Data - Unit Template Sprites"/>
+			<property name="fileSharedData" value="sharedDataUnitTemplateSprites.xml"/>
+		</object>
+		<object type="SharedDataFileRef" name="objSharedDataFileRefs">
+			<property name="nFileRefID" value="10"/>
+			<property name="bScenario" value="true"/>
+			<property name="strFileLoadName" value="Shared Data - Culture Templates"/>
+			<property name="fileSharedData" value="sharedDataCultureTemplates.xml"/>
+		</object>
+		<object type="ScenarioDisplaySettings" name="objDisplaySettings">
+			<property name="strMapName" value="World"/>
+			<property name="strSpriteLibName" value="World"/>
+			<property name="strSpriteMapName" value="World"/>
+			<property name="strMapViewsName" value="UnifiedMapViews"/>
+			<property name="strLightingGroupName" value="BasicLighting"/>
+			<property name="strCameraSettingsName" value="WorldUnified"/>
+			<property name="fileMapProperties" value="/../Modern Europe/system/DisplayLibraries/Maps/World/xml/properties.xml"/>
+		</object>
+	</object>
+</objects>

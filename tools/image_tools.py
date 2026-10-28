@@ -133,11 +133,25 @@ def safe_name(s):
     return s
 
 
+def plantilla_dir():
+    """Plantilla de escenario que va con el editor (tools/editor/plantilla_escenario; en el .exe, _MEIPASS/editor/...).
+    Title.tga, Button.tga, ButtonOver.tga en la raiz; banderas/retrato modelo en _imagenes/countries/Plantilla/ (no se copian)."""
+    import sys
+    for base in (getattr(sys, '_MEIPASS', None), os.path.dirname(os.path.abspath(__file__))):
+        d = os.path.join(base, 'editor', 'plantilla_escenario') if base else None
+        if d and os.path.isdir(d):
+            return d
+    return None
+
+
 def resolve_rel(rel):
-    """Ruta relativa a la carpeta de escenarios -> absoluta (o carpeta de contenido si empieza por @ui/)."""
+    """Ruta relativa a la carpeta de escenarios -> absoluta (@ui/: contenido del juego; @tpl/: plantilla del editor)."""
     if rel.startswith('@ui/'):
         base = content_ui()
         rel = rel[4:]
+    elif rel.startswith('@tpl/'):
+        base = plantilla_dir() or ''
+        rel = rel[5:]
     else:
         base = scenario_core.SCEN_ROOT
     p = os.path.abspath(os.path.join(base, rel))
@@ -242,8 +256,9 @@ def shadow_alpha(name, size, rect):
         return _SHADOWS[key]
     from collections import Counter
     cnt = Counter()
-    for scen in ('The Modern World',) + tuple(scenario_core.scenarios()):
-        base = os.path.join(scenario_core.SCEN_ROOT, scen, 'ui', 'art', '2D', 'countries')
+    bases = [os.path.join(plantilla_dir(), '_imagenes', 'countries')] if plantilla_dir() else []
+    bases += [os.path.join(scenario_core.SCEN_ROOT, s, 'ui', 'art', '2D', 'countries') for s in ('The Modern World',) + tuple(scenario_core.scenarios())]
+    for base in bases:
         if not os.path.isdir(base):
             continue
         for c in sorted(os.listdir(base))[:120]:
@@ -368,7 +383,7 @@ def fit_flag(img, mode='centro', aspect=2.0):
     return out
 
 
-def flag_set(flag, decal=None, shape='escudo', removebg=True, leader=None, crop='estirar', only=None, fit_mode='centro'):
+def flag_set(flag, decal=None, shape='escudo', removebg=True, leader=None, crop='centro', only=None, fit_mode='centro'):
     """Genera {archivo: imagen} con todos los archivos de la carpeta de un pais.
 
     crop: como entra la bandera en los huecos casi cuadrados (diplomatic, flag-16/19, 48h-64w, multichat):
@@ -511,9 +526,39 @@ def flag_folder(scen, country):
     return _FLAGNAMES[key].get(country) or country
 
 
+def _country_flagname(scen, country):
+    """strFlagName del MECountry de country<País>.xml (puede tener espacios y no coincidir con el país)."""
+    f = os.path.join(scen_dir(scen), 'country%s.xml' % country)
+    if not os.path.exists(f):
+        return None
+    with open(f, encoding='utf-8', errors='replace') as h:
+        m = re.search(r'name="strFlagName" value="([^"]*)"', h.read(20000))
+    return m.group(1) if m else None
+
+
+def flag_dir(scen, country, files=('flag-16-16.tga', 'flag-19-19.tga')):
+    """Carpeta con la bandera de un país: strFlagName de su Player (gamestate.xml), el de su country<País>.xml o su nombre,
+    en la carpeta del escenario (ui/art/2D/countries) o, si no está, en la del juego (Modern Europe/system/ui/art/2D/countries,
+    donde están las de los países del juego, p. ej. «iceland»). None si no hay bandera."""
+    names = []
+    for n in (flag_folder(scen, country), _country_flagname(scen, country), country):
+        if n and n not in names:
+            names.append(n)
+    bases = [countries_dir(scen), os.path.join(scenario_core.GAME, 'Modern Europe', 'system', 'ui', 'art', '2D', 'countries')]
+    for base in bases:
+        if not os.path.isdir(base):
+            continue
+        low = {x.lower(): x for x in os.listdir(base)}
+        for n in names:
+            real = low.get(n.lower())
+            if real and any(os.path.isfile(os.path.join(base, real, f)) for f in files):
+                return os.path.join(base, real)
+    return None
+
+
 def flag_png(scen, name, files=('flag-16-16.tga', 'flag-19-19.tga', 'diplomatic-flag.tga', 'flag-68-34.tga')):
     """PNG de la bandera pequena de un pais (o None si no tiene carpeta)."""
-    d = os.path.join(countries_dir(scen), safe_name(flag_folder(scen, name)))
+    d = flag_dir(scen, name, files) or os.path.join(countries_dir(scen), safe_name(flag_folder(scen, name)))
     for f in files:
         p = os.path.join(d, f)
         if os.path.exists(p):
@@ -540,7 +585,7 @@ def flag_inputs(p):
     if flag is None and p.get('only') != 'decal':
         raise ValueError('falta la imagen de la bandera')
     return flag_set(flag, from_data_url(p.get('decal')), p.get('shape', 'escudo'), bool(p.get('removebg', True)),
-                    from_data_url(p.get('leader')), p.get('crop', 'estirar'), p.get('only'), p.get('fit', 'centro'))
+                    from_data_url(p.get('leader')), p.get('crop', 'centro'), p.get('only'), p.get('fit', 'centro'))
 
 
 def flag_preview(p):
@@ -844,11 +889,22 @@ def fetch_url(url, limit=15 * 1024 * 1024):
 
 
 def nation_status(scen):
-    """{nacion: {'color': bool, 'flag': bool, 'folder': strFlagName}} de los Player de gamestate.xml."""
+    """{nacion: {'color': bool, 'flag': bool, 'folder': carpeta de su bandera}} de los Player de gamestate.xml."""
     gs = os.path.join(scen_dir(scen), 'gamestate.xml')
     out = {}
     if not os.path.exists(gs):
         return out
+    x = open(gs, encoding='utf-8', errors='replace').read()
+    for b in re.finditer(r'<object type="Player"[^>]*>(.*?)(?=<object type="Player"|</objects>)', x, re.S):
+        body = b.group(1)
+        n = re.search(r'name="strName" value="([^"]*)"', body)
+        if not n:
+            continue
+        c = re.search(r'name="colCountryColor" value="([^"]*)"', body)
+        d = flag_dir(scen, n.group(1))
+        out[n.group(1)] = {'color': bool(c and c.group(1).strip()), 'folder': os.path.basename(d) if d else flag_folder(scen, n.group(1)),
+                           'flag': d is not None}
+    return out
     x = open(gs, encoding='utf-8', errors='replace').read()
     base = countries_dir(scen)
     for b in re.finditer(r'<object type="Player"[^>]*>(.*?)(?=<object type="Player"|</objects>)', x, re.S):
@@ -863,3 +919,91 @@ def nation_status(scen):
         out[n.group(1)] = {'color': bool(c and c.group(1).strip()), 'folder': folder,
                            'flag': os.path.isfile(os.path.join(d, 'flag-16-16.tga')) or os.path.isfile(os.path.join(d, 'flag-19-19.tga'))}
     return out
+
+
+# ------------------------------------------------------------------------------------------ retrato del lobby por capas
+# Como el leader-lobby.psd de The Modern World: marco (leader-lobby referential) de 273x305 arriba a la izquierda de un
+# lienzo 512x512, la bandera en su hueco blanco, un monumento abajo a la izquierda y el líder a la derecha, delante.
+LOBBY_FLAG = (7, 58, 263, 186)
+LOBBY_MON = (0, 140, 190, 305)          # se apoya abajo a la izquierda
+LOBBY_LEAD = (125, 90, 273, 520)        # se apoya arriba a la derecha; lo que baja de 305 se corta
+
+
+def lobby_frame():
+    p = os.path.join(plantilla_dir(), '_imagenes', 'leader-lobby-referential.tga')
+    if os.path.exists(p):
+        return Image.open(p).convert('RGBA')
+    im = Image.new('RGBA', (512, 512), (0, 0, 0, 0))
+    im.paste((40, 34, 30, 255), (1, 1, 273, 305))
+    im.paste((255, 255, 255, 255), LOBBY_FLAG)
+    return im
+
+
+def big_flag(scen, country):
+    """La bandera más grande del país (3DFlag vuelta a su sitio, si no diplomatic-flag / flag-68-34)."""
+    d = flag_dir(scen, country, ('3DFlag.tga', 'diplomatic-flag.tga', 'flag-68-34.tga'))
+    for f in ('3DFlag.tga', 'diplomatic-flag.tga', 'flag-68-34.tga'):
+        p = d and os.path.join(d, f)
+        if p and os.path.exists(p):
+            im = Image.open(p).convert('RGBA')
+            if f == '3DFlag.tga':
+                im = im.transpose(Image.FLIP_TOP_BOTTOM)
+            bb = im.getchannel('A').point(lambda v: 255 if v > 200 else 0).getbbox()
+            return im.crop(bb) if bb else im
+    return None
+
+
+def _fit_box(img, box, scale, align):
+    """Escala img para caber en box (por scale) y la coloca: align 'bl' abajo-izquierda, 'tr' arriba-derecha."""
+    x0, y0, x1, y1 = box
+    k = min((x1 - x0) / img.width, (y1 - y0) / img.height) * scale
+    img = img.resize((max(1, round(img.width * k)), max(1, round(img.height * k))), Image.LANCZOS)
+    pos = (x0, y1 - img.height) if align == 'bl' else (x1 - img.width, y0)
+    return img, pos
+
+
+def leader_lobby_layers(flag=None, monument=None, leader=None, mon_scale=1.0, lead_scale=1.0,
+                        mon_removebg=False, lead_removebg=False, dx=0, dy=0):
+    """Compone el retrato del lobby (512x512) a partir de las capas; cualquiera puede faltar."""
+    frame = lobby_frame()
+    card = frame.copy()
+    if flag is not None:
+        x0, y0, x1, y1 = LOBBY_FLAG
+        card.alpha_composite(fit_flag(flag.convert('RGBA'), 'centro').resize((x1 - x0, y1 - y0), Image.LANCZOS), (x0, y0))
+    for img, box, sc, rb, al, off in ((monument, LOBBY_MON, mon_scale, mon_removebg, 'bl', (0, 0)),
+                                      (leader, LOBBY_LEAD, lead_scale, lead_removebg, 'tr', (dx, dy))):
+        if img is None:
+            continue
+        img = remove_background(img) if rb else img.convert('RGBA')
+        bb = img.getchannel('A').getbbox()
+        img = img.crop(bb) if bb else img
+        img, pos = _fit_box(img, box, sc, al)
+        layer = Image.new('RGBA', card.size, (0, 0, 0, 0))
+        layer.paste(img, (pos[0] + off[0], pos[1] + off[1]))
+        card.alpha_composite(layer)
+    # solo la zona del marco (273x305 arriba a la izquierda); fuera, transparente
+    out = Image.new('RGBA', card.size, (0, 0, 0, 0))
+    out.paste(card, (0, 0), frame.getchannel('A'))
+    return out
+
+
+def lobby_path(scen, country):
+    return os.path.join(countries_dir(scen), safe_name(flag_folder(scen, country)), 'leader-lobby.tga')
+
+
+def _lobby_from(p):
+    f = lambda k: from_data_url(p.get(k)) if p.get(k) else None
+    flag = f('flag')
+    if flag is None and p.get('use_flag', True):
+        flag = big_flag(p['scen'], p['country'])
+    return leader_lobby_layers(flag, f('monument'), f('leader'), float(p.get('mon_scale') or 1), float(p.get('lead_scale') or 1),
+                               bool(p.get('mon_removebg')), bool(p.get('lead_removebg')), int(p.get('dx') or 0), int(p.get('dy') or 0))
+
+
+def lobby_preview(p):
+    return {'png': to_data_url(_lobby_from(p).crop((0, 0, 274, 306))), 'file': os.path.relpath(lobby_path(p['scen'], p['country']), scen_dir(p['scen']))}
+
+
+def lobby_write(p):
+    path = lobby_path(p['scen'], p['country'])
+    return write_files({path: tga_bytes(_lobby_from(p), FLAG_FMT['leader-lobby.tga'])}, 'leader-lobby-' + safe_name(p['country']))

@@ -7,7 +7,8 @@ import os
 
 ENTRY = {'fecha': 'date', 'instalado': 'installed', 'traspasos': 'transfers', 'vecindades_nuevas': 'new_adjacencies', 'centros': 'centers',
          'operaciones': 'operations', 'regiones_nuevas': 'new_regions', 'regiones_eliminadas': 'deleted_regions',
-         'equivalencias': 'equivalences', 'renombradas': 'renamed', 'canales': 'channels', 'origen': 'origin', 'nota': 'note'}
+         'equivalencias': 'equivalences', 'renombradas': 'renamed', 'canales': 'channels', 'origen': 'origin', 'nota': 'note',
+         'base_equivalencias': 'equivalence_base'}
 TRANSFER = {'de': 'from', 'a': 'to'}
 RENAMED = {'de': 'from', 'a': 'to', 'texto': 'text', 'interno': 'internal'}
 CHANNEL = {'cerrada': 'closed', 'zona': 'zone'}
@@ -38,6 +39,11 @@ def _convert(entry, entry_t, list_t):
 
 
 def to_file(cl):
+    # las equivalencias («equivale a región vanilla») se refieren siempre a World, el regionpack por defecto del juego: se dice en
+    # cada entrada que las tenga (también en los changelog antiguos, al volver a escribirlos)
+    for e in cl:
+        if (e.get('equivalencias') or any(x.get('equivale') for x in e.get('regiones_nuevas', []) or [])) and not e.get('base_equivalencias'):
+            e['base_equivalencias'] = 'World'
     return [_convert(e, ENTRY, LISTS) for e in cl]
 
 

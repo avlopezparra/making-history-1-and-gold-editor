@@ -71,3 +71,16 @@ Procmon mostro que el `reg.exe` lanzado desde la herramienta de Claude escribe e
 - **Herramienta**: `python tools/idioma_juego.py` (lista), `python tools/idioma_juego.py mh1 esp` / `gold de`. Ejecutar en una terminal NORMAL del usuario: el `reg`/python lanzado desde la app de Claude escribe en un registro privado (`\REGISTRY\WC\Silo...`) y no tiene efecto, ni siquiera elevado.
 - Valores validos: carpetas de `system\locale` (MH1: en, esp, ru; Gold: de, en, jp, ru). Gold (clave `Making History Gold`) no se probo con el juego.
 - Falta (opcional): boton en el editor que llame a `idioma_juego.cambiar`.
+
+## Conversor MH1 → Gold: arreglos (28/10/2026)
+- Investigación: si un proyecto es `bCompletedByDefault`, sus requisitos nuevos de Gold (EarlyBombers/EarlyCruisers/EarlySubmarines)
+  también deben serlo, o ningún país inicia («didn't ever have their pre-reqs met»). `fix_default_prereqs`.
+- `UnitUpgrade.nLandHitBonusPct` (MH1) → `nLandAttackHitBonusPct` + `nLandDefenseHitBonusPct` (Gold, mismo valor). `fix_unit_upgrades`.
+- Opción «Regionpack (mapa)» en el diálogo de conversión (usa `port_regionpack.py`). Copiar a mano un regionpack de MH1 a Gold
+  falla en `InitGameValidateRegions`.
+- Probado en el juego: «Deadlock - The Great War» convertido a Gold carga y funciona.
+
+## Japones (Gold, locale jp) — texto invisible
+- Los `stringTable*.xml` de `locale\jp` estan bien (UTF-8, kana/kanji reales).
+- Causa probable: `bin\fonts.dll` (FreeType) solo escanea `*.ttf` (log: `Looking for fonts using string "C:\WINDOWS\Fonts\*.ttf"`) y la UI pide Arial / Century Gothic (`strFontFace`), sin glifos CJK; las fuentes japonesas de Windows son `.ttc` (msgothic, YuGoth) y nunca se cargan. La version japonesa original seguramente traia/configuraba otra fuente.
+- Arreglo propuesto: `tools/fuente_jp.py` genera `fuentes_jp/*.ttf` (MS Gothic renombrada como Arial, Century Gothic, Bodoni MT, Courier New) y se anade a `Making History Gold\Options\options.xml` dentro de `SystemOptions`: `<property name="strFontDirs" value="...\fuentes_jp"/>` (+ quiza `C:\WINDOWS\Fonts`). PENDIENTE de probar.
