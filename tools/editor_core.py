@@ -1240,10 +1240,10 @@ class Project:
         return land if land is not None and not land.is_empty else None
 
     def paint_islands(self, names, land=None, log=print):
-        """Pinta en el fondo (tiles/ del proyecto; llega al juego al «Instalar») las islas 'names': arena con halo de agua clara y
-        línea de costa oscura, como las islas del juego. La forma de la tierra: 'land' ({región: geometría}, p. ej. de un GeoJSON);
-        si no, el polígono de la región si es pequeño (es la isla); si no, la tierra que ya se ve en el fondo dentro de ella (solo
-        se le pone la costa). Devuelve {'painted': {región: cómo}, 'skipped': {región: por qué}, 'tiles': [...]}."""
+        """Pinta en el fondo (tiles/ del proyecto; llega al juego al «Instalar») las islas 'names': arena con halo de agua clara, sin
+        línea de costa (la línea de la región sale de su polígono), como Cabo Verde en el juego. La forma de la tierra: 'land' ({región: geometría}, p. ej. de un GeoJSON);
+        si no, el polígono de la región si es pequeño (es la isla); si no, se omite.
+        Devuelve {'painted': {región: cómo}, 'skipped': {región: por qué}, 'tiles': [...]}."""
         land = land or {}
         ch = {'erase': [], 'paint': [], 'islands': []}
         done, skipped = {}, {}
@@ -1256,20 +1256,60 @@ class Project:
                 how = 'forma dada'
                 if shp is None and g.area <= self.ISLAND_MAX_AREA:
                     shp, how = g, 'su polígono'
-                fill = shp is not None
                 if shp is None:
-                    shp, how = self._painted_land(g), 'tierra ya pintada (solo costa)'
-                if shp is None:
-                    skipped[n] = 'su polígono es un halo de mar (%.2f grados²) y el fondo no tiene tierra dentro: da su forma con un GeoJSON' % g.area
+                    skipped[n] = 'su polígono es grande (%.2f grados²): da la forma de la isla con un GeoJSON o dibujando su contorno' % g.area
                     continue
-                if fill:
-                    ch['islands'].append(mapping(shp))
-                for poly in getattr(shp, 'geoms', [shp]):
-                    for ring in [poly.exterior] + list(poly.interiors):
-                        ch['paint'].append(dict(mapping(ring), kind='land'))
+                # solo la tierra: nunca una línea pegada a la costa (como Cabo Verde o Canarias del juego, la línea
+                # de la región es la de su polígono, en borders.brd)
+                ch['islands'].append(mapping(shp))
                 done[n] = how
             tiles = paint_tiles(ch, os.path.join(self.map_dir, 'art', 'OperationalTerrain'), self.tiles, originals=self.tiles, log=log) if done else []
-        return {'painted': done, 'skipped': skipped, 'tiles': ['%02d-%02d' % t for t in tiles]}
+        ol = self.outline_islands(list(done), log=log)      # la línea de la región, por su polígono
+        tiles = sorted(set('%02d-%02d' % t for t in tiles) | set(ol['tiles']))
+        return {'painted': done, 'skipped': skipped, 'tiles': tiles}
+
+    def outline_islands(self, names, log=print):
+        """Islas como Cabo Verde o Canarias del juego: se quita del fondo el contorno oscuro pegado a la costa y la línea de la
+        región se pinta por su polígono (borders.brd). En tiles/ del proyecto; al juego con «Instalar»."""
+        ch = {'erase': [], 'paint': [], 'islands': [], 'unring': []}
+        done = []
+        with self.lock:
+            for n in names:
+                g = self.region_geom(n)
+                if g is None:
+                    continue
+                ch['unring'].append(mapping(g))
+                for poly in getattr(g, 'geoms', [g]):
+                    ch['paint'].append(dict(mapping(poly.exterior), kind='sea'))
+                done.append(n)
+            tiles = paint_tiles(ch, os.path.join(self.map_dir, 'art', 'OperationalTerrain'), self.tiles, originals=self.tiles, log=log) if done else []
+        return {'outlined': done, 'tiles': ['%02d-%02d' % t for t in tiles]}
+
+    def redraw_borders(self, region=None, log=print):
+        """«Redibujar fronteras»: vuelve a pintar en el fondo (tiles/ del proyecto) las líneas de todas las fronteras según
+        borders.brd: tierra-tierra, mar-mar y el polígono de las islas (no su costa). Antes respalda los tiles del proyecto."""
+        R = self.m['regions']
+        ch = {'erase': [], 'paint': [], 'islands': []}
+        with self.lock:
+            for b in self.m['borders']:
+                if region is not None and region not in b.regions:     # solo la región elegida y sus fronteras con las vecinas
+                    continue
+                a, c = (R[i].u_type == SEA for i in b.regions)
+                if a != c:        # costa: solo la de las islas (su polígono, como Cabo Verde); la de los continentes ya está en el fondo
+                    land = next(R[i] for i in b.regions if R[i].u_type != SEA)
+                    if not self.is_island(self.rname(land.index)):
+                        continue
+                    a = True
+                for f, p in b.segments:
+                    if len(p) > 1:
+                        ch['paint'].append({'type': 'LineString', 'coordinates': [list(q) for q in p], 'kind': 'sea' if a else 'land'})
+            bak = os.path.join(self.backup_dir, 'tiles_antes_redibujar_' + time.strftime('%Y%m%d-%H%M%S'))
+            if os.path.isdir(self.tiles) and os.listdir(self.tiles):
+                shutil.copytree(self.tiles, bak)
+            if region is not None and R[region].u_type != SEA and self.is_island(self.rname(region)):
+                ch['unring'] = [mapping(self.region_geom(self.rname(region)))]      # isla: sin contorno pegado a la costa
+            tiles = paint_tiles(ch, os.path.join(self.map_dir, 'art', 'OperationalTerrain'), self.tiles, originals=self.tiles, log=log)
+        return {'tiles': ['%02d-%02d' % t for t in tiles], 'lines': len(ch['paint']), 'backup': bak if os.path.isdir(bak) else None}
 
     def install_tiles(self, tiles):
         """Copia al juego solo esos tiles del fondo (y sus mipmaps) desde tiles/ del proyecto: un cambio de fondo sin tocar el mapa."""

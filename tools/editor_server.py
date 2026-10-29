@@ -11,6 +11,7 @@ import re
 import shutil
 import sys
 import threading
+import time
 import traceback
 import webbrowser
 from collections import OrderedDict
@@ -24,6 +25,12 @@ import editor_core  # noqa: E402
 import gamepaths  # noqa: E402
 import progress  # noqa: E402
 import new_pack  # noqa: E402
+import anthems  # noqa: E402
+try:
+    import ai_chat  # noqa: E402   (chat de IA: aún no se publica)
+except ImportError:
+    ai_chat = None
+import changelog_keys  # noqa: E402
 
 PROJECT = None
 TILE_CACHE = OrderedDict()
@@ -59,6 +66,8 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if u.path in ('/', '/index.html'):
                 return self.send(200, open(os.path.join(HERE, 'editor', 'index.html'), 'rb').read(), 'text/html; charset=utf-8')
+            if u.path.startswith('/api/wikidata/'):
+                return self.send(200, wikidata_api(u.path, {k: v[0] for k, v in q.items()}))
             if u.path == '/api/meta':
                 return self.send(200, {'regions': PROJECT.meta(), 'project': os.path.abspath(PROJECT.dir),
                                        'history': len([d for d in os.listdir(PROJECT.history) if d.isdigit()]),
@@ -148,6 +157,9 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send(200, LOG[-50:])
             if u.path == '/api/game':
                 return self.send(200, gamepaths.info())
+            if u.path == '/api/game/license':   # «Invalid License Key»: licencia vieja en VirtualStore que tapa la de HKLM
+                import licencia_juego
+                return self.send(200, {'issues': licencia_juego.check(), 'permanent': licencia_juego.writable()})
             if u.path == '/api/xconvert/check':
                 return self.send(200, xconvert_check(q.get('scen', [''])[0], q.get('pack', [''])[0]))
             if u.path in ('/icon_mh1.png', '/icon_gold.png'):   # iconos de GameBanana de MH1 y Gold
@@ -183,8 +195,18 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send(200, open(os.path.join(HERE, 'editor', 'i18n_en.json'), 'rb').read(), 'application/json; charset=utf-8')
             if u.path == '/api/progress':
                 return self.send(200, progress.get())
-            if u.path in ('/i18n.js', '/busy.js'):
+            if u.path == '/ai_chat.js':
+                return self.send(200, open(os.path.join(HERE, 'editor', 'ai_chat.js'), 'rb').read(), 'text/javascript; charset=utf-8')
+            if u.path == '/api/ai/config':     # chat de IA: proveedores (sin claves)
+                return self.send(200, ai_chat.public())
+            if u.path == '/api/ai/routes':
+                return self.send(200, {'routes': ai_chat.routes(q.get('filter', [''])[0])})
+            if u.path == '/api/ai/route_src':
+                return self.send(200, {'source': ai_chat.route_source(q['path'][0], q.get('method', [''])[0])})
+            if u.path in ('/i18n.js', '/busy.js', '/escenario_extra.js'):
                 return self.send(200, open(os.path.join(HERE, 'editor', u.path[1:]), 'rb').read(), 'text/javascript; charset=utf-8')
+            if u.path == '/escenario_wikidata.js':
+                return self.send(200, open(os.path.join(HERE, 'editor', 'escenario_wikidata.js'), 'rb').read(), 'text/javascript; charset=utf-8')
             if u.path == '/escenario_imagenes.js':
                 return self.send(200, open(os.path.join(HERE, 'editor', 'escenario_imagenes.js'), 'rb').read(), 'text/javascript; charset=utf-8')
             if u.path in ('/compare', '/compare.html', '/comparar', '/comparar.html'):
@@ -196,8 +218,33 @@ class Handler(BaseHTTPRequestHandler):
                     return self.send(200, cmp_get(u.path, {k: v[0] for k, v in q.items()}))
                 except (ValueError, KeyError, OSError) as e:
                     return self.send(200, {'error': str(e)})
+            if u.path in ('/models', '/models.html', '/modelos', '/modelos.html'):
+                return self.send(200, open(os.path.join(HERE, 'editor', 'modelos.html'), 'rb').read(), 'text/html; charset=utf-8')
+            if u.path.startswith('/api/model/'):
+                import models_api
+                g = {k: v[0] for k, v in q.items()}
+                try:
+                    if u.path == '/api/model/list':
+                        return self.send(200, models_api.models(scenario(g['name'])))
+                    if u.path == '/api/model/check':
+                        return self.send(200, {'issues': models_api.land_display_issues(scenario(g['name']).dir)})
+                    if u.path == '/api/model/info':
+                        return self.send(200, models_api.info(g['path']))
+                    if u.path == '/api/model/glb':
+                        return self.send(200, models_api.glb(g['path']), 'model/gltf-binary')
+                    if u.path == '/api/model/tex':
+                        return self.send(200, models_api.tex_png(g['path'], g['block']), 'image/png')
+                    if u.path == '/api/model/obj':
+                        return self.send(200, models_api.obj_zip(g['path']), 'application/zip')
+                except (ValueError, KeyError, OSError) as e:
+                    return self.send(200, {'error': str(e)})
             if u.path in ('/images', '/images.html', '/imagenes', '/imagenes.html'):
                 return self.send(200, open(os.path.join(HERE, 'editor', 'imagenes.html'), 'rb').read(), 'text/html; charset=utf-8')
+            if u.path == '/api/anthems':      # himnos: globales (UI/SoundPack.xml), no del escenario
+                try:
+                    return self.send(200, anthems.status())
+                except OSError as e:
+                    return self.send(200, {'error': str(e)})
             if u.path.startswith('/api/img/'):
                 return img_get(self, u.path, {k: v[0] for k, v in q.items()})
             if u.path == '/api/terrain/export':
@@ -261,6 +308,10 @@ class Handler(BaseHTTPRequestHandler):
         n = int(self.headers.get('Content-Length') or 0)
         payload = json.loads(self.rfile.read(n) or b'{}')
         try:
+            if u.path.startswith('/api/ai/'):
+                return self.send(200, ai_post(u.path, payload))
+            if u.path.startswith('/api/wikidata/'):
+                return self.send(200, wikidata_api(u.path, payload))
             if u.path == '/api/regions/merge':
                 # unificar regiones (selección múltiple): las demás se eliminan y su área, ciudades, población y unidades
                 # pasan a 'into'; es un guardado del mapa como cualquier otro (y se registra en los escenarios)
@@ -349,6 +400,14 @@ class Handler(BaseHTTPRequestHandler):
                      'controlador': payload.get('controller'), 'terreno': payload.get('terrain'),
                      'poblacion_manual': payload.get('population'), 'texto': payload.get('text'),
                      'poblacion': {payload['mother']: float(payload.get('pop_pct') or 0) / 100} if payload.get('mother') else None}
+                # habitantes puestos a mano al crearla (changelog): mandan sobre el % de la madre del diálogo (antes se perdían)
+                if x['poblacion_manual'] is None:
+                    try:
+                        made = [c for e in PROJECT.changelog() for c in e.get('regiones_nuevas', []) if c.get('nombre') == payload['name']]
+                    except Exception:
+                        made = []
+                    if made and made[-1].get('poblacion_manual') is not None:
+                        x['poblacion_manual'], x['poblacion'] = made[-1]['poblacion_manual'], None
                 register_regions.force = set(payload.get('force_scenarios') or [])
                 out = register_regions([x], [payload['scenario']])
                 register_regions.force = set()
@@ -535,6 +594,13 @@ class Handler(BaseHTTPRequestHandler):
                     return self.send(200, PROJECT.paint_islands(regs or list(land), land))
                 except (ValueError, OSError) as e:
                     return self.send(200, {'error': str(e)})
+            if u.path == '/api/redraw_borders':
+                # «Redibujar fronteras»: líneas de todas las fronteras en tiles/ del proyecto (el juego, solo al Instalar)
+                try:
+                    r = payload.get('region')
+                    return self.send(200, PROJECT.redraw_borders(None if r is None else int(r)))
+                except (ValueError, OSError) as e:
+                    return self.send(200, {'error': str(e)})
             if u.path == '/api/install_tiles':
                 # instalar solo el fondo: copia al juego esos tiles del proyecto (sin tocar regions.bin, borders.brd ni escenarios)
                 return self.send(200, {'copied': PROJECT.install_tiles(payload.get('tiles') or [])})
@@ -657,6 +723,9 @@ class Handler(BaseHTTPRequestHandler):
             if u.path == '/api/refresh':
                 # Refrescar: el escenario se relee del disco aparte (/api/scen/reload); aquí, el regionpack del juego
                 state = PROJECT.installed_state()
+                with TILE_LOCK:              # el fondo también se vuelve a leer (si no, quedaban tiles de otro regionpack)
+                    TILE_CACHE.clear()
+                PROJECT_VERSION[0] += 1
                 if payload.get('load_installed') and state != 'same' and not PROJECT.virtual:
                     PROJECT.load_installed()
                     with TILE_LOCK:
@@ -666,6 +735,12 @@ class Handler(BaseHTTPRequestHandler):
                     log('regionpack %s recargado desde el juego' % PROJECT.pack)
                     return self.send(200, {'state': 'same', 'loaded': True})
                 return self.send(200, {'state': state, 'pack': PROJECT.pack})
+            if u.path == '/api/game/license_permanent':   # permiso de escritura en HKLM (pide admin): sin VirtualStore no vuelve a pasar
+                import licencia_juego
+                return self.send(200, licencia_juego.permanente())
+            if u.path == '/api/game/license_fix':   # borra solo esos valores, con respaldo .reg en making-history
+                import licencia_juego
+                return self.send(200, licencia_juego.fix())
             if u.path == '/api/game/select':
                 try:
                     return self.send(200, select_game(payload['game']))
@@ -790,6 +865,20 @@ class Handler(BaseHTTPRequestHandler):
                 select_pack(payload['pack'])
                 PROJECT_VERSION[0] += 1
                 return self.send(200, {'ok': True, 'pack': PROJECT.pack})
+            if u.path.startswith('/api/anthems/'):
+                import base64
+                try:
+                    if u.path == '/api/anthems/import':
+                        return self.send(200, anthems.import_audio(payload.get('country'), base64.b64decode(payload['data']), payload.get('ext') or 'mp3'))
+                    if u.path == '/api/anthems/remove':
+                        return self.send(200, anthems.remove_staged(payload.get('country')))
+                    if u.path == '/api/anthems/install':      # único paso que escribe en el juego
+                        rep = anthems.install()
+                        if rep.get('ok'):
+                            log('himnos instalados: %s (copia en %s)' % (', '.join(rep['installed']), rep['backup']))
+                        return self.send(200, rep)
+                except (ValueError, KeyError, OSError) as e:
+                    return self.send(200, {'error': str(e)})
             if u.path.startswith('/api/img/'):
                 try:
                     return self.send(200, img_post(u.path, payload))
@@ -821,6 +910,7 @@ import scenario_core  # noqa: E402
 import scenario_layers  # noqa: E402
 import icon_defaults  # noqa: E402
 import scenario_create  # noqa: E402
+import scenario_extra  # noqa: E402
 import scenario_new  # noqa: E402
 import scenario_events  # noqa: E402
 import scenario_i18n  # noqa: E402
@@ -849,9 +939,25 @@ def pack_from_world():
     except (OSError, ValueError):
         pass
     try:
-        return not any(e.get('origen') == 'desde_cero' for e in PROJECT.changelog())
+        if any(e.get('origen') == 'desde_cero' for e in PROJECT.changelog()):
+            return False
     except Exception:
-        return True
+        pass
+    # un fondo propio (p. ej. TamrielDemo): sus tiles del juego no se parecen a los de World. Antes se daba por «de World» y
+    # «Restaurar fondo» pegaba la Tierra encima donde no había frontera
+    try:
+        import filecmp
+        world = os.path.join(editor_core.MAPS, 'World', 'art', 'OperationalTerrain')
+        mine = os.path.join(PROJECT.map_dir, 'art', 'OperationalTerrain')
+        if PROJECT.pack != 'World' and os.path.isdir(world) and os.path.isdir(mine):
+            names = ['OperationalTerrain-%02d-%02d-04.tga' % (c, r) for c in range(0, 24, 3) for r in range(1, 12, 2)]
+            names = [n for n in names if os.path.exists(os.path.join(world, n)) and os.path.exists(os.path.join(mine, n))]
+            same = sum(filecmp.cmp(os.path.join(world, n), os.path.join(mine, n), shallow=False) for n in names)
+            if names and same < len(names) // 2:
+                return False
+    except Exception:
+        pass
+    return True
 
 
 def vanilla_folder():
@@ -862,6 +968,70 @@ def vanilla_folder():
                                   os.path.join(gamepaths.backup_root(), 'vanilla_World'))
     except OSError:
         return None
+
+
+def scen_pack_project(s):
+    """Proyecto (changelog) del regionpack que usa el escenario; el abierto si es el mismo."""
+    sx = s.all('Scenario', lambda f: f == 'scenario.xml')
+    disp = next((o for o in sx[0].iter('object') if o.get('type') == 'ScenarioDisplaySettings'), None) if sx else None
+    pack = (scenario_core.prop(disp, 'strMapName') if disp is not None else None) or 'World'
+    if PROJECT is not None and PROJECT.pack == pack:
+        return PROJECT
+    return editor_core.Project(project_dir(pack), map_backup_dir(), pack)
+
+
+def scen_year(s):
+    for o in s.all('ScenarioInfo') + s.all('Scenario'):
+        y = scenario_core.prop(o, 'nStartYear')
+        if y and str(y).isdigit():
+            return int(y)
+    return 1936
+
+
+def wikidata_api(path, p):
+    """Wikidata (solo lectura) y asociación país/ciudad del escenario -> QID, anotada en el changelog del regionpack."""
+    import wikidata
+    try:
+        s = scenario(p['scen']) if p.get('scen') else None
+        year = int(p.get('year') or (scen_year(s) if s else 1936))
+        lang = p.get('lang') or 'es'
+        if path == '/api/wikidata/search':
+            return {'hits': wikidata.search(p['q'], p.get('kind', 'city'), lang)}
+        if path == '/api/wikidata/entity':
+            e = wikidata.entity(p['id'], year, lang)
+            if p.get('kind') == 'country':
+                try:
+                    e['cities'] = wikidata.major_cities(e['id'], year, lang)
+                except wikidata.Offline as x:
+                    e['cities_error'] = str(x)
+                e['roundel'] = wikidata.roundel(e['id'], year, lang)
+            return e
+        if path == '/api/wikidata/links':
+            pr = scen_pack_project(s)
+            return {'links': next((e.get('wikidata', {}) for e in pr.changelog() if 'wikidata' in e), {}).get(p['scen'], {}), 'year': year}
+        if path == '/api/wikidata/link':      # {scen, kind: city|country, name, id ('' = quitar)}
+            pr = scen_pack_project(s)
+            cl = pr.changelog()
+            if os.path.exists(pr.changelog_path()):
+                shutil.copy2(pr.changelog_path(), pr.changelog_path() + '.bak')       # respaldo antes de escribir
+            ent = next((e for e in cl if 'wikidata' in e), None)
+            if ent is None:
+                ent = {'fecha': time.strftime('%Y-%m-%d %H:%M:%S'), 'regionpack': pr.pack, 'instalado': False, 'operaciones': ['wikidata'], 'wikidata': {}}
+                cl.append(ent)
+            sc = ent['wikidata'].setdefault(p['scen'], {})
+            key = '%s:%s' % (p['kind'], p['name'])
+            if p.get('id'):
+                sc[key] = {'id': p['id'].upper(), 'label': p.get('label', ''), **({'surrendered': True} if p.get('surrendered') else {})}
+            else:
+                sc.pop(key, None)
+            ent['fecha'] = time.strftime('%Y-%m-%d %H:%M:%S')
+            changelog_keys.dump(cl, pr.changelog_path())
+            return {'links': sc, 'changelog': pr.changelog_path()}
+        raise KeyError(path)
+    except wikidata.Offline as x:
+        return {'offline': True, 'error': str(x)}
+    except (ValueError, KeyError) as x:
+        return {'error': str(x)}
 
 
 def scenario(name):
@@ -1359,11 +1529,12 @@ def scen_get(path, q):
         if path == '/api/scen/ai':
             return scenario_layers.ai_summary(scenario(q['name']), q['country'])
         if path == '/api/scen/validate':
+            import models_api
             names, adj = map_info()
             sc_ = scenario(q['name'])
             return {'issues': sc_.validate(names, adj) + scenario_layers.surrendered_issues(sc_) + scenario_layers.diplomacy_issues(sc_)
                     + scenario_layers.unknown_nation_issues(sc_) + scenario_layers.duplicate_issues(sc_)
-                    + icon_defaults.issues(sc_.dir)}
+                    + icon_defaults.issues(sc_.dir) + models_api.land_display_issues(sc_.dir)}
         if path == '/api/files/list':
             return file_identify.list_dir(q.get('rel', ''))
         if path == '/api/files/identify':
@@ -1429,10 +1600,16 @@ def scen_post(path, p):
         if path == '/api/scen/new_scratch':
             # escenario vacío sobre un regionpack (sin naciones): luego se le añaden naciones al crear regiones
             name = scenario_new.create_scenario(p['name'], p['pack'], p.get('template') or None, p.get('display') or None, p.get('description') or None)
+            scenario_extra.ensure_dirs(os.path.join(scenario_core.SCEN_ROOT, name))
             return {'name': name, 'template': p.get('template') or '(plantilla del editor)'}
         if path == '/api/scen/check_nations':
             s = scenario(p['name'])
             return {'errors': scenario_new.check_nations(s)}
+        if path == '/api/scen/flow_resource':
+            # recurso de un flujo comercial o de ayuda (ResourceTrade): añadir, cambiar o quitar (cantidad 0)
+            el = st.get(p['id'])
+            notes = scenario_extra.flow_resource(st, el, p.get('resource'), p.get('amount'))
+            return {'notes': notes, 'detail': view_for(p['id']).detail(p['id'])}
         if path == '/api/scen/duplicate':
             new = st.duplicate(st.get(p['id']))
             return {'id': st.eid(new), 'detail': view_for(st.eid(new)).detail(st.eid(new))}
@@ -1727,6 +1904,15 @@ def scen_post(path, p):
             elif rname != cur:
                 notes.append('sigue dependiendo de %s (el punto queda fuera de ella)' % cur)
             return {'notes': notes, 'dirty': sorted(os.path.basename(z) for z in st.dirty if z in s.paths)}
+        if path in ('/api/scen/model_texture', '/api/scen/model_import', '/api/scen/model_save_links'):
+            # visor de modelos: vista previa (sin sprite_id) o guardar el .nif en el escenario (botón explícito) y vincular el Sprite
+            import models_api
+            s = scenario(p['name'])
+            if path.endswith('save_links'):
+                return {'notes': models_api.save_spritelib(s), 'dirty': sorted(os.path.basename(z) for z in st.dirty if z in s.paths)}
+            r = (models_api.set_texture if path.endswith('texture') else models_api.import_model)(s, p)
+            r['dirty'] = sorted(os.path.basename(z) for z in st.dirty if z in s.paths)
+            return r
         if path == '/api/scen/sprites':
             # escala 3D (fScale): 'set' en memoria; 'save' escribe los archivos del juego (botón explícito) y lo anota; 'undo' / 'discard'
             op = p.get('op')
@@ -1756,7 +1942,7 @@ def scen_post(path, p):
         if path == '/api/scen/rename_country':
             # cambiar el nombre de un país: solo cómo se ve (SID) o también el nombre interno, archivos y referencias
             s = scenario(p['name'])
-            notes = scenario_layers.rename_country(s, p['old'], p['new'], bool(p.get('code')))
+            notes = scenario_layers.rename_country(s, p['old'], p['new'], bool(p.get('code')), keep_shown=bool(p.get('keep_shown')))
             c = s.countries().get(p['new'] if p.get('code') else p['old'])
             return {'notes': notes, 'id': st.eid(c) if c is not None else None, 'dirty': sorted(os.path.basename(z) for z in st.dirty if z in s.paths)}
         if path == '/api/scen/set_direction':
@@ -2217,6 +2403,29 @@ def select_pack(pack):
         json.dump({'pack': pack}, open(os.path.join(ROOT, 'ultimo_regionpack.json'), 'w'))
     except OSError:
         pass
+
+
+def ai_post(path, p):
+    # chat de IA (ai_chat.py): config de claves locales, llamada al proveedor, comprobación de rutas y respaldo
+    try:
+        if path == '/api/ai/config':
+            return ai_chat.save(p)
+        if path == '/api/ai/models':
+            ms = ai_chat.models(p['provider'], p.get('key'), p.get('base'))
+            return {'models': ms, 'best': ai_chat.best_model(p['provider'], ms)}
+        if path == '/api/ai/chat':
+            return ai_chat.chat(p.get('system') or '', p['messages'], p.get('tools') or [])
+        if path == '/api/ai/check':
+            return {'error': ai_chat.check_call(p.get('method', 'GET'), p.get('path', '')), 'disk': bool(ai_chat.DISK.match(p.get('path', '')))}
+        if path == '/api/ai/backup':
+            import scenario_core
+            d = ai_chat.backup_scenario(scenario_core.SCEN_ROOT, scenario_core.BACKUP_ROOT, p.get('scenario'))
+            if d:
+                log('IA: copia de %s en %s' % (p.get('scenario'), d))
+            return {'backup': d}
+    except Exception as e:
+        return {'error': str(e)}
+    return {'error': 'ruta IA desconocida'}
 
 
 def main():

@@ -212,6 +212,26 @@ def action_text(a, ctx):
     if t in ('ActTransferRegionOwnership', 'ActTransferRegionControl'):
         return 'la región %s pasa %s %s' % (g('nRegionID'), 'a ser de' if t.endswith('Ownership') else 'a estar controlada por',
                                             g('nNewCountryID'))
+    if t == 'ActDevCompleteResearchProject':
+        return '%s completa la investigación %s' % (g('strCountry'), g('strProjectName'))
+    if t in ('ActIncResearchProjectPoints', 'ActDecResearchProjectPoints'):
+        return '%s %s %s puntos en %s' % (g('strCountry'), 'gana' if 'Inc' in t else 'pierde', g('nAmount'), g('strProjectName'))
+    if t == 'ActSetNewCapital':
+        return '%s traslada su capital a %s (%s)' % (g('strCountry'), g('strCity'), g('strRegion'))
+    if t == 'ActProposeDefensePact':
+        return '%s propone un pacto de defensa a %s' % (g('strFromCountry'), g('strToCountry'))
+    if t == 'ActFormMilitaryAccess':
+        return '%s obtiene acceso militar de %s' % (g('strFromCountry'), g('strToCountry'))
+    if t == 'ActCancelDefensePact':
+        return 'cancela el pacto de defensa con %s' % g('strCountry')
+    if t == 'ActSetCountryInternationalPosition':
+        return '%s cambia su postura internacional a %s' % (g('nCountryID'), (g('ePosition') or '').split('__')[-1])
+    if t == 'ActSetCountryAggressiveNature':
+        return '%s cambia su agresividad a %s' % (g('nCountryID'), g('nAggression'))
+    if t in ('ActIncProducerBaseOutput', 'ActDecProducerBaseOutput'):
+        return 'la producción de %s %s %s' % (g('nGOID'), 'sube' if t.startswith('ActInc') else 'baja', g('nAmount'))
+    if t in ('ActAddCityWorkOrderIPUBonus', 'ActAddCityWorkOrderIPUPenalty'):
+        return '%s %s %s IPU' % (g('nCityGOID'), 'gana' if t.endswith('Bonus') else 'pierde', g('nIPUBonus') or g('nIPUPenalty'))
     if t == 'ActIncDipRelations':
         return 'relación de %s con %s %s %s' % (g('nSourceCountryID'), g('nTargetCountryID'), '−' if (g('nAmount') or '').startswith('-') else '+', (g('nAmount') or '').lstrip('-'))
     if t == 'ActDevCompleteResearchProject':
@@ -668,6 +688,50 @@ def _not_at_war_set(a, b):
                 % (va, _x(a), vb, _x(b), _w(a), _w(b), va, vb, _w(a), _w(b)))
 
 
+def _get_alliance(b):
+    """Variable con la alianza del país b (si no tiene, la regla exists() falla)."""
+    vb = 'objCountry' + _w(b)
+    return ('<object type="AccessorGetCountry" name="objAccessors"><property name="pathOutput" value="{Object:Single:Country}scratch.%s"/><property name="strCountry" value="%s"/></object>'
+            '<object type="AccessorGetAlliance" name="objAccessors"><property name="pathOutput" value="{Object:Single:Alliance}scratch.objAlliance%s"/>'
+            '<property name="nAllianceID" computeFrom="if(exists({Object:Single:Country}scratch.%s.objAllianceRef), {Object:Single:Country}scratch.%s.objAllianceRef.nAllianceID, -1)"/></object>'
+            '<object type="RuleDefExpression" name="objRules"><property name="expRession" value="exists({Object:Single:Alliance}scratch.objAlliance%s)"/></object>'
+            % (vb, _x(b), _w(b), vb, vb, _w(b)))
+
+
+def _in_alliance_set(b):
+    """El país del evento (su jugador) está en la alianza de b."""
+    return _set('Player is in the alliance of %s' % b, _get_alliance(b) +
+                '<object type="AccessorIsInAlliance" name="objAccessors"><property name="pathOutput" value="{bool:Single}scratch.bInAlliance%s"/>'
+                '<property name="nAllianceID" inheritFrom="{Object:Single:Alliance}scratch.objAlliance%s.nAllianceID"/></object>'
+                '<object type="RuleDefExpression" name="objRules"><property name="expRession" value="{bool:Single}scratch.bInAlliance%s"/></object>' % (_w(b), _w(b), _w(b)))
+
+
+def _war_alliance_set(a, b):
+    va = 'objCountry' + _w(a)
+    return _set('%s is at war with the alliance of %s' % (a, b), _get_alliance(b) +
+                '<object type="AccessorGetCountry" name="objAccessors"><property name="pathOutput" value="{Object:Single:Country}scratch.%s"/><property name="strCountry" value="%s"/></object>'
+                '<object type="AccessorIsAtWarWithAlliance" name="objAccessors"><property name="pathOutput" value="{bool:Single}scratch.b%sWarAlliance%s"/>'
+                '<property name="nCountryID" inheritFrom="{Object:Single:Country}scratch.%s.nCountryID"/>'
+                '<property name="nEnemyAllianceID" inheritFrom="{Object:Single:Alliance}scratch.objAlliance%s.nAllianceID"/></object>'
+                '<object type="RuleDefExpression" name="objRules"><property name="expRession" value="{bool:Single}scratch.b%sWarAlliance%s"/></object>'
+                % (va, _x(a), _w(a), _w(b), va, _w(b), _w(a), _w(b)))
+
+
+def _random_pick(kind, out, inp, where):
+    """Elige al azar un objeto de una lista filtrada (AccessorSelectObjects + AccessorSelectRandomObject, como en vanilla)."""
+    lst = '{Object:Variable:%s}scratch.%sList' % (kind, out.split('.')[-1])
+    return ('<object type="AccessorSelectObjects" name="objAccessors"><property name="pathOutput" value="%s"/>'
+            '<property name="pathInput" value="%s"/><property name="expWhere" value="%s"/></object>'
+            '<object type="AccessorSelectRandomObject" name="objAccessors"><property name="pathOutput" value="%s"/><property name="pathInput" value="%s"/></object>'
+            '<object type="RuleDefExpression" name="objRules"><property name="expRession" value="exists(%s)"/></object>'
+            % (lst, _x(inp), _x(where), out, lst, out))
+
+
+def _country_acc(c):
+    return ('<object type="AccessorGetCountry" name="objAccessors"><property name="pathOutput" value="{Object:Single:Country}scratch.objCountry%s"/>'
+            '<property name="strCountry" value="%s"/></object>' % (_w(c), _x(c)))
+
+
 def _action(spec, owner):
     """(xml de la acción, países que deben existir, regiones que necesita, condiciones extra)."""
     k = spec.get('type')
@@ -709,6 +773,93 @@ def _action(spec, owner):
             raise ValueError('elige la bandera')
         return ('<object type="ActSetCountryFlagName" name="objActions"><property name="strCountryName" value="%s"/><property name="strFlagName" value="%s"/></object>' % (_x(g('country', owner)), _x(g('flag'))),
                 [g('country', owner)], [], [], '%s changes its flag' % g('country', owner))
+    if k == 'regname':
+        r, sid = g('region'), g('sid')
+        if not r or not sid:
+            raise ValueError('elige la región y el texto')
+        return ('<object type="ActAlterProperty" name="objActions"><property name="nGOID" inheritFrom="{Object:Single:Region}scratch.objRegion%s.nGameObject"/>'
+                '<property name="strPropName" value="sidName"/><property name="strNewValue" value="%s"/></object>' % (_w(r), _x(sid)), [], [r], [], '%s is renamed' % r)
+    if k in ('transfer', 'control'):
+        to, frm, r = g('to', owner), g('from'), g('region')
+        if r:
+            reg, regs, extra = '{Object:Single:Region}scratch.objRegion%s' % _w(r), [r], []
+        elif frm:                                         # una región al azar que frm posee y controla
+            reg, regs = '{Object:Single:Region}scratch.objRegionRandom%s' % _w(frm), []
+            cf = '{Object:Single:Country}scratch.objCountry%s' % _w(frm)
+            extra = [_set('Random region of %s' % frm, _country_acc(frm) +
+                          '<object type="AccessorGetRegionsOwned" name="objAccessors"><property name="pathOutput" value="{Object:Variable:Region}scratch.objRegionsOf%s"/>'
+                          '<property name="strOwner" value="%s"/></object>' % (_w(frm), _x(frm)) +
+                          _random_pick('Region', reg, '{Object:Variable:Region}scratch.objRegionsOf%s' % _w(frm),
+                                       '{Object}input ISA Region AND {Object}input.nControllerID == %s.nCountryID' % cf))]
+        else:
+            raise ValueError('elige la región (o el país del que sale una al azar)')
+        act = 'ActTransferRegionOwnership' if k == 'transfer' else 'ActTransferRegionControl'
+        return ('<object type="%s" name="objActions"><property name="nRegionID" inheritFrom="%s.nRegionID"/>'
+                '<property name="nNewCountryID" inheritFrom="{Object:Single:Country}scratch.objCountry%s.nCountryID"/></object>' % (act, reg, _w(to)),
+                [to], regs, extra, '%s %s %s' % (r or 'a random region of %s' % frm, 'passes to' if k == 'transfer' else 'is occupied by', to))
+    if k == 'output':
+        c, n = g('country', owner), int(g('amount', 1))
+        cv = '{Object:Single:Country}scratch.objCountry%s' % _w(c)
+        out = '{Object:Single:Producer}scratch.objRandomProducer%s' % _w(c)
+        extra = [_set('Random producer of %s' % c, _country_acc(c) +
+                      '<object type="AccessorGetAllProducers" name="objAccessors"><property name="pathOutput" value="{Object:Variable:Producer}scratch.objProducersOf%s"/>'
+                      '<property name="nCountryID" inheritFrom="%s.nCountryID"/></object>' % (_w(c), cv) +
+                      _random_pick('Producer', out, '{Object:Variable:Producer}scratch.objProducersOf%s' % _w(c),
+                                   '{Object}input ISA Producer AND {Object}input.nControllerID == %s.nCountryID' % cv))]
+        t = 'ActIncProducerBaseOutput' if n >= 0 else 'ActDecProducerBaseOutput'
+        return ('<object type="%s" name="objActions"><property name="nGOID" inheritFrom="%s.nGameObject"/><property name="nAmount" value="%d"/></object>' % (t, out, abs(n)),
+                [c], [], extra, 'a random producer of %s %+d output' % (c, n))
+    if k == 'ipu':
+        r, city, n = g('region'), g('city'), int(g('amount', 1))
+        if not r or not city:
+            raise ValueError('elige la región y la ciudad')
+        cv = '{Object:Single:City}scratch.objCity%s' % _w(city)
+        extra = [_set('City %s exists' % city, '<object type="AccessorGetCity" name="objAccessors"><property name="pathOutput" value="%s"/>'
+                      '<property name="strRegionName" value="%s"/><property name="strCityName" value="%s"/></object>'
+                      '<object type="RuleDefExpression" name="objRules"><property name="expRession" value="exists(%s)"/></object>' % (cv, _x(r), _x(city), cv))]
+        t, pn = ('ActAddCityWorkOrderIPUBonus', 'nIPUBonus') if n >= 0 else ('ActAddCityWorkOrderIPUPenalty', 'nIPUPenalty')
+        return ('<object type="%s" name="objActions"><property name="nCityGOID" inheritFrom="%s.nGameObject"/><property name="%s" value="%d"/></object>' % (t, cv, pn, abs(n)),
+                [], [], extra, '%s %s %d IPU' % (city, 'gains' if n >= 0 else 'loses', abs(n)))
+    if k == 'research':
+        c, proj, n = g('country', owner), g('project'), g('amount')
+        if not proj:
+            raise ValueError('escribe el proyecto de investigación')
+        if n in (None, '', '0', 0):
+            return ('<object type="ActDevCompleteResearchProject" name="objActions"><property name="strCountry" value="%s"/><property name="strProjectName" value="%s"/></object>'
+                    % (_x(c), _x(proj)), [c], [], [], '%s completes %s' % (c, proj))
+        n = int(n)
+        t = 'ActIncResearchProjectPoints' if n > 0 else 'ActDecResearchProjectPoints'
+        return ('<object type="%s" name="objActions"><property name="strCountry" value="%s"/><property name="strProjectName" value="%s"/><property name="nAmount" value="%d"/></object>'
+                % (t, _x(c), _x(proj), abs(n)), [c], [], [], '%s %+d points in %s' % (c, n, proj))
+    if k == 'capital':
+        c, city, r = g('country', owner), g('city'), g('region')
+        if not city or not r:
+            raise ValueError('elige la región y la ciudad')
+        return ('<object type="ActSetNewCapital" name="objActions"><property name="strCountry" value="%s"/><property name="strCity" value="%s"/><property name="strRegion" value="%s"/></object>'
+                % (_x(c), _x(city), _x(r)), [c], [r], [], '%s moves its capital to %s' % (c, city))
+    if k in ('pact', 'access'):
+        a, b = g('from', owner), g('to')
+        t = 'ActProposeDefensePact' if k == 'pact' else 'ActFormMilitaryAccess'
+        return ('<object type="%s" name="objActions"><property name="strPlayer" inheritFrom="{Object:Single:Player}scratch.objPlayer.strName"/>'
+                '<property name="strFromCountry" value="%s"/><property name="strToCountry" value="%s"/></object>' % (t, _x(a), _x(b)),
+                [a, b], [], [], ('%s proposes a defense pact to %s' if k == 'pact' else '%s gets military access from %s') % (a, b))
+    if k == 'unpact':
+        b = g('to')
+        return ('<object type="ActCancelDefensePact" name="objActions"><property name="strPlayer" inheritFrom="{Object:Single:Player}scratch.objPlayer.strName"/>'
+                '<property name="strCountry" value="%s"/></object>' % _x(b), [b], [], [], 'cancels the defense pact with %s' % b)
+    if k == 'posture':
+        c, pos, ag = g('country', owner), g('position'), g('aggression')
+        if not pos and ag is None:
+            raise ValueError('elige la postura o la agresividad')
+        cv = '{Object:Single:Country}scratch.objCountry%s.nCountryID' % _w(c)
+        xml = ''
+        if pos:
+            xml += ('<object type="ActSetCountryInternationalPosition" name="objActions"><property name="nCountryID" inheritFrom="%s"/>'
+                    '<property name="ePosition" value="PLAYER_INTERNATIONAL_POSITION__%s"/></object>' % (cv, _x(pos)))
+        if ag is not None:
+            xml += ('<object type="ActSetCountryAggressiveNature" name="objActions"><property name="nCountryID" inheritFrom="%s"/>'
+                    '<property name="nAggression" value="%d"/></object>' % (cv, int(ag)))
+        return xml, [c], [], [], '%s changes its stance' % c
     if k == 'dip':
         a, b = g('a', owner), g('b')
         return ('<object type="ActIncDipRelations" name="objActions"><property name="nSourceCountryID" inheritFrom="{Object:Single:Country}scratch.objCountry%s.nCountryID"/>'
@@ -788,6 +939,16 @@ def event_add(s, i, what, spec, choice=None):
                 raise ValueError('elige dos países distintos')
             xmls.append(_not_at_war_set(spec['a'], spec['b']))
             notes.append('condición: %s y %s no están en guerra' % (spec['a'], spec['b']))
+        elif k == 'ally':
+            if not spec.get('b'):
+                raise ValueError('elige el país')
+            xmls.append(_in_alliance_set(spec['b']))
+            notes.append('condición: el país del evento está en la alianza de %s' % spec['b'])
+        elif k == 'allywar':
+            if not spec.get('a') or not spec.get('b') or spec['a'] == spec['b']:
+                raise ValueError('elige dos países distintos')
+            xmls.append(_war_alliance_set(spec['a'], spec['b']))
+            notes.append('condición: %s está en guerra con la alianza de %s' % (spec['a'], spec['b']))
         else:
             raise ValueError('condición desconocida: %s' % k)
     else:

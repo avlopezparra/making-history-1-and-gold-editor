@@ -150,3 +150,14 @@ Carpeta: `C:\ProgramData\Muzzy Lane Software\Output Files\Saves\<jugador>\*.mlc`
   tierra + strCity ciudad con `strPortForRegion` del mismo dueño.
 - Editor: «Mover y girar ciudades, recursos y unidades» (arrastrar; clic en la ciudad o unidad y clic derecho = mira hacia ahí,
   como en ed.exe), y en la ficha: 📍 mover a un punto, orientación y «Meter en puerto» para flotas.
+
+## Reglas del editor oficial (decompilado de ed.exe, ver docs_texto/editor_oficial/04 y COMPARACION.md)
+- Duración `nScenarioDuration` 1–99.999; fechas no negativas.
+- HP, velocidad y `nBaseOutputRate` ≥ 1; % de impacto y resistencia 0–100; el resto de números ≥ 0; nombres/descripciones no vacíos.
+- Nación activa: debe tener capital, existente y propia. Rendida: sin regiones poseídas ni controladas, pero CON capital (capital anhelada en sus regiones históricas): sin ella no se puede liberar. ed.exe la marca como error (47/42), pero en el juego hace falta.
+- Guerra: atacante ≠ defensor, ninguno rendido, no en la misma alianza, no ya en guerra; ambos registrados en el juego.
+- Composición de ejército/flota/aire: plantilla existente y `nNumber` > 0. Tecnología conocida: prerrequisitos presentes.
+- Flujos (`WorldMarket/objFlows`, `objAidFlows`) y tratados (`treaties.xml`): países y recursos deben existir.
+- ed.exe no guarda nada si hay un solo error; al cargar no valida.
+- Carpetas creadas al guardar: `game/namespace.xml` (vacío con scenarioDefs/stringTable), `ui/UICommandFile.xml`, `ui/UIPreLoopCommandFile.xml`.
+- `scenarioInfo.xml` y `treaties.xml` escriben `/>` sin espacio previo.

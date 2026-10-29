@@ -138,8 +138,10 @@
     <button id="gjImport" disabled title="Importar ciudades, recursos, unidades o datos de regiones desde GeoJSON">Importar GeoJSON…</button>
     <input type="file" id="gjFile" accept=".geojson,.json" multiple hidden>
     <button id="convert" disabled title="Copia del escenario adaptada al otro juego (MH1 ↔ Gold)">Convertir…</button>
+    <button id="anthBtn" title="Añadir himnos nacionales al juego (globales: valen para todos los escenarios)">♪ Himnos…</button>
     <span class="pill" id="dirty"></span>
     <a href="/compare" target="_blank" onclick="this.href='/compare?name='+encodeURIComponent((typeof S !== 'undefined' && S.scen) || '')">Comparar / partidas ↗</a>
+    <a href="/modelos" target="_blank">Modelos 3D ↗</a>
     <a href="/" id="maplink" target="_blank">Editor de mapa ↗</a>
   </div>
   <div id="tabs"></div>
@@ -196,6 +198,17 @@
     <div id="rxPlanOut" style="margin-top:8px"></div></div></dialog>
 <dialog id="filesDlg"><header><b>Abrir archivo</b><span class="muted" id="cwd"></span><button class="btn small" style="margin-left:auto" onclick="filesDlg.close()">Cerrar</button></header>
   <div class="body"><div id="fileinfo"></div><div class="files"><ul id="filelist"></ul></div></div></dialog>
+<dialog id="anthDlg"><header><b>Himnos nacionales</b><button class="btn small" style="margin-left:auto" onclick="anthDlg.close()">Cerrar</button></header>
+  <div style="padding:10px;display:flex;flex-direction:column;gap:8px;max-width:640px">
+    <div class="muted"><span>⚠ Los himnos son globales: no van por escenario. Se guardan en UI/SoundPack.xml y UI/sounds del juego y suenan al empezar la partida con el país cuyo nombre coincide, en cualquier escenario.</span></div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center"><span>País</span><input id="anthCountry" list="anthList" placeholder="Nombre exacto del país"><datalist id="anthList"></datalist>
+      <input type="file" id="anthFile" accept="audio/*,.mp3,.ogg,.wav,.flac,.m4a"><button class="btn primary" id="anthImport">Importar audio</button></div>
+    <div id="anthWarn" class="muted"></div>
+    <div class="muted"><span>El audio se convierte a WAV 16 bits 44,1 kHz estéreo y queda preparado; solo se escribe en el juego al pulsar «Instalar» (con copia de respaldo).</span></div>
+    <table id="anthTable"><thead><tr><th>País</th><th>Estado</th><th></th></tr></thead><tbody></tbody></table>
+    <div style="display:flex;gap:6px;align-items:center"><button class="btn primary" id="anthInstall">Instalar</button><span id="anthMsg" class="muted"></span></div>
+  </div>
+</dialog>
 <dialog id="warDlg"><header><b>Nueva guerra por fecha</b><button class="btn small" style="margin-left:auto" onclick="warDlg.close()">Cerrar</button></header>
   <div class="body"><p class="muted">Crea un evento en sharedDataEvents.xml: el país atacante declara la guerra a partir de la fecha, con esa probabilidad en cada turno, si ambos existen y no están ya en guerra.</p>
   <div class="grid"><label>Atacante</label><input id="warA" list="dl-nations"><label>Objetivo</label><input id="warB" list="dl-nations">
@@ -291,7 +304,7 @@ async function init() {
       showRight('map');
       for (let i = 0; i < 40 && !LY.data; i++) await new Promise(r => setTimeout(r, 250));
       $('#multi').checked = true; $('#multi').onchange();
-    }
+    } else if (!qs.get('obj')) showRight('map');      // al abrir, la vista del mapa activada
   }
 }
 async function openScenario(name) {
@@ -1354,8 +1367,9 @@ async function showScale3D(msg) {
   const r = await api('/api/scen/sprites?name=' + encodeURIComponent(S.scen));
   if (r.error) return note(r.error, true);
   S.scaleRows = r.sprites;
-  S.cols = ['Modelo', 'Escala', 'Tipo', 'Archivo']; S.sort = [2, 1];
-  S.rows = r.sprites.map(x => ({ id: x.id, cols: [x.name, x.scale + (x.dirty ? ' *' : ''), x.kind, x.file + (x.where === 'scenario' ? ' (escenario)' : '')] }));
+  S.cols = ['Modelo', 'Escala', 'Tipo', 'Archivo', 'Origen 3D']; S.sort = [2, 1];
+  S.rows = r.sprites.map(x => ({ id: x.id, cols: [x.name, x.scale + (x.dirty ? ' *' : ''), x.kind, x.file + (x.where === 'scenario' ? ' (escenario)' : ''),
+    x.model_label + (x.own_tex.length ? ': ' + x.own_tex.join(', ') : '')] }));
   renderList();
   if (rview !== 'obj') showRight('obj');
   $('#right').innerHTML = `${msg ? `<div class="note">${esc(msg)}</div>` : ''}<h2>Escala 3D de ciudades, recursos y unidades</h2>
@@ -1383,7 +1397,8 @@ async function showScale3D(msg) {
 // clic en una fila de la pestaña Escala 3D: editar solo ese modelo
 function scaleOne(id) {
   const sp = (S.scaleRows || []).find(x => x.id === id); if (!sp || !$('#scOne')) return;
-  $('#scOne').innerHTML = `<b>${esc(sp.name)}</b> <span class="muted">${esc(sp.file)}</span><div class="row" style="margin-top:4px">fScale <input id="scV" type="number" step="0.0001" value="${esc(sp.scale)}" style="width:110px">
+  $('#scOne').innerHTML = `<b>${esc(sp.name)}</b> <span class="muted">${esc(sp.file)}</span>
+    <div class="muted">Origen 3D: <b>${esc(sp.model_label)}</b>${sp.own_tex.length ? ' (' + esc(sp.own_tex.join(', ')) + ')' : ''} — ${esc(sp.nif)}</div><div class="row" style="margin-top:4px">fScale <input id="scV" type="number" step="0.0001" value="${esc(sp.scale)}" style="width:110px">
     <button class="btn small primary" id="scVGo">Aplicar</button></div>`;
   $('#scVGo').onclick = async () => { const x = await api('/api/scen/sprites', { op: 'set', values: { [id]: +$('#scV').value } }); if (x.error) return alert(x.error); showScale3D(x.notes.join('; ')); };
 }
@@ -1657,7 +1672,8 @@ async function eventSection(d) {
       <label class="evEff">Efecto</label><select class="evEff" id="evAddType">${EFF_TYPES.filter(x => x[0] !== 'none').map(([v, t]) => `<option value="${v}">${esc(t)}</option>`).join('')}</select>
       <div class="evEff grid" id="evAddF" style="grid-column:1/-1;margin:0"></div>
       <label class="evCond">Condición</label><select class="evCond" id="evCondType"><option value="exists">Estos países existen</option><option value="when">Desde una fecha o turno</option>
-        <option value="chance">Probabilidad por turno</option><option value="notwar">Dos países no están en guerra</option></select>
+        <option value="chance">Probabilidad por turno</option><option value="notwar">Dos países no están en guerra</option>
+        <option value="ally">El país del evento está en la alianza de…</option><option value="allywar">Un país está en guerra con la alianza de otro</option></select>
       <div class="evCond grid" id="evCondF" style="grid-column:1/-1;margin:0"></div></div>
       <button class="btn small primary" id="evAddGo">Añadir</button></div>`;
   h += `<div class="row"><button class="btn primary" id="evSave">Aplicar textos</button><button class="btn danger" id="evDel">Quitar el evento con su cadena</button></div></div>`;
@@ -1671,7 +1687,8 @@ async function eventSection(d) {
     $('#evCondF').innerHTML = k === 'exists' ? `<label>Países (separados por coma)</label><input id="evCc" list="dl-nations" placeholder="p. ej. Russia, Ukraine">`
       : k === 'when' ? `<label>Fecha MM/DD/AAAA o turno</label><input id="evCw" placeholder="p. ej. 03/01/2024 o 12">`
       : k === 'chance' ? `<label>Probabilidad (%)</label><input id="evCp" type="number" min="1" max="99" value="50">`
-      : `<label>País A</label>${csel('evCa')}<label>País B</label>${csel('evCb')}`;
+      : k === 'ally' ? `<label>Alianza de</label>${csel('evCb')}`
+      : `<label>País A</label>${csel('evCa')}<label>${k === 'allywar' ? 'Alianza de' : 'País B'}</label>${csel('evCb')}`;
   };
   const whatF = () => { const eff = $('#evAddWhat').value === 'effect';
     document.querySelectorAll('#evAddBox .evEff').forEach(x => { x.style.display = eff ? '' : 'none'; });
@@ -1686,7 +1703,7 @@ async function eventSection(d) {
       const k = $('#evCondType').value, w = ($('#evCw') || {}).value || '';
       body = { what: 'condition', spec: k === 'exists' ? { type: k, countries: $('#evCc').value.split(',').map(x => x.trim()).filter(Boolean) }
         : k === 'when' ? (/^\d+$/.test(w.trim()) ? { type: k, turn: +w } : { type: k, date: w.trim() })
-        : k === 'chance' ? { type: k, pct: +$('#evCp').value } : { type: k, a: $('#evCa').value, b: $('#evCb').value } };
+        : k === 'chance' ? { type: k, pct: +$('#evCp').value } : k === 'ally' ? { type: k, b: $('#evCb').value } : { type: k, a: $('#evCa').value, b: $('#evCb').value } };
     }
     reload(await api('/api/scen/event_add', { name: S.scen, id: d.id, ...body }));
   };
@@ -1708,7 +1725,9 @@ async function eventSection(d) {
 // efectos de las plantillas: tipo + sus datos
 const EFF_TYPES = [['war', 'Declarar la guerra'], ['embargo', 'Embargo comercial'], ['lift', 'Levantar un embargo'], ['gov', 'Cambiar la ideología'],
   ['resource', 'Dar recursos (ayuda)'], ['independence', 'Crear o liberar un país'], ['annex', 'Anexionar un país'], ['units', 'Crear unidades'],
-  ['dip', 'Cambiar las relaciones'], ['flag', 'Cambiar la bandera'], ['culture', 'Cambiar la cultura de regiones (experimental)'], ['none', 'Nada']];
+  ['dip', 'Cambiar las relaciones'], ['flag', 'Cambiar la bandera'], ['transfer', 'Transferir una región'], ['output', 'Cambiar la producción de un recurso (al azar)'], ['ipu', 'Bono o castigo de IPU a una ciudad'], ['control', 'Ocupar una región (control)'], ['research', 'Investigación (completar o puntos)'],
+  ['capital', 'Cambiar la capital'], ['pact', 'Proponer un pacto de defensa'], ['unpact', 'Cancelar un pacto de defensa'], ['access', 'Dar acceso militar'],
+  ['posture', 'Postura internacional y agresividad'], ['culture', 'Cambiar la cultura de regiones (experimental)'], ['none', 'Nada']];
 function effFields(p, type) {
   const own = '(el país del evento)', I = CI;
   const F = {
@@ -1723,6 +1742,23 @@ function effFields(p, type) {
       <label>Cantidad</label><input id="${p}n" type="number" value="1" min="1"><label>Región</label><input id="${p}region" list="${p}regDl"><datalist id="${p}regDl">${optList(I.land)}</datalist>
       <label>Nombre del grupo</label><input id="${p}name" value="New Army">`,
     flag: () => `<label>País</label>${csel(p + 'country', '', own)}<label>Bandera (nombre del .tga, sin extensión)</label><input id="${p}flag">`,
+    transfer: () => `<label>Región</label><input id="${p}region" list="${p}regDl" placeholder="vacío = una al azar del país de origen"><datalist id="${p}regDl">${optList(I.land)}</datalist>
+      <label>O al azar de</label>${csel(p + 'from', '', '—')}<label>Pasa a</label>${csel(p + 'to', '', own)}`,
+    output: () => `<label>País</label>${csel(p + 'country', '', own)}<label>Cambio (+/−)</label><input id="${p}amount" type="number" value="1">
+      <div class="hint muted">Afecta a un recurso al azar que el país controla.</div>`,
+    ipu: () => `<label>Región</label><input id="${p}region" list="${p}regDl"><datalist id="${p}regDl">${optList(I.land)}</datalist>
+      <label>Ciudad</label><input id="${p}city"><label>IPU (+ bono / − castigo)</label><input id="${p}amount" type="number" value="10">`,
+    control: () => F.transfer().replace('Pasa a', 'Ocupada por'),
+    research: () => `<label>País</label>${csel(p + 'country', '', own)}<label>Proyecto</label><input id="${p}project">
+      <label>Puntos (+/−)</label><input id="${p}amount" type="number" placeholder="vacío = completarlo">`,
+    capital: () => `<label>País</label>${csel(p + 'country', '', own)}<label>Región</label><input id="${p}region" list="${p}regDl"><datalist id="${p}regDl">${optList(I.land)}</datalist>
+      <label>Ciudad</label><input id="${p}city">`,
+    pact: () => `<label>Propone</label>${csel(p + 'from', '', own)}<label>A</label>${csel(p + 'to')}`,
+    unpact: () => `<label>Con</label>${csel(p + 'to')}<div class="hint muted">Lo cancela el país del evento.</div>`,
+    access: () => `<label>Recibe acceso</label>${csel(p + 'from', '', own)}<label>De</label>${csel(p + 'to')}`,
+    posture: () => `<label>País</label>${csel(p + 'country', '', own)}<label>Postura</label><select id="${p}position"><option value="">(sin cambio)</option>
+      <option value="EXPANSIONIST">Expansionista</option><option value="STATUSQUO">Statu quo</option><option value="NEUTRAL">Neutral</option></select>
+      <label>Agresividad de la IA</label><input id="${p}aggression" type="number" min="0" placeholder="vacío = sin cambio">`,
     dip: () => `<label>Con</label>${csel(p + 'b')}<label>Cambio (−1000 a 1000)</label><input id="${p}amount" type="number" value="100">`,
     culture: () => `<label>Regiones</label><input id="${p}regions" list="${p}regDl" placeholder="Región1, Región2"><datalist id="${p}regDl">${optList(I.land)}</datalist>
       <label>Cultura</label><select id="${p}culture">${optList(I.cultures || [])}</select><div class="hint muted">El juego no tiene una acción para esto: se usa ActAlterProperty sobre strCulture. Pruébalo en el juego.</div>`,
@@ -1733,7 +1769,7 @@ function effFields(p, type) {
 function effRead(p, type) {
   const v = k => { const el = document.getElementById(p + k); return el ? el.value.trim() : undefined; };
   const o = { type };
-  for (const k of ['to', 'country', 'gov', 'resource', 'amount', 'from', 'loser', 'winner', 'template', 'n', 'region', 'name', 'b', 'culture', 'flag']) { const x = v(k); if (x !== undefined && x !== '') o[k] = x; }
+  for (const k of ['to', 'country', 'gov', 'resource', 'amount', 'from', 'loser', 'winner', 'template', 'n', 'region', 'name', 'b', 'culture', 'flag', 'city', 'project', 'position', 'aggression']) { const x = v(k); if (x !== undefined && x !== '') o[k] = x; }
   if (type === 'culture') o.regions = (v('regions') || '').split(',').map(x => x.trim()).filter(Boolean);
   return o;
 }
@@ -2327,6 +2363,12 @@ async function saveScen(body) {
 }
 $('#save').onclick = async () => {
   if (!confirm('Se escribirán los archivos modificados en la carpeta del juego. ¿Guardar?')) return;
+  if (S.scen) {   // como ed.exe, avisar de los errores de validación antes de guardar (aquí se puede guardar igualmente)
+    const v = await api('/api/scen/validate?name=' + encodeURIComponent(S.scen));
+    const errs = (v.issues || []).filter(i => i.level === 'error');
+    if (errs.length && !confirm(`Hay ${errs.length} errores de validación:\n\n` + errs.slice(0, 8).map(i => '• ' + i.msg).join('\n') +
+      (errs.length > 8 ? '\n…' : '') + '\n\n¿Guardar igualmente?')) return;
+  }
   const r = await saveScen(S.mode === 'file' && !S.scen ? { rel: S.fileRel } : { name: S.scen });
   if (r.cancelled) return;
   if (r.error) return alert(r.error);
@@ -2695,6 +2737,54 @@ $('#glRead').onclick = async () => {
         ${p.why ? `<br><span class="muted" style="font-size:11px">${esc(p.msg)}</span>` : ''}</div>`).join('')}</div>`).join('');
 };
 </script>
-<script src="/escenario_imagenes.js"></script>
+<script src="/escenario_imagenes.js">
+// ---------- himnos (globales, no del escenario)
+const ANTH = { game: {}, staged: {} };
+function anthWarn() {
+  const c = $('#anthCountry').value.trim(), w = $('#anthWarn'); w.textContent = '';
+  if (!c) return;
+  const g = ANTH.game[c], sp = document.createElement('span');
+  sp.textContent = g ? (g.exists ? '⚠ Este país ya tiene himno en el juego: se reemplazará (queda respaldo).' : '⚠ El juego declara un himno para este país pero falta su archivo.') : 'Este país aún no tiene himno en el juego.';
+  w.appendChild(sp);
+}
+async function anthLoad() {
+  const r = await api('/api/anthems'); if (r.error) { $('#anthMsg').textContent = r.error; return; }
+  Object.assign(ANTH, r);
+  const tb = $('#anthTable tbody'); tb.innerHTML = '';
+  const names = [...new Set([...Object.keys(r.game), ...Object.keys(r.staged)])].sort();
+  for (const n of names) {
+    const tr = tb.insertRow(), st = r.staged[n] ? (r.game[n] ? 'Preparado (reemplaza al del juego)' : 'Preparado (nuevo)') : (r.game[n].exists ? 'En el juego' : 'Falta el archivo');
+    tr.insertCell().textContent = n; const c2 = tr.insertCell(), sp = document.createElement('span'); sp.textContent = st; c2.appendChild(sp);
+    const c3 = tr.insertCell();
+    if (r.staged[n]) { const b = document.createElement('button'); b.className = 'btn small'; b.textContent = 'Quitar'; b.onclick = async () => { await api('/api/anthems/remove', { country: n }); anthLoad(); }; c3.appendChild(b); }
+  }
+  anthWarn();
+}
+$('#anthBtn').onclick = async () => {
+  anthDlg.showModal(); $('#anthMsg').textContent = '';
+  const dl = $('#anthList'); dl.innerHTML = '';
+  if (S.scen) { const cs = await api('/api/countries?scenario=' + encodeURIComponent(S.scen)); (Array.isArray(cs) ? cs : []).forEach(c => { const o = document.createElement('option'); o.value = c; dl.appendChild(o); }); }
+  anthLoad();
+};
+$('#anthCountry').oninput = anthWarn;
+$('#anthImport').onclick = async () => {
+  const c = $('#anthCountry').value.trim(), f = $('#anthFile').files[0], m = $('#anthMsg');
+  if (!c || !f) { m.textContent = 'Elige un país y un archivo de audio.'; return; }
+  m.textContent = 'Convirtiendo…';
+  const b64 = await new Promise(ok => { const fr = new FileReader(); fr.onload = () => ok(fr.result.split(',')[1]); fr.readAsDataURL(f); });
+  const r = await api('/api/anthems/import', { country: c, data: b64, ext: f.name.split('.').pop() });
+  m.textContent = r.error || 'Preparado. Falta «Instalar».'; anthLoad();
+};
+$('#anthInstall').onclick = async () => {
+  const m = $('#anthMsg');
+  if (!Object.keys(ANTH.staged).length) { m.textContent = 'No hay himnos preparados.'; return; }
+  if (!confirm('¿Escribir los himnos preparados en la carpeta del juego? Se hace copia de respaldo.')) return;
+  const r = await api('/api/anthems/install', {});
+  m.textContent = r.error || (r.ok ? 'Instalado. Copia de respaldo en backup/himnos.' : 'Error'); m.title = r.backup || '';
+  anthLoad();
+};
+</script>
+<script src="/escenario_wikidata.js"></script>
+<script src="/escenario_extra.js"></script>
 </body>
 </html>

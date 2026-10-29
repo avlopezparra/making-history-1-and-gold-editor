@@ -139,7 +139,9 @@
       <button class="tool" id="redoSave" disabled title="Rehacer el guardado deshecho con «Volver»"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 11-9-9 9 9 0 016.4 2.6L21 8"/><path d="M21 3v5h-5"/></svg>Rehacer</button>
       <button class="tool" id="validateBtn" title="Lista de todo lo que impediría guardar o daría problemas (mallas rotas, nombres repetidos, mares mal marcados, escenarios sin cuadrar), para copiarla de una vez"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3 8-8"/><path d="M20 12v7a2 2 0 01-2 2H6a2 2 0 01-2-2V5a2 2 0 012-2h9"/></svg>Validar</button>
       <button class="tool" id="bgRestore" title="Restaurar el fondo del mapa desde el World original donde no hay una frontera dibujada (quita las huellas de líneas borradas); se puede deshacer con «Volver»"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 15l5-5 4 4 3-3 6 6"/><circle cx="16" cy="9" r="1.5"/></svg>Restaurar fondo</button>
+      <button class="tool" id="bgRedraw" title="Vuelve a pintar en el fondo las líneas de todas las fronteras según los polígonos de las regiones (sin líneas pegadas a la costa de las islas). Con una región seleccionada, se puede redibujar solo ella. Escribe en el proyecto; al juego llega con Guardar/Instalar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 20l4-1 11-11-3-3L5 16z"/><path d="M3 6h6M3 10h3"/></svg>Redibujar fronteras</button>
       <a class="tool" href="/scenario" target="_blank" title="Editor de escenarios (como ed.exe)" style="text-decoration:none"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16v16H4zM4 9h16M9 9v11"/></svg>Escenarios</a>
+      <a class="tool" href="/modelos" target="_blank" title="Visor y editor de modelos 3D (.nif)" style="text-decoration:none"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l9 5v10l-9 5-9-5V7zM12 12l9-5M12 12v10M12 12L3 7"/></svg>Modelos 3D</a>
       <button class="tool" id="packCopy" title="Guardar como…: duplicar el regionpack con otro nombre sin tocar el original (copia de seguridad) y, si quieres, hacer que los escenarios la usen"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="8" y="8" width="13" height="13" rx="2"/><path d="M16 8V5a2 2 0 00-2-2H5a2 2 0 00-2 2v9a2 2 0 002 2h3"/></svg>Guardar como…</button>
       <button class="tool" id="install" title="Copiar el proyecto al juego"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12M7 10l5 5 5-5M4 21h16"/></svg>Instalar</button>
     </div></div>
@@ -358,6 +360,8 @@ const S = {
 // ------------------------------------------------------------------ texturas del terreno
 const tiles = new Map();
 function tileLevel() { return Math.max(0, Math.min(4, Math.round(Math.log2(1024 / (15 * Math.pow(2, map.getZoom())))))); }
+// TILE_NONCE: cambia en cada carga de la página y en «Refrescar», para que el navegador no reutilice texturas de otro regionpack
+let TILE_NONCE = Date.now();
 function updateTiles() {
   const b = map.getBounds(), lv = tileLevel();
   const c0 = Math.max(0, Math.floor((b.getWest() + 180) / 15)), c1 = Math.min(23, Math.floor((b.getEast() + 180) / 15));
@@ -365,7 +369,7 @@ function updateTiles() {
   const want = new Set();
   for (let c = c0; c <= c1; c++) for (let r = r0; r <= r1; r++) {
     const k = c + ',' + r; want.add(k);
-    const url = `/tile/${c}/${r}/${lv}.jpg?v=${S.version}${S.pal ? '&pal=' + S.pal : ''}`, lon0 = -180 + 15 * c, lat0 = 105 - 15 * r;
+    const url = `/tile/${c}/${r}/${lv}.jpg?v=${S.version}&n=${TILE_NONCE}&p=${encodeURIComponent(($('#pack') || {}).value || '')}${S.pal ? '&pal=' + S.pal : ''}`, lon0 = -180 + 15 * c, lat0 = 105 - 15 * r;
     if (!tiles.has(k)) { const o = L.imageOverlay(url, [[lat0 - 15, lon0], [lat0, lon0 + 15]], { interactive: false }).addTo(map); o.bringToBack(); tiles.set(k, o); }
     else if (tiles.get(k)._url !== url) tiles.get(k).setUrl(url);
   }
@@ -1237,7 +1241,7 @@ function showInfo() {
     ${p.sea ? '<div id="canalBox" style="margin-top:8px"></div>' : ''}
     <div style="margin-top:8px"><button type="button" id="convType" title="Cambia solo el tipo de la región (mar ↔ tierra); la forma y las fronteras no cambian. Útil si una región de tierra importada quedó como mar (en el juego no se puede seleccionar) o al revés">${p.sea ? 'Convertir en región de tierra…' : 'Convertir en región de mar'}</button>
       <button type="button" id="xpRegion" title="Copiar esta región (y, si se quiere, sus ciudades, unidades y minerales) a otro regionpack y escenario">Exportar a otro regionpack…</button>
-      ${p.sea ? '' : '<button type="button" id="isPaint" title="Pinta en la imagen de fondo la tierra (arena con agua clara) y la costa de esta isla. Con un GeoJSON de su contorno real se usa esa forma; si no, su polígono (si es pequeño) o la tierra que ya se ve en el fondo">Pintar la isla en el fondo…</button><input type="file" id="isFile" accept=".geojson,.json" style="display:none">'}</div>
+      ${p.sea ? '' : '<button type="button" id="isPaint" title="Pinta en la imagen de fondo la tierra de esta isla (arena con agua clara), sin línea alrededor: la línea de la región es la de su polígono. Con un GeoJSON o un contorno dibujado se usa esa forma; si no, su polígono si es pequeño">Pintar la isla en el fondo…</button><input type="file" id="isFile" accept=".geojson,.json" style="display:none">'}</div>
     ${p.detail && p.detail.length ? '<div class="muted">Región-isla: se edita el halo; la isla interior es detalle.</div>' : ''}
     ${p.editable || S.view !== 'shape' ? '' : `<div class="err">No editable: ${p.invalid}</div>`}
     ${ownerEditor(R)}
@@ -1540,7 +1544,10 @@ async function importShapes(shapes, o = {}) {
     if (ownerName) ownerName = String(ownerName).replace(/[\\/:*?"<>|]+/g, ' - ').replace(/\s+/g, ' ').replace(/^[\s-]+|[\s-]+$/g, '') || null;   // nombre de archivo válido (countryX.xml): «A / B» → «A - B»
     // la misma nación escrita distinto («UnitedStates» / «United States», mayúsculas, acentos, guiones): la que ya existe o ya se
     // usó en esta importación; si no, se duplicaba como nación nueva
-    const natKey = t => String(t || '').normalize('NFKD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    // el mismo país con nombres distintos (como COUNTRY_EQUIV de scenario_layers.py): no se crean naciones duplicadas
+    const natNorm = t => String(t || '').normalize('NFKD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    const NAT_EQUIV = [['Salvador', 'El Salvador'], ['Swaziland', 'Eswatini'], ['Burma', 'Myanmar'], ['South Africa', 'Union of South Africa']];
+    const natKey = t => { const k = natNorm(t), g = NAT_EQUIV.find(g => g.some(x => natNorm(x) === k)); return g ? natNorm(g[0]) : k; };
     const sameNat = t => t && ([...list, ...S.ops.filter(x => x.owner).map(x => x.owner)].find(c => natKey(c) === natKey(t)) || t);
     ownerName = sameNat(ownerName) || null;
     const isNew = !!ownerName && !list.includes(ownerName);
@@ -1982,6 +1989,19 @@ $('#bgRestore').onclick = async () => {
     + (r.lines && r.lines.length ? '\nLíneas de las regiones dibujadas en ' + r.lines.length + ' tiles.' : ''), 'ok');
   S.version++; updateTiles(); await reloadAll(); refreshRedoSave();   // updateTiles: que el mapa pida ya las texturas nuevas
 };
+$('#bgRedraw').onclick = async () => {
+  // con una región seleccionada se puede redibujar solo ella y sus fronteras con las vecinas (rápido)
+  const sel = S.selected, reg = sel != null ? S.regions.get(sel) : null;
+  let one = false;
+  if (reg) one = confirm('¿Redibujar solo la región seleccionada «' + (reg.props.text || reg.props.name) + '» y sus fronteras con las vecinas?\n\nAceptar: solo esa región (rápido).  Cancelar: todo el mapa.');
+  if (!one && !confirm('¿Redibujar en el fondo las líneas de TODAS las fronteras a partir de los polígonos de las regiones?\n\nTarda mucho (unos 10 minutos en un mapa grande) y el editor no responde mientras tanto.\nSe pintan las fronteras tierra-tierra, mar-mar y el polígono de las islas (no su costa). Antes se respaldan los tiles del proyecto. Al juego llega con Guardar/Instalar.')) return;
+  const body = JSON.stringify(one ? { region: sel } : {});
+  report('Redibujando fronteras…');
+  const r = await (await fetch('/api/redraw_borders', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body })).json();
+  if (r.error) return report(r.error, 'err');
+  report('Fronteras redibujadas: ' + r.lines + ' líneas en ' + r.tiles.length + ' tiles.' + (r.backup ? '\nRespaldo de los tiles: ' + r.backup : ''), 'ok');
+  S.version++; updateTiles(); await reloadAll(); refreshRedoSave();
+};
 // cualquier fallo de un botón se ve en el informe (antes, p. ej. «Instalar» un regionpack nuevo fallaba sin decir nada)
 window.addEventListener('unhandledrejection', e => { try { report('Error del editor: ' + ((e.reason && e.reason.message) || e.reason), 'err'); } catch (x) {} });
 window.addEventListener('error', e => { try { if (e.message) report('Error del editor: ' + e.message, 'err'); } catch (x) {} });
@@ -2153,7 +2173,8 @@ $('#refreshAll').onclick = async () => {
   else if (m.state === 'pending' && confirm(`El mapa del editor tiene cambios guardados que aún no están instalados en «${m.pack}». ¿Descartarlos y cargar el regionpack del juego?`)) m = await post({ load_installed: true });
   if (!m) return;
   notes.push(m.loaded ? `Regionpack cargado desde el juego` : m.state === 'same' ? 'El mapa coincide con el regionpack del juego' : 'El mapa se mantiene (cambios sin instalar)');
-  clearEdits(); S.version++; S.selected = null; if (m.loaded) await reloadMeta(); await reloadAll();
+  TILE_NONCE = Date.now(); for (const [, o] of tiles) map.removeLayer(o); tiles.clear();     // el fondo también, entero
+  clearEdits(); S.version++; S.selected = null; if (m.loaded) await reloadMeta(); await reloadAll(); updateTiles();
   if (n && [...$('#scenario').options].some(o => o.value === n)) { $('#scenario').value = n; await $('#scenario').onchange({ target: $('#scenario') }); }
   report(notes.join('. ') + '.', 'ok');
 };
@@ -2406,6 +2427,16 @@ document.getElementById('instGo').onclick = async () => {
     if (r.error) { alert(r.error); sel.value = info.current; return; }
     location.href = '/';
   };
+  // error «Invalid License Key»: una licencia vieja en la copia virtualizada del registro tapa la buena (guía de Steam 645617172)
+  const lic = await (await fetch('/api/game/license')).json().catch(() => ({ issues: [], permanent: true })), post = p => fetch(p, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }).then(r => r.json());
+  if (lic.issues.length && confirm(`Licencia vieja en el registro virtualizado (VirtualStore) de ${lic.issues.map(p => p.key).join(', ')}: el juego puede decir «Invalid License Key». ¿Borrarla? (se guarda un respaldo .reg; el idioma no cambia)`)) {
+    const r = await post('/api/game/license_fix');
+    alert(r.error || `Licencia corregida. Respaldo: ${r.backups.join(', ')}`);
+    if (!r.error && !lic.permanent && confirm('¿Evitar que vuelva a pasar? Windows pedirá permiso de administrador una vez: se da permiso de escritura a los usuarios en la clave del juego en HKLM, se pasa ahí el idioma y se borra la copia virtualizada (con respaldo .reg).')) {
+      const p = await post('/api/game/license_permanent');
+      alert(p.error || `Acepta el aviso de Windows. Script: ${p.script}`);
+    }
+  }
   // si el juego cambia desde otra pestaña o ventana, esta página quedaría con datos del otro juego: recargar
   window.addEventListener('focus', async () => {
     const now = await (await fetch('/api/game')).json().catch(() => null);
@@ -2826,16 +2857,30 @@ function gjDetect(sh, list) {
   }
   return out;
 }
+// región del mapa de la que el contorno es un duplicado (o null): mismo nombre (también «Nombre 2»), o el centro más cercano
+// es el de una región que el contorno tapa casi entera (o cercana y en buena parte), p. ej. Mauritius del escenario sobre Mauritius
+const gjBase = t => String(t || '').toLowerCase().replace(/ \d+$/, '').trim();
+function gjDupOf(s) {
+  const a = s.an || {}, nm = gjBase(gjName(s));
+  if (a.exists) return gjName(s);
+  const same = nm && (S.meta || []).find(m => gjBase(m.name) === nm);
+  if (same) return same.name;
+  const n = a.nearest;
+  if (n && (n.pct_source >= 0.7 || (n.km <= 30 && n.pct_source >= 0.3))) return n.region;
+  return null;
+}
 async function gjFillTable() {
   const { list } = S.scenName ? await countriesFor() : { list: [] };
   const T = $('#gjTable'), opt = (v, cur, txt) => `<option value="${gjEsc(v)}" ${v === cur ? 'selected' : ''}>${gjEsc(txt ?? v)}</option>`;
   const TER = Object.keys(SCEN_TERRAIN);
   G.shapes.forEach(s => { const d = gjDetect(s, list); s.det = d; s.sea = d.sea; s.owner = d.owner || d.newOwner || null; s.terrain = d.terrain || null; });
   const fresh = [...new Set(G.shapes.map(s => s.det.newOwner).filter(Boolean))];
-  T.innerHTML = '<tr><th>#</th><th>Nombre</th><th>Tipo</th><th>Nación</th><th>Terreno</th><th></th></tr>' + G.shapes.map((s, i) => {
+  T.innerHTML = '<tr><th>#</th><th>Nombre</th><th>Región del mapa</th><th>Tipo</th><th>Nación</th><th>Terreno</th><th></th></tr>' + G.shapes.map((s, i) => {
     const nm = gjName(s) || s.file || '(sin nombre)';
     const ex = s.an && s.an.exists ? ' <span class="muted">· ya existe</span>' : '';
-    return `<tr><td>${i + 1}</td><td>${gjEsc(nm)}${ex}</td>
+    const nr = s.an && s.an.nearest, du = gjDupOf(s);
+    const near = nr ? `<span class="${du ? '' : 'muted'}" title="Región del mapa con el centro más cercano; con «duplicado», al dejar las existentes este contorno no se importa"${du ? ' style="color:#c2410c"' : ''}>≈ ${gjEsc(nr.region)} · ${nr.km} km${du ? ' · <b>duplicado</b>' : ''}</span>` : '—';
+    return `<tr><td>${i + 1}</td><td>${gjEsc(nm)}${ex}</td><td>${near}</td>
       <td><select data-gt="sea" data-i="${i}">${opt('0', s.sea ? '1' : '0', 'Tierra')}${opt('1', s.sea ? '1' : '0', 'Mar')}</select></td>
       <td>${list.length ? `<select data-gt="owner" data-i="${i}">${opt('', s.owner || '', '(la de la provincia)')}${fresh.map(c => opt(c, s.owner, c + ' (nueva)')).join('')}${list.map(c => opt(c, s.owner)).join('')}</select>` : '—'}</td>
       <td><select data-gt="terrain" data-i="${i}">${opt('', s.terrain || '', '(el de la provincia)')}${TER.map(x => opt(x, s.terrain, `${x} · ${TERRAIN_ES[x]}`)).join('')}</select></td>
@@ -2985,13 +3030,21 @@ $('#gjDoImport').onclick = async () => {
     const nm = new Set(shapes.map(s => (gjName(s) || '').toLowerCase()).filter(Boolean));
     const cov = new Map();
     for (const s of shapes) for (const x of (s.an && s.an.sources) || []) cov.set(x.region, (cov.get(x.region) || 0) + (x.pct_source || 0));
-    const dups = S.meta.filter(m => nm.has(m.name.toLowerCase()) || nm.has(m.name.toLowerCase().replace(/ \d+$/, '')) || (cov.get(m.name) || 0) >= 0.8);
-    if (dups.length && confirm(`${dups.length} región(es) del mapa parecen duplicados de contornos del GeoJSON (${dups.slice(0, 8).map(m => m.name).join(', ')}${dups.length > 8 ? '…' : ''}).
+    const dupNames = new Set(shapes.map(gjDupOf).filter(Boolean));
+    const dups = S.meta.filter(m => dupNames.has(m.name) || nm.has(m.name.toLowerCase()) || nm.has(m.name.toLowerCase().replace(/ \d+$/, '')) || (cov.get(m.name) || 0) >= 0.8);
+    if (dups.length) {
+      const pairs = shapes.filter(gjDupOf).slice(0, 8).map(s => `${gjName(s)} ≈ ${gjDupOf(s)}` + (s.an && s.an.nearest && s.an.nearest.region === gjDupOf(s) ? ` (${s.an.nearest.km} km)` : '')).join(', ');
+      if (confirm(`${dups.length} región(es) del mapa parecen duplicados de contornos del GeoJSON: ${pairs || dups.slice(0, 8).map(m => m.name).join(', ')}${dups.length > 8 ? '…' : ''}.
 
 Aceptar: borrarlas y quedarse con las del GeoJSON (un solo guardado, se puede deshacer).
-Cancelar: dejarlas (los contornos con el mismo nombre se omiten).`)) {
-      if (S.view !== 'shape') { setView('shape'); if (S.view !== 'shape') return; }
-      del = del.concat(dups.filter(m => !del.includes(m))); replacing = true;
+Cancelar: dejar las del mapa (esos contornos no se importan).`)) {
+        if (S.view !== 'shape') { setView('shape'); if (S.view !== 'shape') return; }
+        del = del.concat(dups.filter(m => !del.includes(m))); replacing = true;
+      } else {
+        // descartados: no se importan (antes solo se omitían los de nombre idéntico y «Mauritius» entraba como «Mauritius 2»)
+        const n0 = shapes.length; shapes = shapes.filter(s => !gjDupOf(s));
+        if (n0 > shapes.length) report(`${n0 - shapes.length} contorno(s) duplicado(s) de regiones del mapa no se importan.`, 'ok');
+      }
     }
   }
   gjDlg.close();

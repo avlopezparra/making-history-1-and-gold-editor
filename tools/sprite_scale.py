@@ -11,6 +11,7 @@ import os
 import time
 
 import gamepaths
+import models3d
 import scenario_core as sc
 from scenario_core import prop
 
@@ -41,8 +42,10 @@ def sprites(s=None):
         root = st.open(path).getroot()
         for e in root.iter('object'):
             if e.get('type') == 'Sprite' and prop(e, 'fScale') is not None:
+                ms = models3d.model_status(prop(e, 'fileName') or '', s.dir if s is not None else None)
                 rows.append({'id': st.eid(e), 'name': prop(e, 'strName') or '', 'scale': prop(e, 'fScale'), 'file': os.path.basename(path),
-                             'kind': KIND.get(os.path.basename(path), 'unidades'), 'where': where, 'dirty': path in st.dirty})
+                             'kind': KIND.get(os.path.basename(path), 'unidades'), 'where': where, 'dirty': path in st.dirty,
+                             'model': ms['model'], 'model_label': models3d.label(ms), 'own_tex': ms['textures'], 'nif': ms['nif']})
     pending = sorted({os.path.basename(p) for p, w in _paths(s) if w == 'game' and p in st.dirty})
     return {'sprites': rows, 'pending': pending, 'can_undo': bool(_read_log()), 'dir': game_dir()}
 

@@ -251,9 +251,35 @@ def borders(project):
     return {'type': 'FeatureCollection', 'features': feats}
 
 
+def _project_centers(project):
+    """{nombre: (lon, lat, es_mar)}: centro de cada región del mapa, en caché por mapa (se vacía al recargarlo)."""
+    C = _project_geoms(project)
+    with project.lock:
+        c = project.outline_cache.get('_centers')
+        if c is None:
+            c = project.outline_cache['_centers'] = {n: (g.centroid.x, g.centroid.y, sea) for n, (g, sea) in C.items()}
+        return c
+
+
+def _km(a, b):
+    """Distancia aproximada en km entre dos puntos (lon, lat)."""
+    import math
+    dx = (a[0] - b[0]) * math.cos(math.radians((a[1] + b[1]) / 2))
+    return round(math.hypot(dx, a[1] - b[1]) * 111.2, 1)
+
+
+def nearest_center(project, poly, sea=None):
+    """Región del mapa cuyo centro está más cerca del centro de 'poly' (del mismo tipo si se da 'sea'): {region, km, sea}."""
+    P = _project_centers(project)
+    c = poly.centroid
+    best = min(((n, v) for n, v in P.items() if sea is None or v[2] == sea), key=lambda nv: _km((c.x, c.y), nv[1][:2]), default=None)
+    return {'region': best[0], 'km': _km((c.x, c.y), best[1][:2]), 'sea': best[1][2]} if best else None
+
+
 def analyze_shapes(project, shapes):
     """Para cada contorno a importar ({geometry, props}): si ya existe una región con ese nombre y cuánto se parece a ella
-    (iou), y de qué regiones del mapa sale su área (porcentaje del contorno y de la región de origen)."""
+    (iou), de qué regiones del mapa sale su área (porcentaje del contorno y de la región de origen) y la región del mapa con
+    el centro más cercano ('nearest': {region, km, sea, pct_source})."""
     C = _project_geoms(project)
     names = list(C)
     tree = STRtree([C[n][0] for n in names])
@@ -277,7 +303,11 @@ def analyze_shapes(project, shapes):
         if name in C:
             u = poly.union(C[name][0]).area
             iou = round(poly.intersection(C[name][0]).area / u, 4) if u else 0
-        out.append({'name': name, 'exists': name in C, 'iou': iou, 'sources': src})
+        # la región del mapa más parecida: el centro más cercano (del mismo tipo que la que más área le da); «Mauritius 2» -> Mauritius
+        near = nearest_center(project, poly, src[0]['sea'] if src else None)
+        if near:
+            near['pct_source'] = next((x['pct_source'] for x in src if x['region'] == near['region']), 0)
+        out.append({'name': name, 'exists': name in C, 'iou': iou, 'sources': src, 'nearest': near})
     return out
 
 

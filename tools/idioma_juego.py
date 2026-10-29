@@ -49,13 +49,15 @@ def cambiar(game, lang):
     prev = actual(game)
     with open(os.path.join(gamepaths.ROOT, 'backup_locale_%s.txt' % game), 'w') as f:
         f.write(str(prev))
-    with winreg.CreateKeyEx(winreg.HKEY_CURRENT_USER, VSTORE + '\\' + name, 0, winreg.KEY_SET_VALUE) as k:
-        winreg.SetValueEx(k, 'Locale', 0, winreg.REG_SZ, lang)
-    try:  # solo con admin; el juego ya lee VirtualStore, esto es para mantener coherente HKLM
+    try:  # con admin o tras el arreglo permanente de licencia_juego.py (sin VirtualStore): basta HKLM
         with winreg.CreateKeyEx(winreg.HKEY_LOCAL_MACHINE, BASE + '\\' + name, 0, winreg.KEY_SET_VALUE) as k:
             winreg.SetValueEx(k, 'Locale', 0, winreg.REG_SZ, lang)
+        if _read(winreg.HKEY_CURRENT_USER, VSTORE + '\\' + name) is None:
+            return prev
     except OSError:
         pass
+    with winreg.CreateKeyEx(winreg.HKEY_CURRENT_USER, VSTORE + '\\' + name, 0, winreg.KEY_SET_VALUE) as k:
+        winreg.SetValueEx(k, 'Locale', 0, winreg.REG_SZ, lang)
     return prev
 
 

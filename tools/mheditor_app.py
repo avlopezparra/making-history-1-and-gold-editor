@@ -44,9 +44,9 @@ def run_server(port):
 
 
 TEXTS = {
-    'es': {'editors': 'Editores', 'map': 'Mapa (regiones)', 'scen': 'Escenarios', 'img': 'Imágenes', 'reload': 'Recargar',
+    'es': {'editors': 'Editores', 'map': 'Mapa (regiones)', 'scen': 'Escenarios', 'img': 'Imágenes', 'models': 'Modelos 3D', 'reload': 'Recargar',
            'help': 'Ayuda', 'data': 'Carpeta de datos', 'ask': '¿Desea salir sin guardar los cambios?'},
-    'en': {'editors': 'Editors', 'map': 'Map (regions)', 'scen': 'Scenarios', 'img': 'Images', 'reload': 'Reload',
+    'en': {'editors': 'Editors', 'map': 'Map (regions)', 'scen': 'Scenarios', 'img': 'Images', 'models': '3D models', 'reload': 'Reload',
            'help': 'Help', 'data': 'Data folder', 'ask': 'Leave without saving the changes?'},
 }
 
@@ -110,6 +110,7 @@ def main():
             MenuAction(T['map'], go('/')),
             MenuAction(T['scen'], go('/scenario')),
             MenuAction(T['img'], go('/imagenes')),
+            MenuAction(T['models'], go('/modelos')),
             MenuSeparator(),
             MenuAction(T['reload'], lambda: leave_ok() and win.evaluate_js('location.reload()')),
         ]),

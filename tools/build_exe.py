@@ -45,10 +45,11 @@ def main():
     make_icon(ico)
     # modulos que el servidor importa dentro de funciones (PyInstaller no los ve solo)
     hidden = [os.path.splitext(os.path.basename(p))[0] for p in glob.glob(os.path.join(HERE, '*.py'))
-              if os.path.basename(p) not in ('build_exe.py', 'mheditor_app.py', 'editor_ventana.py', 'exportar_github.py')]
+              if os.path.basename(p) not in ('build_exe.py', 'mheditor_app.py', 'editor_ventana.py', 'exportar_github.py', 'ai_chat.py')]
     args = [os.path.join(HERE, 'mheditor_app.py'), '--name', 'MHEditor', '--onedir', '--windowed', '--noconfirm',
             '--icon', ico, '--distpath', ROOT, '--workpath', os.path.join(WORK, 'work'), '--specpath', WORK,
             '--paths', HERE, '--add-data', os.path.join(HERE, 'editor') + os.pathsep + 'editor',
+            '--exclude-module', 'ai_chat',
             '--collect-submodules', 'webview', '--collect-data', 'webview']
     for h in hidden:
         args += ['--hidden-import', h]

@@ -15,11 +15,11 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 OUT = os.path.abspath(sys.argv[1]) if len(sys.argv) > 1 else os.path.join(os.path.dirname(ROOT), 'making-history-github')
 
-DOCS = ['AGENTS.md', 'EDITOR.md', 'MAPA_FORMATO.md', 'REVERSING_NOTAS.md', 'ESCENARIOS_NOTAS.md', 'GOLD_NOTAS.md', 'CHANGELOG_3.0.md', 'tools/MH2_NST_FORMATO.md']
+DOCS = ['AGENTS.md', 'EDITOR.md', 'MAPA_FORMATO.md', 'REVERSING_NOTAS.md', 'ESCENARIOS_NOTAS.md', 'GOLD_NOTAS.md', 'CHANGELOG_3.0.md', 'CHANGELOG_3.1.md', 'tools/MH2_NST_FORMATO.md']
 LAUNCHERS = ['Region Editor.bat', 'Scenario Editor.bat', 'Editor (window).bat', 'Scenario Editor (window).bat', 'Game Log.bat']
-SKIP_PY = {'probe2.py', 'probe_regions.py'}          # pruebas sueltas de ingeniería inversa
+SKIP_PY = {'probe2.py', 'probe_regions.py', 'ai_chat.py'}          # pruebas sueltas de ingeniería inversa
 
-README = """# Making History 1 & Gold Editor 3.0
+README = """# Making History 1 & Gold Editor 3.1
 
 Map (regionpack), scenario and image editor for **Making History: The Calm and The Storm (MH1)** and **Making History Gold**.
 
@@ -30,7 +30,7 @@ Map (regionpack), scenario and image editor for **Making History: The Calm and T
 - **Community:** [Discord](https://discord.com/invite/gFJyCjWEnr)
 - **Report bugs:** alopezcl@protonmail.com (or open an issue)
 
-Made by Alejandro Víctor López Parra (@avlopezparra), 2026. **Version 3.0**.
+Made by Alejandro Víctor López Parra (@avlopezparra), 2026. **Version 3.1**.
 
 ## What it does
 - **Region editor**: move nodes, draw, cut, merge, create, rename and delete regions; topology-safe shape changes; installs the
@@ -170,7 +170,7 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/')
         with:
           files: MHEditor.zip
-          body_path: CHANGELOG_3.0.md
+          body_path: CHANGELOG_3.1.md
 """
 
 
@@ -193,7 +193,7 @@ def main():
         if f.endswith('.py') and f not in SKIP_PY:
             os.makedirs(os.path.join(OUT, 'tools'), exist_ok=True)
             shutil.copy2(os.path.join(HERE, f), os.path.join(OUT, 'tools', f)); n += 1
-    shutil.copytree(os.path.join(HERE, 'editor'), os.path.join(OUT, 'tools', 'editor'), ignore=shutil.ignore_patterns('__pycache__'))
+    shutil.copytree(os.path.join(HERE, 'editor'), os.path.join(OUT, 'tools', 'editor'), ignore=shutil.ignore_patterns('__pycache__', 'ai_chat.js'))
     shutil.copytree(os.path.join(ROOT, 'skill'), os.path.join(OUT, 'skill'))   # skill de Claude Code
     for f in DOCS + LAUNCHERS:
         if os.path.exists(os.path.join(ROOT, f)):

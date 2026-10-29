@@ -105,7 +105,8 @@ LABELS = {
     'nStartMonth': 'Mes de inicio', 'nStartDay': 'Día de inicio', 'nEndYear': 'Año de fin', 'nEndMonth': 'Mes de fin', 'nEndDay': 'Día de fin',
     'strHistoricalComparison': 'Comparación histórica (texto al final)', 'nScenarioNumber': 'Orden en la lista de escenarios',
     'eScenarioType': 'Tipo de escenario', 'fileScenario': 'Archivo del escenario', 'fileGame': 'Archivo de partida',
-    'strContentPackName': 'Paquete de contenido', 'strGovType': 'Gobierno (ideología)', 'strCulture': 'Cultura (etnia)', 'strTerrain': 'Terreno',
+    'strContentPackName': 'Paquete de contenido', 'bColonialPower': 'Potencia colonial', 'bIsScored': 'Puntúa',
+    'bCanPlay': 'Se puede jugar', 'strGovType': 'Gobierno (ideología)', 'strCulture': 'Cultura (etnia)', 'strTerrain': 'Terreno',
 }
 COUNTRY_TYPE = {'COUNTRYTYPE_PLAYABLE': 'Playable', 'COUNTRYTYPE_FEATURED': 'Major', 'COUNTRYTYPE_NON_FEATURED': 'Minor'}
 # valores que el juego acepta (system/game/namespace.xml); otro valor hace que la partida no se cree («Error creating game»)
@@ -347,6 +348,8 @@ class Store:
                 data = m_old.group(0) + data[m_new.end():]
             elif not m_old and m_new and data.startswith('<objects ') and 'xmlns:xsi' not in m_new.group(0):
                 data = m_new.group(0)[:-1] + ' xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">' + data[m_new.end():]
+            if b'/>' in raw and b' />' not in raw:      # mismo cierre que el original (scenarioInfo.xml y treaties.xml: «/>» sin espacio)
+                data = data.replace(' />', '/>')
             data = '<?xml version="1.0" encoding="UTF-8"?>\n' + data + '\n'
             if crlf:
                 data = data.replace('\r\n', '\n').replace('\n', '\r\n')
@@ -655,6 +658,9 @@ class Scenario:
                           'label': LABELS.get(n, n), 'text': self.strings.get(v) if v and v.startswith('SID.') else None,
                           'kind': 'bool' if n.startswith('b') and v in ('true', 'false') else
                           'color' if n.startswith('col') else 'number' if re.match(r'^(n|f|n64)[A-Z]', n) else 'text'})
+        import scenario_extra      # campos opcionales que ed.exe edita aunque el archivo no los traiga
+        props += scenario_extra.missing_props(el, {p['name'] for p in props}, LABELS)
+        shared = scenario_extra.is_shared(s.doc_of.get(el, ''))
         children = [{'id': s.eid(c), 'type': c.get('type'), 'name': c.get('name'), 'label': s.label(c),
                      'summary': self.child_summary(c)} for c in objs(el)]
         extra = {}
@@ -665,6 +671,8 @@ class Scenario:
             extra['map'] = prop(el, 'strName') if t == 'Region' else prop(s.parent.get(el), 'strName')
         if t in ('Army', 'AirForce', 'Fleet'):
             extra['map'] = prop(el, 'strRegion')
+        if shared:
+            extra['shared'] = True
         return {'id': s.eid(el), 'type': t, 'name': el.get('name'), 'label': s.label(el),
                 'file': os.path.relpath(s.doc_of.get(el, ''), GAME), 'crumbs': crumbs, 'props': props,
                 'children': children, 'extra': extra, 'dirty': sorted(os.path.basename(p) for p in s.dirty)}
@@ -745,6 +753,10 @@ class Scenario:
             a, b = self.owner_of_player(el), prop(el, 'strTargetCountry')
             if a and b and a != b:
                 notes += scenario_layers.fix_diplomacy(self, [{'a': a, 'b': b, 'use': 'a'}])
+        # región dada a una nación rendida desde la ficha: deja de estarlo y su capital pasa a una ciudad de esa región
+        if t == 'Region' and new_owner != old_owner:
+            import scenario_layers
+            notes += scenario_layers.unsurrender(self, new_owner, prop(el, 'strName'))
         self._opts = None
         return notes
 
@@ -818,7 +830,7 @@ class Scenario:
                     issues.append(('error', '%s %s: la región %s no existe' % (t, n, where), self.s.eid(g)))
                 for u in objs(g):
                     if units and norm(P(u, 'strName')) not in units:
-                        issues.append(('aviso', '%s %s: unidad desconocida %s' % (t, n, P(u, 'strName')), self.s.eid(g)))
+                        issues.append(('error', '%s %s: unidad desconocida %s' % (t, n, P(u, 'strName')), self.s.eid(g)))
         for a in self.all('AllianceMember'):
             if P(a, 'strINITCountryName') not in countries:
                 issues.append(('error', 'Alianza: no existe el país %s' % P(a, 'strINITCountryName'), self.s.eid(a)))
@@ -851,6 +863,58 @@ class Scenario:
                     if u.get('type') == 'UnitSummary' and not (P(u, 'nNumber') or '1').lstrip('-').isdigit() or \
                             u.get('type') == 'UnitSummary' and int(P(u, 'nNumber') or 1) <= 0:
                         issues.append(('error', '%s %s: el número de unidades de %s debe ser mayor que 0' % (t, P(g, 'strName'), P(u, 'strName')), self.s.eid(g)))
+        # más reglas de ed.exe (errores 0-75 de EditorStringTable.dll; ver docs_texto/editor_oficial/COMPARACION.md)
+        surr = {n for n, c in countries.items() if P(c, 'bSurrendered') == 'true'}
+        for w in self.all('War'):
+            for k in ('strINITAttackerCountryName', 'strINITDefenderCountryName'):
+                if P(w, k) in surr:
+                    issues.append(('error', 'Guerra %s: %s está rendido y no puede estar en guerra' % (P(w, 'strDisplayName'), P(w, k)), self.s.eid(w)))
+        for r in self.regions(sea=False):
+            for k in ('strOwner', 'strController'):
+                if P(r, k) in surr:
+                    issues.append(('error', 'Región %s: %s está rendido y no puede poseer ni controlar regiones' % (P(r, 'strName'), P(r, k)), self.s.eid(r)))
+        resources = {P(x, 'strName') for x in self.all('Resource')} | {P(x, 'strResource') for x in self.all('Producer')} \
+            | {P(x, 'strResource') for x in self.all('ResourceAmountPair')}
+        for t, items in (('Flujo comercial', self.all('Flow')), ('Tratado de acceso militar', self.all('Treaty'))):
+            for f in items:
+                for k in ('strFromCountry', 'strToCountry'):
+                    v = P(f, k)
+                    if v and v not in countries:
+                        issues.append(('error', '%s %s → %s: no existe el país %s' % (t, P(f, 'strFromCountry'), P(f, 'strToCountry'), v), self.s.eid(f)))
+                    elif v and players and v not in players:
+                        issues.append(('error', '%s %s → %s: %s no está registrado en la partida (gamestate.xml)' % (t, P(f, 'strFromCountry'), P(f, 'strToCountry'), v), self.s.eid(f)))
+                for g in objs(f):
+                    if g.get('type') == 'ResourceTrade' and P(g, 'strResource') not in resources:
+                        issues.append(('error', '%s %s → %s: no existe el recurso %s' % (t, P(f, 'strFromCountry'), P(f, 'strToCountry'), P(g, 'strResource')), self.s.eid(f)))
+
+        def num(e, k):
+            v = P(e, k)
+            try:
+                return int(v) if v not in (None, '') else None
+            except ValueError:
+                return None
+        for e in self.all('Scenario') + self.all('ScenarioInfo'):
+            d = num(e, 'nScenarioDuration')
+            if d is not None and not 1 <= d <= 99999:
+                issues.append(('error', 'Duración del escenario %d: debe estar entre 1 y 99999 turnos' % d, self.s.eid(e)))
+            for k in ('nStartYear', 'nEndYear'):
+                if (num(e, k) or 0) < 0:
+                    issues.append(('error', 'Fecha del escenario no válida: %s = %s' % (k, P(e, k)), self.s.eid(e)))
+        for c in self.all('City'):
+            if not (P(c, 'strName') or '').strip():
+                issues.append(('error', 'Ciudad sin nombre en %s' % P(self.s.parent[c], 'strName'), self.s.eid(c)))
+            if (num(c, 'nInitialPercentComplete') or 0) < 0:
+                issues.append(('error', 'Ciudad %s: el porcentaje inicial de la orden no puede ser negativo' % P(c, 'strName'), self.s.eid(c)))
+            for fa in objs(c):
+                if fa.get('type') == 'Factory' and (num(fa, 'nIPUs') or 0) < 0:
+                    issues.append(('error', 'Ciudad %s: los IPUs no pueden ser negativos' % P(c, 'strName'), self.s.eid(c)))
+        for p in self.all('Producer'):
+            v = num(p, 'nBaseOutputRate')
+            if v is not None and v < 1:
+                issues.append(('error', 'Productor %s: la producción base debe ser al menos 1' % (P(p, 'strName') or P(p, 'strResource')), self.s.eid(p)))
+        for r in self.regions(sea=False):
+            if (num(r, 'nPopulation') or 0) < 0:
+                issues.append(('error', 'Región %s: la población no puede ser negativa' % P(r, 'strName'), self.s.eid(r)))
         for typ, label in (('MECountry', 'País'), ('UnitTemplate', 'Plantilla de unidad')):
             names = Counter(P(e, 'strName') for e in self.all(typ))
             for n, k in names.items():

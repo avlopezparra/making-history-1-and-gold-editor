@@ -106,6 +106,8 @@ def save_as_new(s, new_name):
     for k in ('strName', 'strDisplayName'):
         raw = re.sub(r'(name="%s" value=")[^"]*(")' % k, lambda m: m.group(1) + new_name + m.group(2), raw, count=1)
     open(f, 'wb').write(raw.encode('utf-8'))
+    import scenario_extra
+    scenario_extra.ensure_dirs(dst)      # game/ y ui/ con namespace.xml y UICommand*.xml, como ed.exe
     return {'scenario': new_name, 'written': written['written'], 'history': written['history']}
 
 
@@ -999,6 +1001,23 @@ def apply_equivalences(s, pm):
     return notes
 
 
+# el mismo país con nombres distintos (vanilla primero): al importar GeoJSON o cruzar escenarios cuentan como uno
+# (también en editor/index.html, natKey)
+COUNTRY_EQUIV = [('Salvador', 'El Salvador'), ('Swaziland', 'Eswatini'), ('Burma', 'Myanmar'),
+                 ('South Africa', 'Union of South Africa')]
+
+
+def country_key(t):
+    """Clave para comparar nombres de país: sin mayúsculas, acentos, espacios ni signos, y con las equivalencias de COUNTRY_EQUIV."""
+    import unicodedata
+    n = lambda x: re.sub(r'[^a-z0-9]', '', unicodedata.normalize('NFKD', str(x)).encode('ascii', 'ignore').decode('ascii').lower())
+    k = n(t)
+    for grp in COUNTRY_EQUIV:
+        if k in {n(x) for x in grp}:
+            return n(grp[0])
+    return k
+
+
 def match_country(s, name):
     """País del escenario que corresponde a 'name' aunque se escriba distinto: «UnitedKingdom» (MH2) = «United Kingdom»,
     mayúsculas, acentos, guiones o espacios aparte. None si no hay ninguno."""
@@ -1007,10 +1026,8 @@ def match_country(s, name):
     cs = s.countries()
     if name in cs:
         return name
-    import unicodedata
-    norm = lambda t: re.sub(r'[^a-z0-9]', '', unicodedata.normalize('NFKD', str(t)).encode('ascii', 'ignore').decode('ascii').lower())
-    k = norm(name)
-    return next((c for c in cs if norm(c) == k), None)
+    k = country_key(name)
+    return next((c for c in cs if country_key(c) == k), None)
 
 
 def for_scenario(c, scen):
@@ -1326,7 +1343,9 @@ def unsurrender(s, owner, region=None):
     if cap in cities:
         return notes + ['capital %s: ya está en su territorio' % cap]
     if not cities:
-        return notes + ['AVISO: %s no tiene ninguna ciudad en su territorio: crea una en la región para que sea su capital' % owner]
+        reg = region if region in {prop(r, 'strName') for r in own} else prop(own[0], 'strName')
+        return notes + ['AVISO: %s no tiene ninguna ciudad en su territorio (%s): asígnale una región con ciudad o crea una en la región para que sea su capital'
+                        % (owner, reg)]
 
     def ipus(ci):
         f = next((o for o in objs(ci) if o.get('type') == 'Factory'), None)
@@ -1546,16 +1565,18 @@ def _owned(s, name):
 
 def duplicate_countries(s):
     """[(duplicado, bueno)]: naciones que son la misma escrita distinto («UnitedStates» / «United States»). Se queda la que tiene
-    espacios (la forma del juego vanilla) o, si no, la que tiene más regiones."""
+    nombre escrito como en el juego vanilla (sin palabras pegadas: «South Africa», no «UnionOfSouthAfrica») y, a igualdad, la que
+    tiene más regiones. También
+    «ElSalvador» / «Salvador» y «UnionOfSouthAfrica» / «South Africa» (artículo o «Union of» delante)."""
     import unicodedata
-    norm = lambda t: re.sub(r'[^a-z0-9]', '', unicodedata.normalize('NFKD', str(t)).encode('ascii', 'ignore').decode('ascii').lower())
+    norm = lambda t: re.sub(r'^(el|la|the|unionof)(?=[a-z]{4})', '', country_key(t))
     groups = {}
     for c in s.countries():
         groups.setdefault(norm(c), []).append(c)
     out = []
     for g in groups.values():
         if len(g) > 1:
-            keep = max(g, key=lambda c: (' ' in c, len(_owned(s, c)[0])))
+            keep = max(g, key=lambda c: (not re.search(r'[a-z][A-Z]', c), len(_owned(s, c)[0])))   # «UnionOfSouthAfrica» se ve así en el juego
             out += [(c, keep) for c in g if c != keep]
     return out
 
@@ -1585,6 +1606,12 @@ def merge_country(s, dup, keep):
                 else:
                     p.set('value', keep)
                 s.s.touch(v, structural=True)
+    cs = s.countries()
+    if prop(cs[dup], 'bNonPlayable') == 'false' and prop(cs[keep], 'bNonPlayable') == 'true':
+        s.s.set_prop(cs[keep], 'bNonPlayable', 'false')     # si el duplicado era jugable, el bueno también
+    for t in s.all('TriggerCountry'):      # disparadores de IA de otros países («guerra si invaden a dup») -> el bueno
+        if prop(t, 'strName') == dup:
+            s.s.set_prop(t, 'strName', keep)
     notes += delete_country(s, dup, keep)
     return ['%s fusionado en %s (%d región(es) histórica(s))' % (dup, keep, len(hist))] + notes
 
@@ -2059,10 +2086,11 @@ def _slug(text):
     return re.sub(r'[^A-Za-z0-9]', '', text or '')
 
 
-def rename_country(s, old, new, code=True):
+def rename_country(s, old, new, code=True, keep_shown=False):
     """Cambia el nombre de un país. code=False: solo el nombre que se ve en el juego (texto de su SID).
     code=True: también el nombre interno en todo el escenario (dueños, diplomacia, IA, eventos, alianzas, guerras, tratados,
-    modelos de unidades…), sus archivos country/player<País>.xml (se renombran al guardar) y sus SID de nombre."""
+    modelos de unidades…), sus archivos country/player<País>.xml (se renombran al guardar) y sus SID de nombre.
+    keep_shown=True: el nombre que se ve en el juego no cambia (p. ej. «Myanmar» con nombre interno «Burma» como en vanilla)."""
     st = s.s
     new = (new or '').strip()
     countries = s.countries()
@@ -2133,6 +2161,10 @@ def rename_country(s, old, new, code=True):
                 txt = scenario_events._string(s, so)
             except Exception:
                 txt = None
+        if keep_shown:     # los SID nuevos con el mismo texto que se veía
+            if txt or kind == 'Name':
+                notes += sc.set_region_string(s, sn, txt or old)
+            continue
         if txt:            # «Chile's» → «Chilean Republic's»; «Chilean» se queda (no es la palabra entera)
             txt = re.sub(r'(?<![A-Za-z])%s(?![A-Za-z])' % re.escape(old), new, txt)
         notes += sc.set_region_string(s, sn, new if kind == 'Name' or not txt else txt)

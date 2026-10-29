@@ -3,6 +3,7 @@
 ## English
 
 **Region editor**
+- «Invalid License Key»: on start the editor detects an old license in the virtualized registry (VirtualStore) that hides the good one, and deletes only that value, with a .reg backup, and can prevent it for good (one administrator prompt: users may write the game's HKLM key, so Windows stops virtualizing it) (`tools/licencia_juego.py`).
 - «Validate»: the full list of issues, copyable as text.
 - «Close gaps»: for the whole regionpack, between two regions or around a single one.
 - Empty spaces (rivers and lakes too): on hover they show «empty region»; they can be merged into a neighbouring region or turned into a land or sea region.
@@ -33,6 +34,7 @@
 ## Español
 
 **Editor de regiones**
+- «Invalid License Key»: al abrir, el editor detecta una licencia vieja en el registro virtualizado (VirtualStore) que tapa la buena y borra solo ese valor, con respaldo .reg, y puede evitarlo para siempre (un aviso de administrador: los usuarios pueden escribir la clave del juego en HKLM y Windows deja de virtualizarla) (`tools/licencia_juego.py`).
 - «Validar»: lista completa de problemas, copiable como texto.
 - «Cerrar huecos»: en todo el regionpack, entre dos regiones o alrededor de una sola.
 - Espacios vacíos (también ríos y lagos): al pasar el cursor dicen «región vacía»; se pueden unir a una región vecina o convertir en región de tierra o de mar.

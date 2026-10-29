@@ -3,6 +3,7 @@
   erase    lineas de frontera viejas que quedaron dentro de una region: se borran
   paint    lineas de frontera nuevas: se pintan con el color de las originales
   islands  islas nuevas: tierra arenosa con halo de aguas someras, como Bermudas
+  unring   polígonos de regiones isla: se quita el contorno oscuro pegado a la costa (la línea va por el polígono)
 
 Trabaja en todos los tiles afectados (DXT5 en bruto, ver MAPA_FORMATO.md) y sus 4 mipmaps,
 recomprimiendo solo los bloques 4x4 que cambian.
@@ -56,6 +57,46 @@ def main():
     paint_tiles(json.load(open(a.changes)), a.art, a.out, a.originals)
 
 
+RING = 7          # ancho (px) de la franja exterior de la tierra donde está el contorno oscuro
+
+
+def _unring(img, polys, to_px):
+    """Quita el contorno oscuro (y su resplandor gris) que rodea la costa de las islas dentro de 'polys'."""
+    zone = Image.new('L', (SIZE, SIZE), 0)
+    dz = ImageDraw.Draw(zone)
+    for g in polys:
+        for poly in getattr(g, 'geoms', [g]):
+            dz.polygon([to_px(*q) for q in poly.exterior.coords], fill=255)
+    if not zone.getbbox():
+        return img
+    rgb = img.convert('RGB')
+    px, pz = rgb.load(), zone.load()
+    x0, y0, x1, y1 = zone.getbbox()
+    seas = [px[x, y] for y in range(y0, y1, 3) for x in range(x0, x1, 3) if pz[x, y] and px[x, y][2] > px[x, y][0] + 60]
+    if not seas:
+        return img
+    sea = tuple(sorted(v[i] for v in seas)[len(seas) // 2] for i in range(3))
+    far = lambda v: sum((v[i] - sea[i]) ** 2 for i in range(3)) > 12 ** 2
+    blob = Image.new('L', (SIZE, SIZE), 0)
+    pb = blob.load()
+    for y in range(y0, y1):
+        for x in range(x0, x1):
+            if pz[x, y] and far(px[x, y]):
+                pb[x, y] = 255
+    core = blob.filter(ImageFilter.MinFilter(2 * RING + 1))
+    pc = core.load()
+    out = img.copy()
+    po = out.load()
+    for y in range(y0, y1):
+        for x in range(x0, x1):
+            if pb[x, y] and not pc[x, y]:
+                v = px[x, y]
+                # oscuro o gris azulado: contorno; lo claro (nieve, arena), lo verde y lo pardo (tierra) quedan
+                if 0.3 * v[0] + 0.59 * v[1] + 0.11 * v[2] < 150 and not (v[1] > v[2] + 10 or v[0] > v[2] + 30):
+                    po[x, y] = sea + (255,)
+    return out
+
+
 def paint_tiles(ch, art, out, originals=None, log=print):
     """Aplica un dict de cambios ({'erase','paint','islands'} en GeoJSON) a los tiles. Devuelve los tiles escritos."""
     class _A:
@@ -66,6 +107,7 @@ def paint_tiles(ch, art, out, originals=None, log=print):
     paint = [shape(g) for g in ch['paint']]
     paint_kind = [g.get('kind', 'land') for g in ch['paint']]
     islands = [shape(g) for g in ch['islands']]
+    unring = [shape(g) for g in ch.get('unring', [])]
     os.makedirs(a.out, exist_ok=True)
     random.seed(1)
 
@@ -75,18 +117,23 @@ def paint_tiles(ch, art, out, originals=None, log=print):
         return os.path.join(a.art, name)
 
     previews = []
-    for c, r in tiles_for(erase + paint + islands):
+    for c, r in tiles_for(erase + paint + islands + unring):
         lon0, lat0 = tile_bounds(c, r)
         tb = box(lon0 - MARGIN, lat0 - TILE_DEG - MARGIN, lon0 + TILE_DEG + MARGIN, lat0 + MARGIN)
         e = [g for g in erase if g.intersects(tb)]
         p = [(g, k) for g, k in zip(paint, paint_kind) if g.intersects(tb)]
         isl = [g for g in islands if g.intersects(tb)]
-        if not (e or p or isl):
+        ur = [g for g in unring if g.intersects(tb)]
+        if not (e or p or isl or ur):
             continue
         to_px = lambda x, y, s=1.0: ((x - lon0) / TILE_DEG * SIZE * s, (lat0 - y) / TILE_DEG * SIZE * s)
         base_bytes = open(source(tile_name(c, r)), 'rb').read()
         orig = decode(base_bytes, SIZE)
         img = orig.copy()
+
+        # 0. contorno oscuro pegado a la costa de islas: dentro del polígono, en la franja exterior de la tierra, lo oscuro pasa a mar
+        if ur:
+            img = _unring(img, ur, to_px)
 
         # 1. borrar lineas viejas
         if e:

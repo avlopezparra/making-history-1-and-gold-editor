@@ -722,3 +722,49 @@ formato. Se escribe solo tras confirmar y nunca en la carpeta de contenido del j
 - Naciones: la importación de GeoJSON y `prepare_region` reconocen la misma nación escrita distinto («UnitedStates» = «United
   States»). `duplicate_countries` / `merge_country`: fusiona el duplicado en el bueno (regiones, unidades, históricas, jugables,
   vistas). Changelog de WorldMoreRegions unificado (respaldo backup/changelog_WMR_antes_naciones_20261028.json).
+
+## Islas en el fondo: sin línea de costa (2026-10-28)
+- «Pintar la isla en el fondo» y el pintado automático al guardar ya no dibujan una línea pegada a la costa de la isla: solo la tierra (arena con agua clara). Como Cabo Verde o Canarias del juego, la línea que rodea la región sale de su polígono (borders.brd).
+- Se quitó el modo «tierra ya pintada (solo costa)»: una región grande sin forma dada se omite (dar GeoJSON o dibujar el contorno).
+- Fondo de WorldMoreRegions (proyecto) restaurado a antes del pintado de islas (16 tiles, desde backup/juego_antes_islas_naciones_20261028/tiles), Georgia del Sur incluida.
+
+## Botón «Redibujar fronteras» (2026-10-29)
+- Barra del editor de regiones: repinta en tiles/ del proyecto las líneas de todas las fronteras tierra-tierra y mar-mar de borders.brd (las costas no: ninguna línea alrededor de islas). Pide confirmación y respalda antes los tiles del proyecto en `<respaldo>/tiles_antes_redibujar_<fecha>`. Al juego llega solo con Instalar.
+- Probado en una copia de WorldMoreRegions: 5229 líneas en 255 tiles, unos 10 minutos.
+- API: POST /api/redraw_borders → {tiles, lines, backup}. Código: Project.redraw_borders (editor_core.py).
+
+## Naciones duplicadas: también «ElSalvador»/«Salvador» y «UnionOfSouthAfrica»/«South Africa» (2026-10-29)
+- `duplicate_countries` ignora un artículo o «Union of» delante (el/la/the/unionof) y se queda con el nombre escrito como en el juego vanilla (sin palabras pegadas), que es como se ve en la clasificación del juego.
+- `merge_country` además apunta al bueno los disparadores de IA de otros países (TriggerCountry) y, si el duplicado era jugable, deja jugable al bueno.
+
+## Equivalencias de nombres de país y renombrado conservando el nombre visible (2026-10-29)
+- `COUNTRY_EQUIV` + `country_key` (scenario_layers.py): Salvador = El Salvador = ElSalvador, Swaziland = Eswatini, Burma = Myanmar, South Africa = Union of South Africa (más mayúsculas, acentos y espacios). Lo usan `match_country` (Adecuar, regiones nuevas) y `duplicate_countries`. La importación de GeoJSON del editor de regiones (`natKey`, index.html) usa la misma tabla: no crea naciones duplicadas.
+- `rename_country(..., keep_shown=True)` (API: `keep_shown` en el renombrado): cambia el nombre interno y deja el texto que se ve en el juego.
+- TMWR 1022: El Salvador → Salvador, Eswatini → Swaziland, Myanmar → Burma (nombres de vanilla), visibles «El Salvador», «Eswatini», «Myanmar». Respaldo: backup/juego_TMWR1022_antes_renombrar_20261029. Changelog de WorldMoreRegions: dueño/controlador ElSalvador → Salvador (respaldo backup/changelog_WMR_antes_Salvador_20261029).
+- Corregido un error de sintaxis JS del botón «Redibujar fronteras» (saltos de línea dentro de comillas).
+
+## Islas por su polígono, redibujar una región, menú Modelos 3D, mapa al abrir escenarios, Refrescar el fondo (2026-10-29)
+- **Islas como Cabo Verde**: `Project.outline_islands` (editor_core.py) quita del fondo el contorno oscuro pegado a la costa (`unring` en paint_changes.py: franja exterior de la tierra, lo oscuro o gris azulado pasa a mar; nieve, arena, verde y pardo se quedan) y pinta la línea por el polígono de la región. Lo hace también «Pintar la isla en el fondo» y «Redibujar fronteras» (polígono de las islas; con una isla seleccionada, también quita el contorno).
+- WorldModern, South Georgia: arreglado e instalado en el juego solo el fondo (tiles 09-10, 10-10, 10-11). Respaldo: backup/juego_WorldModern_SouthGeorgia_20261029.
+- **Redibujar fronteras**: con una región seleccionada pregunta si redibujar solo ella y sus fronteras con las vecinas (segundos); para todo el mapa avisa de que tarda unos 10 minutos. API: `region` en POST /api/redraw_borders.
+- **Menú Editores del exe** (mheditor_app.py): «Modelos 3D / 3D models» debajo de Imágenes (/modelos).
+- **Editor de escenarios**: al abrirlo con un escenario, la vista Mapa queda activada.
+- **Refrescar**: vacía la caché de texturas del servidor y la página vuelve a pedir el fondo entero; las URL de los tiles llevan el regionpack y un número por carga (antes, tras cambiar de regionpack, el navegador mezclaba tiles del anterior).
+
+## «Restaurar fondo» pegaba la Tierra en regionpacks con fondo propio (2026-10-29)
+- Caso: TamrielDemo. El 2026-10-28 (9:49–10:21) «Restaurar fondo» en todo el mapa reescribió los 1560 tiles del proyecto con el World original donde no había frontera: continentes de la Tierra mezclados con Tamriel, costas que no coinciden y líneas viejas. El fondo del juego está bien.
+- Causa: `pack_from_world` (editor_server.py) solo miraba pack.json y el changelog. Ahora también compara una muestra de tiles con World: si menos de la mitad coinciden, el regionpack no procede de World y «Restaurar fondo» pregunta de dónde sacar el fondo.
+
+## Importar GeoJSON / desde un escenario: duplicados descartados y región más cercana (2026-10-29)
+- Fallo: en el aviso «región(es) del mapa parecen duplicados», «Cancelar (dejarlas)» solo omitía los contornos de nombre idéntico; los que tapaban una región existente entraban como «Mauritius 2» / «South Georgia 2» y el guardado fallaba («el polígono cubre toda Mauritius»). Ahora no se importa ningún contorno duplicado (`gjDupOf`: mismo nombre, también «Nombre 2»; o su región más cercana queda tapada ≥ 70 %, o está a ≤ 30 km y tapada ≥ 30 %).
+- `geojson_compare.analyze_shapes` devuelve `nearest` {region, km, sea, pct_source}: la región del mapa con el centro más cercano (del mismo tipo). Centros en caché por mapa (`outline_cache['_centers']`, se vacía al recargar). La tabla del diálogo muestra la columna «Región del mapa» (≈ región · km · duplicado) y el aviso empareja «contorno ≈ región (km)».
+- Textos del aviso en inglés (i18n_en.json).
+- Prueba (copia de WorldMoreRegions, contornos de WorldModern): Mauritius ≈ Mauritius 96 km (79 %), South Georgia ≈ South Georgia 0 km (100 %), Castilla ≈ LaMancha 41 km.
+
+## «Registrar en el escenario»: la población puesta al crear la región (2026-10-29)
+- Fallo: el diálogo de registrar no envía los habitantes puestos a mano al crear la región, solo el % de la madre (`pop_pct`), y el servidor repartía ese %. Ej.: Nagorno-Karabakh creada con 1 000 000 quedó con 375 525 en TMWR 1022.
+- Ahora /api/register_region busca la región en el changelog del proyecto (`regiones_nuevas`) y, si tiene `poblacion_manual`, la usa exacta (no el %). Probado en una copia de TMWR 1022: 1 000 000.
+
+## WorldModern: fondo de South Georgia copiado de WorldChile (2026-10-29)
+- Mismo formato de tiles (1024 px por 15°, mismos tamaños de archivo): copia directa, sin remuestrear. Tiles 09-10, 10-10 y 10-11 con sus mipmaps (15 archivos), en el juego y en tiles/ del proyecto. Respaldo: backup/WorldModern_antes_SG_desde_WorldChile_20261029 (juego/ y proyecto/).
+- Sustituye el arreglo anterior (sin línea por el polígono de la región; las líneas mar-mar de esos tiles son las de WorldChile).
