@@ -3,9 +3,6 @@
 <img width="1672" height="941" alt="297d7030-6196-423d-8a65-2a72f5bccb2a copia" src="https://github.com/user-attachments/assets/64a68a15-553d-413e-b5d8-0cd624c27aed" />
 
 
-<img width="1672" height="941" alt="297d7030-6196-423d-8a65-2a72f5bccb2a copia" src="https://github.com/user-attachments/assets/64a68a15-553d-413e-b5d8-0cd624c27aed" />
-
-
 Map (regionpack), scenario and image editor for **Making History: The Calm and The Storm (MH1)** and **Making History Gold**.
 
 This NEW Open Source editor allows the user to modify game regions (provinces) and to create and modify regionpacks that way. A regionpack from scratch can also be created, allowing the creation of a fictional world. The regionpack background image can be modified and exported. This feature is new and hasn't been achieved before.
