@@ -514,6 +514,8 @@ class Handler(BaseHTTPRequestHandler):
                         PROJECT.set_equivalence(n, eq)
                 return self.send(200, {'equivalences': res, 'written': bool(payload.get('write')), 'base': 'World',
                                        'same_name_elsewhere': same_name_elsewhere})
+            if u.path == '/api/gap/split_proximity':        # repartir un hueco entre las regiones que lo rodean por cercanía
+                return self.send(200, {'pieces': PROJECT.split_gap_by_proximity(payload['polygon'], payload.get('neighbors') or [])})
             if u.path == '/api/region/split_proximity':     # repartir una región (agua) entre sus vecinas de tierra por cercanía
                 return self.send(200, {'pieces': PROJECT.split_by_proximity(int(payload['region']))})
             if u.path == '/api/gaps/small':                   # huecos pequeños entre regiones (todo el regionpack o un par)

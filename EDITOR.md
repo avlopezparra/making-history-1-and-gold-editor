@@ -768,3 +768,11 @@ formato. Se escribe solo tras confirmar y nunca en la carpeta de contenido del j
 ## WorldModern: fondo de South Georgia copiado de WorldChile (2026-10-29)
 - Mismo formato de tiles (1024 px por 15°, mismos tamaños de archivo): copia directa, sin remuestrear. Tiles 09-10, 10-10 y 10-11 con sus mipmaps (15 archivos), en el juego y en tiles/ del proyecto. Respaldo: backup/WorldModern_antes_SG_desde_WorldChile_20261029 (juego/ y proyecto/).
 - Sustituye el arreglo anterior (sin línea por el polígono de la región; las líneas mar-mar de esos tiles son las de WorldChile).
+
+## v3.2 · Islas importadas por GeoJSON (2026-10-30)
+- Con «Puede quitar área de regiones del tipo contrario» desmarcado, una isla (solo mar debajo) fallaba con «el polígono no cubre mar ni huecos». Ahora toma el mar igualmente (`_plan_new_region`).
+- Versión 3.2 (i18n.js).
+- Si el guardado falla por regiones nuevas («quedó sin área», «el polígono …»), ofrece quitarlas de los cambios y guardar el resto.
+- Hueco sin región (clic en «Región vacía»): botón «Repartir entre las vecinas por cercanía» (POST /api/gap/split_proximity, `Project.split_gap_by_proximity`): cada punto pasa a la región vecina más cercana, p. ej. un río borrado.
+- Hueco seleccionado + herramienta «Recortar»: lo dibujado dentro del hueco pasa a la región elegida en «Unirlo a» (op cut con from null en editor_core).
+- Importar regiones (GeoJSON / desde otro escenario): los países históricos marcados por defecto salen solo de las regiones de las que la nueva saca ≥ 15 % de su área (opción `histLand` de askNewRegion). Antes, de todas las que tocaba.

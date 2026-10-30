@@ -592,20 +592,29 @@ document.addEventListener('mouseup', () => { if (edgeDrag) { edgeDrag = false; i
 function needSel() { if (S.selected == null) { status('Primero selecciona una región (herramienta Mover)'); return true; } return false; }
 // hueco (zona sin región): se selecciona al hacer clic en él; se puede unir a una región vecina o crear una región nueva ahí
 const GAP = { layer: null };
-function clearGap() { if (GAP.layer) { map.removeLayer(GAP.layer); GAP.layer = null; } }
+function clearGap() { if (GAP.layer) { map.removeLayer(GAP.layer); GAP.layer = null; } GAP.g = null; }
 async function gapSelect(ll) {
   clearGap();
   let g; try { g = await (await fetch('/api/gap', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ x: ll.lng, y: ll.lat }) })).json(); } catch (err) { return; }
   if (!g || g.error || !g.polygon) return;
+  GAP.g = g;
   GAP.layer = L.geoJSON(g.polygon, { interactive: false, style: { color: '#f59e0b', weight: 2, dashArray: '5 4', fillColor: '#f59e0b', fillOpacity: 0.3 } }).addTo(map);
   const esc = t => String(t).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
   const opts = g.neighbors.map(n => `<option value="${n.index}">${esc(n.name)}${n.sea ? ' (mar)' : ''}</option>`).join('');
   $('#info').innerHTML = `<h2>Hueco sin región</h2><div class="muted">${g.area} grados² · ${g.neighbors.length} región(es) lo rodean.${g.open ? '<br>Hueco abierto: se selecciona la parte de 8°×8° alrededor del clic; para una forma mayor usa «Crear región» dibujando.' : ''}</div>
     <div style="margin-top:8px"><button type="button" id="gapNewLand">Crear una región de tierra aquí…</button> <button type="button" id="gapNewSea">Crear una región de mar aquí…</button></div>
     <div style="margin-top:8px">Unirlo a: <select id="gapInto" style="max-width:190px">${opts}</select> <button type="button" id="gapJoin" ${opts ? '' : 'disabled'}>Unir</button></div>
-    <div class="muted" style="margin-top:6px">Se aplica al «Guardar». Esc o clic en otro sitio lo deselecciona.</div>`;
+    <div style="margin-top:8px"><button type="button" id="gapSplit" ${g.neighbors.length > 1 ? '' : 'disabled'} title="Cada punto del hueco pasa a la región vecina más cercana (p. ej. un río borrado)">Repartir entre las vecinas por cercanía</button></div>
+    <div class="muted" style="margin-top:6px">Con «Recortar» puedes dibujar una parte del hueco: pasa a la región elegida en «Unirlo a». Se aplica al «Guardar». Esc o clic en otro sitio lo deselecciona.</div>`;
   const gapNew = async sea => { if (S.view !== 'shape') setView('shape'); if (S.view !== 'shape') return;
     await askNewRegion(g.polygon, null, { nueva: true, cut: false, land: [], sea: [], forceSea: sea, preset: { fill: true, sea } }); };
+  $('#gapSplit').onclick = async () => {
+    const r = await (await fetch('/api/gap/split_proximity', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ polygon: g.polygon, neighbors: g.neighbors.map(n => n.index) }) })).json().catch(e => ({ error: e.message }));
+    if (r.error) return report('No se pudo repartir el hueco: ' + r.error + ' (¿hay que reiniciar el editor tras actualizarlo?)', 'err');
+    if (!r.pieces || !r.pieces.length) return status('No hay regiones vecinas a las que repartirlo');
+    for (const x of r.pieces) addOp({ kind: 'assign', polygon: x.polygon, region: x.into, fill: true, land_only: false, same_type_only: true });
+    clearGap(); status(`El hueco se repartirá entre ${r.pieces.map(x => x.into_name).join(', ')} al guardar`);
+  };
   $('#gapNewLand').onclick = () => gapNew(false); $('#gapNewSea').onclick = () => gapNew(true);
   $('#gapJoin').onclick = () => { addOp(g.open ? { kind: 'assign', polygon: g.polygon, region: +$('#gapInto').value, fill: true, land_only: false } : { kind: 'fill_point', point: [ll.lng, ll.lat], region: +$('#gapInto').value }); status('El hueco se unirá a la región elegida al guardar'); clearGap(); deselect(); };
 }
@@ -820,6 +829,12 @@ function finishDraw() {
   const ring = d.pts.map(ll => [ll.lng, ll.lat]); ring.push(ring[0]);
   const polygon = { type: 'Polygon', coordinates: [ring] };
   if (S.drawDone) { const f = S.drawDone; S.drawDone = null; return f(polygon); }     // dibujo pedido por otra función (contorno de una isla)
+  if (S.mode === 'recortar' && S.selected == null && GAP.g && $('#gapInto')) {     // hueco seleccionado: lo recortado del hueco pasa a la región elegida en su panel
+    const into = +$('#gapInto').value, nm = (GAP.g.neighbors.find(n => n.index === into) || {}).name;
+    if (isNaN(into)) return status('Elige en el panel del hueco a qué región pasa');
+    if (!confirm(`¿La parte del hueco dentro del recorte pasa a «${nm}»?`)) return;
+    return addOp({ kind: 'cut', polygon, from: null, into });
+  }
   if (S.mode === 'recortar') return regionsUnderServer(ring).then(under => askCutTarget(polygon, S.selected, under));
   if (S.mode === 'nueva') {
     // como Pax Historia: no hace falta seleccionar; recorta de las regiones de tierra que toca (la madre es la de más área)
@@ -993,7 +1008,7 @@ async function askNewRegion(polygon, from, opt = {}) {
     document.querySelector('input[name=nrMode][value=' + (cur != null ? 'existing' : 'new') + ']').checked = true;
   }
   // países históricos: los que ya tienen la(s) región(es) de origen salen marcados; se pueden marcar varios
-  const srcRegions = opt.nueva ? (opt.land || []) : M ? [M.props.name] : [];
+  const srcRegions = opt.nueva ? (opt.histLand || opt.land || []) : M ? [M.props.name] : [];
   S.nrHist = null; $('#nrHist').innerHTML = ''; $('#nrHistRow').style.display = sc ? '' : 'none';
   if (sc) {
     const h = await (await fetch(`/api/scen/historic_of?name=${encodeURIComponent(sc)}&regions=${encodeURIComponent(srcRegions.join('|'))}`)).json().catch(() => null);
@@ -1557,7 +1572,10 @@ async function importShapes(shapes, o = {}) {
     if (o.popMode === 'geojson' && popv == null && !seaKind) { popv = gjGuessPop(geom); guess = true; }       // sin población en el GeoJSON: una según el área, nunca 0
     const before = S.ops.length;
     await askNewRegion(geom, land.length ? land[0].index : null, { nueva: true, cut: $('#dbCut').checked, motherName: land.length ? land[0].name : null,
-      land: land.map(x => x.name), sea: water.map(x => x.name), forceSea: seaKind && o.seaOnly, noOwner: o.ownerMode === 'none' && !seaKind,
+      land: land.map(x => x.name), sea: water.map(x => x.name), forceSea: seaKind && o.seaOnly,
+      // países históricos: solo de las regiones de las que saca al menos el 15 % de su área (antes, de todas las que tocaba:
+      // Turquía salía histórica de regiones de Iraq e Irán por un borde)
+      histLand: (() => { const src = (sh.an && sh.an.sources) || []; const big = land.filter(x => { const q = src.find(y => y.region === x.name); return !q || q.pct_source >= 0.15; }).map(x => x.name); return big.length ? big : land.slice(0, 1).map(x => x.name); })(), noOwner: o.ownerMode === 'none' && !seaKind,
       landIdx: land.map(x => x.index),
       auto: !!o.auto && shapes.length > 1, preset: { name, popMode: o.popMode || 'area', sea: seaKind, popGuess: guess,
         fill: o.fill || under.length === 0,          // los huecos (lagos…) solo se rellenan si se pide, o si no hay nada debajo (mapa vacío)
@@ -1785,7 +1803,17 @@ async function save() {
     r = { errors: ['no se pudo hablar con el servidor del editor (¿está cerrado?): ' + e.message], warnings: [], transfers: [] };
   }
   showReport(r);
-  if (r.errors && r.errors.length) { $('#save').disabled = false; alert('No se guardó: ' + r.errors.join(String.fromCharCode(10))); }   // que el fallo nunca pase desapercibido
+  if (r.errors && r.errors.length) {
+    $('#save').disabled = false;
+    // regiones nuevas que impiden guardar: se ofrece quitarlas de los cambios y guardar el resto (antes no quedaba otra que descartarlo todo)
+    const nm = op => op.newName || op.name || '';
+    const bad = new Set(r.errors.map(e => (e.match(/^la region nueva (.+?) quedo sin area/) || e.match(/^([^:]+): /) || [])[1]).filter(Boolean));
+    const drop = S.ops.filter(op => op.kind === 'new_region' && bad.has(nm(op)));
+    if (drop.length && confirm('No se guardó:\n' + r.errors.join('\n') + '\n\n¿Quitar de los cambios ' + drop.length + ' región(es) nueva(s) con problemas (' + [...new Set(drop.map(nm))].join(', ') + ') y guardar el resto?')) {
+      S.ops = S.ops.filter(op => !drop.includes(op)); refreshRedoSave(); $('#save').click(); return;
+    }
+    if (!drop.length) alert('No se guardó: ' + r.errors.join(String.fromCharCode(10)));   // que el fallo nunca pase desapercibido
+  }
   if (r.new_scenario && (!r.errors || !r.errors.length)) {       // escenario creado desde cero: queda abierto en «Ver»
     const sel = $('#scenario'); if (![...sel.options].some(o => o.value === r.new_scenario)) { const o = document.createElement('option'); o.value = o.textContent = r.new_scenario; sel.appendChild(o); }
     (S.packUsers = S.packUsers || []).push(r.new_scenario); sel.value = r.new_scenario; await sel.onchange({ target: sel });

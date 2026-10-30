@@ -1,4 +1,7 @@
-# Making History 1 & Gold Editor 3.1
+# Making History 1 & Gold Editor 3.2
+
+<img width="1672" height="941" alt="297d7030-6196-423d-8a65-2a72f5bccb2a copia" src="https://github.com/user-attachments/assets/64a68a15-553d-413e-b5d8-0cd624c27aed" />
+
 
 <img width="1672" height="941" alt="297d7030-6196-423d-8a65-2a72f5bccb2a copia" src="https://github.com/user-attachments/assets/64a68a15-553d-413e-b5d8-0cd624c27aed" />
 
@@ -25,7 +28,7 @@ It is recomendable to also use this editor with a Code AI LLM such as Claude Cod
 - **Report bugs:** alopezcl@protonmail.com (or open an issue)
 - **Donations:** [Paypal](https://www.paypal.com/paypalme/alopcl)
 
-Made by Alejandro Víctor López Parra (@avlopezparra), 2026. **Version 3.1**.
+Made by Alejandro Víctor López Parra (@avlopezparra), 2026. **Version 3.2**.
 
 ## What it does
 - **Region editor**: move nodes, draw, cut, merge, create, rename and delete regions; topology-safe shape changes; installs the

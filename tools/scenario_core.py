@@ -55,6 +55,11 @@ def _ev():
     return scenario_events
 
 
+def _i18n():
+    import scenario_i18n            # textos del servidor en el idioma del editor
+    return scenario_i18n
+
+
 def parse(path):
     return ET.parse(path, ET.XMLParser(target=ET.TreeBuilder(insert_comments=True)))
 
@@ -513,9 +518,9 @@ class Scenario:
             ('historic', 'Historic Countries', lambda: self.all('HistoricCountry'),
              [('País', lambda e: P(e, 'strCountry')), ('Regiones', lambda e: ', '.join(P(k, 'strRegion') or '' for k in objs(e)))]),
             ('events', 'Events', lambda: [e for e in self.all_types(('ScriptedEventDef', 'PlayerDecisionDef', 'PlayerDecisionTrigPlayEvent', 'DecisionPointDef'))],
-             [('Clase', lambda e: '%s%s' % (_ev().event_class(self, e)[0], '' if _ev().is_generic(P(e, 'strTypeLabel')) else ' · del escenario')),
+             [('Clase', lambda e: _i18n().L('%s%s' % (_ev().event_class(self, e)[0], '' if _ev().is_generic(P(e, 'strTypeLabel')) else ' · del escenario'))),
               ('Tipo', lambda e: _ev().KIND_ES.get(e.get('type'), e.get('type'))), ('Nombre', lambda e: P(e, 'strTypeLabel') or P(e, 'strName') or ''),
-              ('Quién', lambda e: _ev()._who(e)), ('Qué hace', lambda e: _ev().short(self, e)), ('Archivo', lambda e: os.path.basename(self.s.doc_of[e]))]),
+              ('Quién', lambda e: _i18n().L(_ev()._who(e))), ('Qué hace', lambda e: _i18n().L(_ev().short(self, e))), ('Archivo', lambda e: os.path.basename(self.s.doc_of[e]))]),
             ('terrains', 'Terrain Types', lambda: self.all('TerrainType'),
              [('Terreno', lambda e: P(e, 'strTerrain')), ('Nombre visible', lambda e: _ev()._string(self, P(e, 'sidDisplayName') or '') or ''),
               ('Regiones', lambda e: str(sum(1 for r in self.regions() if P(r, 'strTerrain') == P(e, 'strTerrain')))),

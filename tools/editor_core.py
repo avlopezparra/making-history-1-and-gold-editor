@@ -758,9 +758,17 @@ class Project:
                 poly = make_valid(geom)
                 if kind == 'cut':
                     # lo recortado de 'from' pasa a 'into' (una vecina, de tierra o mar) o queda como hueco
-                    src = int(asg['from'])
                     into = asg.get('into')
                     into = int(into) if into is not None else None
+                    if asg.get('from') is None:
+                        # recorte sobre un hueco sin región (seleccionado en el mapa): esa parte del hueco pasa a 'into'
+                        empty = poly.difference(unary_union([P(s) for s in owners(poly)] or [Polygon()]))
+                        if into is not None and empty.area > MIN_AREA:
+                            add(empty, None, into)
+                        else:
+                            report['warnings'].append('el recorte no toca ningún hueco (o falta la región de destino)')
+                        continue
+                    src = int(asg['from'])
                     if into == src:
                         into = None
                     cut_pieces = polys_of(poly.intersection(P(src)))
@@ -981,6 +989,9 @@ class Project:
                 rest = poly.difference(unary_union([P(s) for s in under] or [Polygon()]))
                 if rest.area > MIN_AREA:
                     pieces.append((rest, None))
+            if not any(p.area > MIN_AREA for p, _ in pieces) and asg.get('same_type_only'):
+                # isla (solo mar debajo) con «solo regiones de su tipo»: no tiene de dónde salir si no; toma el mar
+                pieces = [(poly.intersection(P(s)), s) for s in under if R[s].u_type == SEA]
             if not any(p.area > MIN_AREA for p, _ in pieces):
                 report['errors'].append('%s: el polígono no cubre mar ni huecos' % name)
                 return
@@ -1006,49 +1017,55 @@ class Project:
     def split_by_proximity(self, r):
         """Reparte la región r (p. ej. un río, un lago o un mar estrecho que se quiere borrar) entre sus vecinas de TIERRA por
         cercanía: cada punto va a la vecina más próxima (diagrama de Voronoi con puntos de sus fronteras). [{polygon, into, into_name}]"""
-        from shapely.geometry import MultiPoint, mapping as _mp
-        from shapely.ops import voronoi_diagram
         with self.lock:
             R = self.m['regions']
             geo = self.region_geom(self.rname(r))
             if geo is None or geo.is_empty:
                 return []
-            near = geo.buffer(0.3)
-            pts, owner = [], []
-            for n in set(R[r].neighbors):
-                if n == r or R[n].u_type == SEA:
+            return self._split_near(geo, [n for n in set(R[r].neighbors) if n != r and R[n].u_type != SEA])
+
+    def split_gap_by_proximity(self, polygon, neighbors):
+        """Igual que split_by_proximity para un hueco sin región (p. ej. un río borrado): entre las regiones que lo rodean."""
+        with self.lock:
+            return self._split_near(make_valid(shape(polygon)), [int(n) for n in neighbors])
+
+    def _split_near(self, geo, nbrs):
+        from shapely.geometry import MultiPoint, mapping as _mp
+        from shapely.ops import voronoi_diagram
+        near = geo.buffer(0.3)
+        pts, owner = [], []
+        for n in nbrs:
+            g = self.region_geom(self.rname(n))
+            if g is None:
+                continue
+            edge = g.boundary.intersection(near)
+            if edge.is_empty:
+                continue
+            for seg in getattr(edge, 'geoms', [edge]):
+                if not hasattr(seg, 'interpolate') or seg.length <= 0:
                     continue
-                g = self.region_geom(self.rname(n))
-                if g is None:
-                    continue
-                edge = g.boundary.intersection(near)
-                if edge.is_empty:
-                    continue
-                for seg in getattr(edge, 'geoms', [edge]):
-                    if not hasattr(seg, 'interpolate') or seg.length <= 0:
-                        continue
-                    k = max(2, min(200, int(seg.length / 0.02)))
-                    for i in range(k + 1):
-                        pts.append(seg.interpolate(seg.length * i / k)); owner.append(n)
-            if not pts:
-                return []
-            cells = voronoi_diagram(MultiPoint(pts), envelope=geo.envelope.buffer(1))
-            from shapely.strtree import STRtree
-            tree = STRtree(pts)
-            by = {}
-            for c in getattr(cells, 'geoms', [cells]):
-                hit = [int(j) for j in tree.query(c) if c.covers(pts[int(j)])]
-                if not hit:
-                    continue
-                part = c.intersection(geo)
-                if not part.is_empty:
-                    by.setdefault(owner[hit[0]], []).append(part)
-            out = []
-            for n, parts in by.items():
-                u = unary_union(parts)
-                if u.area > MIN_AREA:
-                    out.append({'polygon': _mp(u.buffer(1e-7)), 'into': n, 'into_name': self.rname(n), 'area': round(u.area, 6)})
-            return out
+                k = max(2, min(200, int(seg.length / 0.02)))
+                for i in range(k + 1):
+                    pts.append(seg.interpolate(seg.length * i / k)); owner.append(n)
+        if not pts:
+            return []
+        cells = voronoi_diagram(MultiPoint(pts), envelope=geo.envelope.buffer(1))
+        from shapely.strtree import STRtree
+        tree = STRtree(pts)
+        by = {}
+        for c in getattr(cells, 'geoms', [cells]):
+            hit = [int(j) for j in tree.query(c) if c.covers(pts[int(j)])]
+            if not hit:
+                continue
+            part = c.intersection(geo)
+            if not part.is_empty:
+                by.setdefault(owner[hit[0]], []).append(part)
+        out = []
+        for n, parts in by.items():
+            u = unary_union(parts)
+            if u.area > MIN_AREA:
+                out.append({'polygon': _mp(u.buffer(1e-7)), 'into': n, 'into_name': self.rname(n), 'area': round(u.area, 6)})
+        return out
 
     def small_gaps(self, max_area=0.05, eps=0.03, pair=None, region=None):
         """Huecos pequeños (sin región) entre regiones: agujeros cerrados y rendijas estrechas de menos de max_area grados².

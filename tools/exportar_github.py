@@ -19,9 +19,24 @@ DOCS = ['AGENTS.md', 'EDITOR.md', 'MAPA_FORMATO.md', 'REVERSING_NOTAS.md', 'ESCE
 LAUNCHERS = ['Region Editor.bat', 'Scenario Editor.bat', 'Editor (window).bat', 'Scenario Editor (window).bat', 'Game Log.bat']
 SKIP_PY = {'probe2.py', 'probe_regions.py', 'ai_chat.py'}          # pruebas sueltas de ingeniería inversa
 
-README = """# Making History 1 & Gold Editor 3.1
+README = """# Making History 1 & Gold Editor 3.2
+
+<img width="1672" height="941" alt="297d7030-6196-423d-8a65-2a72f5bccb2a copia" src="https://github.com/user-attachments/assets/64a68a15-553d-413e-b5d8-0cd624c27aed" />
+
 
 Map (regionpack), scenario and image editor for **Making History: The Calm and The Storm (MH1)** and **Making History Gold**.
+
+This NEW Open Source editor allows the user to modify game regions (provinces) and to create and modify regionpacks that way. A regionpack from scratch can also be created, allowing the creation of a fictional world. The regionpack background image can be modified and exported. This feature is new and hasn't been achieved before.
+
+The editor is compatible with GeoJsons, which are geographical GIS shape files that can be imported and exported, and modified in chartographical external tools.
+
+A scenario editor is also included with features not present in the original editor such as event editing, flag and roundel importer, country color modifier, historical nations modifier, a validator.
+
+An image editor is included for the scenario title and distinctive identity.
+
+A 3D model editor is included (Work in progress).
+
+It is recomendable to also use this editor with a Code AI LLM such as Claude Code and Codex.
 
 > Fan project, not affiliated with Muzzy Lane. It ships no game files: you need the game installed (Steam, or the
 > Muzzy Lane installer in `C:\\Program Files (x86)\\Muzzy Lane Software\\...`; the editor finds it on its own).
@@ -29,8 +44,9 @@ Map (regionpack), scenario and image editor for **Making History: The Calm and T
 - **Download / updates:** [Releases](https://github.com/avlopezparra/making-history-1-and-gold-editor/releases/)
 - **Community:** [Discord](https://discord.com/invite/gFJyCjWEnr)
 - **Report bugs:** alopezcl@protonmail.com (or open an issue)
+- **Donations:** [Paypal](https://www.paypal.com/paypalme/alopcl)
 
-Made by Alejandro Víctor López Parra (@avlopezparra), 2026. **Version 3.1**.
+Made by Alejandro Víctor López Parra (@avlopezparra), 2026. **Version 3.2**.
 
 ## What it does
 - **Region editor**: move nodes, draw, cut, merge, create, rename and delete regions; topology-safe shape changes; installs the
@@ -170,7 +186,7 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/')
         with:
           files: MHEditor.zip
-          body_path: CHANGELOG_3.1.md
+          generate_release_notes: true
 """
 
 
@@ -185,8 +201,8 @@ def main():
     if os.path.exists(OUT):
         if os.listdir(OUT) and not os.path.exists(os.path.join(OUT, '.git')) and not os.path.exists(os.path.join(OUT, 'compilar_exe.bat')):
             raise SystemExit('la carpeta de salida ya existe y no está vacía: %s' % OUT)
-        for n in os.listdir(OUT):                       # se conserva .git si ya hay un repositorio
-            if n != '.git':
+        for n in os.listdir(OUT):                       # conserva .git y la licencia del repositorio
+            if n not in ('.git', 'LICENSE'):
                 shutil.rmtree(os.path.join(OUT, n)) if os.path.isdir(os.path.join(OUT, n)) else os.remove(os.path.join(OUT, n))
     n = 0
     for f in sorted(os.listdir(HERE)):
