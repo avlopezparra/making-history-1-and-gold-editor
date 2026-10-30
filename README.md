@@ -5,6 +5,18 @@
 
 Map (regionpack), scenario and image editor for **Making History: The Calm and The Storm (MH1)** and **Making History Gold**.
 
+This NEW Open Source editor allows the user to modify game regions (provinces) and to create and modify regionpacks that way. A regionpack from scratch can also be created, allowing the creation of a fictional world. The regionpack background image can be modified and exported. This feature is new and hasn't been achieved before.
+
+The editor is compatible with GeoJsons, which are geographical GIS shape files that can be imported and exported, and modified in chartographical external tools.
+
+A scenario editor is also included with features not present in the original editor such as event editing, flag and roundel importer, country color modifier, historical nations modifier, a validator.
+
+An image editor is included for the scenario title and distinctive identity.
+
+A 3D model editor is included (Work in progress).
+
+It is recomendable to also use this editor with a Code AI LLM such as Claude Code and Codex.
+
 > Fan project, not affiliated with Muzzy Lane. It ships no game files: you need the game installed (Steam, or the
 > Muzzy Lane installer in `C:\Program Files (x86)\Muzzy Lane Software\...`; the editor finds it on its own).
 
