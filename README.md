@@ -1,5 +1,8 @@
 # Making History 1 & Gold Editor 3.1
 
+<img width="1672" height="941" alt="297d7030-6196-423d-8a65-2a72f5bccb2a copia" src="https://github.com/user-attachments/assets/64a68a15-553d-413e-b5d8-0cd624c27aed" />
+
+
 Map (regionpack), scenario and image editor for **Making History: The Calm and The Storm (MH1)** and **Making History Gold**.
 
 > Fan project, not affiliated with Muzzy Lane. It ships no game files: you need the game installed (Steam, or the
