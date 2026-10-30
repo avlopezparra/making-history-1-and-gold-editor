@@ -23,6 +23,7 @@ It is recomendable to also use this editor with a Code AI LLM such as Claude Cod
 - **Download / updates:** [Releases](https://github.com/avlopezparra/making-history-1-and-gold-editor/releases/)
 - **Community:** [Discord](https://discord.com/invite/gFJyCjWEnr)
 - **Report bugs:** alopezcl@protonmail.com (or open an issue)
+- **Donations:** [Paypal](https://www.paypal.com/paypalme/alopcl)
 
 Made by Alejandro Víctor López Parra (@avlopezparra), 2026. **Version 3.1**.
 
