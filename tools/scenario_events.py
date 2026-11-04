@@ -758,6 +758,18 @@ def _action(spec, owner):
             must.append(g('from'))
         return xml, must, [], [], '%s receives %d %s%s' % (g('country', owner), n, g('resource'), (' from %s' % g('from')) if g('from') else '')
     if k == 'independence':
+        # the game only hands over regions the grantor OWNS: the historic regions it merely occupies are first made its own
+        frm, to, xml = g('from', owner), g('to'), ''
+        for i, _own in enumerate(sorted(spec.get('_cede') or {})):
+            lst = '{Object:Variable:Region}scratch.objCede%s%d' % (_w(to), i)
+            xml += ('<object type="ActActionRepeater" name="objActions"><property name="pathManyObjects" value="%s"/>'
+                    '<property name="pathSingleObject" value="{Object:Single:Region}scratch.objCedeOne"/>'
+                    '<object type="ActTransferRegionOwnership" name="objAction"><property name="nRegionID" inheritFrom="{Object:Single:Region}scratch.objCedeOne.nRegionID"/>'
+                    '<property name="nNewCountryID" inheritFrom="{Object:Single:Country}scratch.objCountry%s.nCountryID"/></object></object>' % (lst, _w(frm)))
+        if xml:
+            return (xml + '<object type="ActGrantIndependence" name="objActions"><property name="strFromCountry" value="%s"/><property name="strToCountry" value="%s"/></object>' % (_x(frm), _x(to)),
+                    [frm], [r for v in spec['_cede'].values() for r in v], [_cede_set(spec['_cede'], frm, to)],
+                    '%s grants independence to %s (with the historic regions it occupies)' % (frm, to))
         return ('<object type="ActGrantIndependence" name="objActions"><property name="strFromCountry" value="%s"/><property name="strToCountry" value="%s"/></object>' % (_x(g('from', owner)), _x(g('to'))),
                 [g('from', owner)], [], [], '%s grants independence to %s' % (g('from', owner), g('to')))
     if k == 'annex':
@@ -884,6 +896,12 @@ def event_add(s, i, what, spec, choice=None):
     el = st.get(i)
     if el is None:
         raise ValueError('ese evento ya no existe')
+    if what == 'condition' and el.get('type') == 'PlayerDecisionDef':
+        # una condición («desde una fecha», «probabilidad»…) decide cuándo salta el evento: va al ScriptedEventDef de la cadena,
+        # no a la decisión (allí no limitaba nada)
+        ev = next((e for e in (st.get(x['id']) for x in describe(s, el).get('links') or []) if e is not None and e.get('type') == 'ScriptedEventDef'), None)
+        if ev is not None:
+            el = ev
     _t, te = _trigger(el, _ctx(el))
     cond_holder = te if te is not None else el            # donde están sus condiciones (y las variables de los países)
     have = {prop(a, 'pathOutput') for a in cond_holder.iter('object') if a.get('type') == 'AccessorGetCountry'}
@@ -892,7 +910,7 @@ def event_add(s, i, what, spec, choice=None):
         owner = None
     xmls, notes = [], []
     if what == 'effect':
-        xml, must, regs, extra, txt = _action(spec, owner)
+        xml, must, regs, extra, txt = _action(_cede(s, spec, owner), owner)
         if not xml:
             raise ValueError('ese efecto no hace nada')
         need = [c for c in dict.fromkeys(x for x in must if x) if '{Object:Single:Country}scratch.objCountry' + _w(c) not in have]
@@ -962,6 +980,36 @@ def event_add(s, i, what, spec, choice=None):
     return notes
 
 
+def _cede(s, spec, owner):
+    """independence: adds to spec the historic regions of the new country, grouped by their current owner."""
+    if spec.get('type') != 'independence' or not spec.get('to') or spec.get('cede') is False:
+        return spec
+    frm, own, cede = spec.get('from') or owner, s.region_owners() if hasattr(s, 'region_owners') else None, {}
+    if own is None:
+        own = {sc.prop(r, 'strName'): n for n, c in s.countries().items() for r in sc.objs(c) if r.get('type') == 'Region'}
+    for h in s.all('HistoricCountry'):
+        if sc.prop(h, 'strCountry') == spec['to']:
+            for k in sc.objs(h):
+                r = sc.prop(k, 'strRegion')
+                if r and own.get(r) and own[r] not in (frm, spec['to']):
+                    cede.setdefault(own[r], []).append(r)
+    return dict(spec, _cede=cede) if cede else spec
+
+
+def _cede_set(cede, frm, to):
+    """Lists, per current owner, the new country's historic regions that frm occupies (an empty list is fine)."""
+    cf = '{Object:Single:Country}scratch.objCountry%s' % _w(frm)
+    inner = ''
+    for i, (own, regs) in enumerate(sorted(cede.items())):
+        ids = ' OR '.join('{Object}input.nRegionID == {Object:Single:Region}scratch.objRegion%s.nRegionID' % _w(r) for r in regs)
+        inner += ('<object type="AccessorGetRegionsOwned" name="objAccessors"><property name="pathOutput" value="{Object:Variable:Region}scratch.objCedeFrom%s%d"/>'
+                  '<property name="strOwner" value="%s"/></object>'
+                  '<object type="AccessorSelectObjects" name="objAccessors"><property name="pathOutput" value="{Object:Variable:Region}scratch.objCede%s%d"/>'
+                  '<property name="pathInput" value="{Object:Variable:Region}scratch.objCedeFrom%s%d"/><property name="expWhere" value="%s"/></object>'
+                  % (_w(to), i, _x(own), _w(to), i, _w(to), i, _x('{Object}input ISA Region AND {Object}input.nControllerID == %s.nCountryID AND (%s)' % (cf, ids))))
+    return _set('Historic regions of %s occupied by %s' % (to, frm), inner + '<object type="RuleDefExpression" name="objRules"><property name="expRession" value="exists(%s)"/></object>' % cf)
+
+
 def _region_set(regs):
     if not regs:
         return ''
@@ -1001,7 +1049,7 @@ def create_decision(s, owner, title, text, choices, when=None, pct=100, ai_choic
     for n, ch in enumerate(choices):
         acts, effs = [], []
         for spec in ch.get('effects') or []:
-            xml, m, r, ex, eff = _action(spec, owner)
+            xml, m, r, ex, eff = _action(_cede(s, spec, owner), owner)
             for c in m:
                 if c and c not in countries:
                     raise ValueError('no existe el país «%s»' % c)
@@ -1070,7 +1118,7 @@ def create_template(s, kind, p):
     if kind == 'gov':
         owner = owner or spec.get('country')
         spec.setdefault('country', owner)
-    xml, _m, _r, _e, eff = _action(spec, owner)
+    xml, _m, _r, _e, eff = _action(_cede(s, spec, owner), owner)
     title = p.get('title') or eff
     if p.get('ask'):        # el jugador humano de ese país elige en una ventana; la IA hace el efecto con ai_pct %
         yes = p.get('yes') or {'war': 'Declare war', 'embargo': 'Declare the embargo'}.get(kind, 'Accept')
@@ -1082,6 +1130,24 @@ def create_template(s, kind, p):
 
 def _govs(s):
     return {prop(g, 'strName') for g in s.all('GovTypeTemplate')} | {prop(c, 'strGovType') for c in s.countries().values()}
+
+
+CEDE_CONQUERED = ('<object type="ActTransferRegionOwnership" name="objActions">'
+                  '<property name="nRegionID" inheritFrom="{Object:Single:PlayEventConqueredRegion}scratch.objRegionEvent.nRegionIDConquered"/>'
+                  '<property name="nNewCountryID" inheritFrom="{Object:Single:Player}scratch.objPlayer.objCountry.nCountryID"/></object>')
+
+
+def cede_conquered(dec):
+    """Generic «liberate» decisions: the game only hands over regions the liberator OWNS, and a conquered capital is only
+    occupied, so the conqueror first takes ownership of it. Returns how many grants were fixed."""
+    n = 0
+    for ce in dec.iter('object'):
+        kids = list(ce)
+        for i, a in enumerate(kids):
+            if a.get('type') == 'ActGrantIndependence' and 'objCandidateCountry' in ET.tostring(a, encoding='unicode')                     and not (i and kids[i - 1].get('type') == 'ActTransferRegionOwnership'):
+                ce.insert(list(ce).index(a), ET.fromstring(CEDE_CONQUERED))
+                n += 1
+    return n
 
 
 def create_liberate(s, gov):
@@ -1116,6 +1182,7 @@ def create_liberate(s, gov):
     ids = []
     for src in (src_t, src_d):
         new = copy.deepcopy(src)
+        cede_conquered(new)
         for p in new.iter('property'):
             for att in ('value',):
                 v = p.get(att)
@@ -1780,3 +1847,165 @@ def air_ranges(s):
         if best:
             out.append({'id': s.s.eid(af), 'range': best, 'units': kinds})
     return out
+
+
+# ---------------------------------------------------------------------------------------- regiones de los eventos y el regionpack
+REGION_PROPS = ('strRegion', 'strRegionName', 'strCapitalRegion', 'strRegions')
+
+
+def _region_history(s):
+    """Del changelog del regionpack del escenario: ({región quitada: la que la absorbió}, {región: [regiones que salieron de ella]})."""
+    import json
+    import editor_core
+    absorbed, children = {}, {}
+    p = os.path.join(editor_core.MAPS, sc.pack_of(s) or '', 'changelog.json')
+    try:
+        log = json.load(open(p, encoding='utf-8'))
+    except (OSError, ValueError):
+        return absorbed, children
+    for e in log if isinstance(log, list) else log.get('entries', []):
+        for x in e.get('deleted_regions') or e.get('regiones_eliminadas') or []:
+            n = x.get('name') or x.get('nombre')
+            if n:
+                absorbed[n] = x.get('absorbed_by') or x.get('absorbida_por')
+        for x in e.get('new_regions') or e.get('regiones_nuevas') or []:
+            n, m = x.get('name') or x.get('nombre'), x.get('mother') or x.get('madre')
+            if n and m:
+                children.setdefault(m, []).append(n)
+    return absorbed, children
+
+
+def _event_region_refs(s):
+    """[(evento, objeto, propiedad, región)] de las regiones que nombran los eventos."""
+    out = []
+    for ev in s.all_types(EVENT_TYPES):
+        for o in ev.iter('object'):
+            for p in o.findall('property'):
+                n, v = p.get('name'), p.get('value')
+                if v and (n in REGION_PROPS or (n == 'strName' and o.get('type') == 'AccessorGetRegion')):
+                    out.append((ev, o, n, v))
+    return out
+
+
+def event_region_issues(s):
+    """Eventos que nombran una región que el regionpack quitó (error) o dividió (aviso), con opciones para adaptarlos."""
+    from scenario_i18n import L
+
+    have = {prop(r, 'strName') for r in s.regions()}
+    absorbed, children = _region_history(s)
+    out, seen = [], set()
+    for ev, o, n, r in _event_region_refs(s):
+        key = (id(ev), r)               # one issue per event and region: the fix applies to the whole event
+        if key in seen:
+            continue
+        seen.add(key)
+        label = prop(ev, 'strTypeLabel') or ev.get('type')
+        base = {'kind': 'evreg', 'obj': s.s.eid(o), 'prop': n, 'region': r}
+        ch = []
+        if r not in have:
+            a = absorbed.get(r)
+            if a and a in have:
+                ch.append(dict(base, action='replace', new=a, label=L('Cambiar por %s (la absorbió)' % a)))
+            ch += [dict(base, action='replace', new=k, label=L('Cambiar por %s (salió de ella)' % k)) for k in children.get(r, []) if k in have]
+            ch.append(dict(base, action='other', label=L('Cambiar por otra región…')))
+            ch.append(dict(base, action='remove', label=L('Quitar esa condición o acción')))
+            out.append({'level': 'error', 'id': s.s.eid(ev), 'msg': 'Evento %s: nombra la región %s, que ya no existe' % (label, r),
+                        'fix': {'kind': 'evreg', 'choices': ch}})
+        elif [k for k in children.get(r, []) if k in have]:
+            kids = [k for k in children[r] if k in have]
+            ch = [dict(base, action='replace', new=k, label='Cambiar por %s' % k) for k in kids]
+            ch.append(dict(base, action='other', label='Cambiar por otra región…'))
+            out.append({'level': 'aviso', 'id': s.s.eid(ev), 'msg': 'Evento %s: nombra la región %s, que se dividió (ahora también %s); si no cambias nada, sigue usando %s'
+                        % (label, r, ', '.join(kids), r), 'fix': {'kind': 'evreg', 'choices': ch}})
+    return out
+
+
+def fix_event_region(s, obj, name, region, action, new=None):
+    """Adapta la región 'region' de la propiedad 'name' del objeto 'obj' de un evento: 'replace' por 'new' (también en las
+    variables scratch.objRegion<Región> del mismo evento) o 'remove' (se quita la condición o la acción que la usa)."""
+    st = s.s
+    o = st.get(obj)
+    if o is None:
+        raise ValueError('ese objeto del evento ya no existe')
+    if action == 'replace':
+        have = {prop(r, 'strName') for r in s.regions()}
+        if new not in have:
+            raise ValueError('no existe la región %s' % new)
+        ev = o
+        while ev in st.parent and ev.get('type') not in EVENT_TYPES:
+            ev = st.parent[ev]
+        old_v, new_v = 'objRegion' + _w(region), 'objRegion' + _w(new)
+        for p in ev.iter('property'):
+            for att in ('value', 'inheritFrom'):
+                v = p.get(att)
+                if v and (v == region and (p.get('name') in REGION_PROPS or (p.get('name') == 'strName' and st.parent.get(p) is not None
+                                                                                and st.parent[p].get('type') == 'AccessorGetRegion'))):
+                    p.set(att, new)
+                elif v and old_v in v:
+                    p.set(att, re.sub(r'\b%s\b' % re.escape(old_v), new_v, v))
+        st.touch(ev)
+        return ['%s: %s → %s' % (prop(ev, 'strTypeLabel') or ev.get('type'), region, new)]
+    if action == 'remove':                  # every condition or action of the event that uses the region
+        ev = o
+        while ev in st.parent and ev.get('type') not in EVENT_TYPES:
+            ev = st.parent[ev]
+        gone = []
+        for e2, o2, n2, r2 in _event_region_refs(s):
+            if e2 is not ev or r2 != region:
+                continue
+            el = o2
+            while el in st.parent and not (el.get('type') == 'AccessorRuleSet' or el.get('name') in ('objActions', 'objAction')):
+                el = st.parent[el]
+            if el in st.parent and el.get('type') not in EVENT_TYPES and el not in gone:
+                gone.append(el)
+        if not gone:
+            raise ValueError('no se encuentra la condición o acción que usa %s' % region)
+        for el in gone:
+            if el in st.parent:
+                st.remove(el)
+        return ['%s: quitadas %d condiciones o acciones que usaban %s' % (prop(ev, 'strTypeLabel') or ev.get('type'), len(gone), region)]
+    raise ValueError('acción desconocida: %s' % action)
+
+
+def event_surrender_issues(s):
+    """Eventos que solo saltan si un país que existe al empezar se rinde por completo (condición «X.bSurrendered»).
+    En escenarios donde otros eventos reparten su territorio (liberaciones) ese país casi nunca se rinde y el evento no salta
+    nunca: es lo que un modder corrigió en TMWR 1022 (Novorossiya Unification exigía que Ucrania estuviera rendida)."""
+    landed = {prop(r, 'strOwner') for r in s.regions(sea=False)}
+    out = []
+    # the country an event creates may rightly have to be «gone» first: only third countries are flagged
+    made = {}
+    for ev in s.all_types(EVENT_TYPES):
+        made[prop(ev, 'strTypeLabel')] = {prop(x, 'strToCountry') for x in ev.iter('object') if x.get('type') == 'ActGrantIndependence'}
+    for ev in s.all_types(EVENT_TYPES):
+        lab = prop(ev, 'strTypeLabel') or ''
+        mine = made.get(lab, set()) | made.get(lab + '_Decision', set()) | made.get(re.sub(r'_Decision(_PlayEvent)?$', '', lab), set())
+        for rs in ev.iter('object'):
+            if rs.get('type') != 'AccessorRuleSet':
+                continue
+            for r in rs.iter('object'):
+                e = prop(r, 'expRession') or '' if r.get('type') == 'RuleDefExpression' else ''
+                m = re.fullmatch(r'\s*\{Object:Single:Country\}scratch\.objCountry(\w+)\.bSurrendered\s*', e)
+                if not m:
+                    continue
+                c = next((a for a in rs.iter('object') if a.get('type') == 'AccessorGetCountry'
+                          and (prop(a, 'pathOutput') or '').endswith('objCountry' + m.group(1))), None)
+                name = prop(c, 'strCountry') if c is not None else m.group(1)
+                if name in landed and name not in mine:
+                    out.append({'level': 'aviso', 'id': s.s.eid(ev),
+                                'msg': 'Evento %s: solo salta si %s se rinde por completo («%s»); si otros eventos reparten su territorio, puede no saltar nunca'
+                                       % (prop(ev, 'strTypeLabel') or ev.get('type'), name, prop(rs, 'strDebugLabel') or ''),
+                                'fix': {'kind': 'evcond', 'choices': [{'obj': s.s.eid(rs), 'label': 'Quitar esa condición'}]}})
+    return out
+
+
+def remove_condition(s, obj):
+    from scenario_i18n import L
+
+    st = s.s
+    el = st.get(obj)
+    if el is None or el.get('type') != 'AccessorRuleSet':
+        raise ValueError('esa condición ya no existe')
+    lab = prop(el, 'strDebugLabel') or 'condición'
+    st.remove(el)
+    return [L('quitada la condición «%s»' % lab)]

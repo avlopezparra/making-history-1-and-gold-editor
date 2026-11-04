@@ -81,16 +81,18 @@
     <div class="sec">
       <h3>Editar textura</h3>
       <div class="texs" id="texs"></div>
-      <div class="row" style="margin-top:6px"><button class="btn small" id="txDown" disabled>Descargar PNG</button>
-        <label class="btn small">Elegir imagen nueva… <input type="file" id="txFile" accept="image/*" hidden></label></div>
+      <div class="row" style="margin-top:6px"><button class="btn small" id="txDown" disabled>Exportar PNG</button>
+        <button class="btn small" id="txDownTga" disabled>Exportar TGA</button>
+        <label class="btn small">Importar textura (reemplaza la elegida)… <input type="file" id="txFile" accept="image/*,.tga" hidden></label></div>
+      <div class="muted">Para cambiar una textura: 1) elige la textura arriba, 2) expórtala y edítala en tu programa de imágenes (mismo tamaño), 3) «Importar textura» con tu archivo PNG o TGA: se ve en el modelo, 4) «Guardar en el escenario y vincular» para usarla en el juego.</div>
       <div class="muted">La insignia (<i>*-Decal.tga</i>) la pone el juego según el país: no hace falta cambiarla.</div>
       <div class="row"><button class="btn primary" id="txSave" disabled>Guardar en el escenario y vincular</button></div>
     </div>
     <div class="sec">
       <h3>Importar modelo (malla y huesos)</h3>
-      <div class="muted">.glb / .gltf / .obj / .nif, o .zip con .obj + .mtl + texturas. El modelo elegido es la plantilla: se conservan sus nodos (Turret, AnimNull…), animaciones (.kf) y las formas de la lista «Conservar».
+      <div class="muted">.glb / .gltf / .obj / .nif / .blend (necesita Blender instalado), o .zip con .obj + .mtl + texturas. El modelo elegido es la plantilla: se conservan sus nodos (Turret, AnimNull…), animaciones (.kf) y las formas de la lista «Conservar».
         Las mallas con el nombre de un nodo de la plantilla (o hijas de él en el glTF) van bajo ese nodo; las de piel se atan a los huesos del mismo nombre.</div>
-      <div class="row"><input type="file" id="imFile" accept=".glb,.gltf,.obj,.zip,.nif"></div>
+      <div class="row"><input type="file" id="imFile" accept=".glb,.gltf,.obj,.zip,.nif,.blend"></div>
       <div class="row">Ejes del .nif <select id="imAxes"><option value="mh">como Making History (Y arriba)</option><option value="zup_y">Z arriba, frente +Y (Blender)</option></select></div>
       <div class="row">Conservar <input type="text" id="imKeep" value="NationLogo, Frame, Wake, Shadow" style="flex:1"></div>
       <label class="row"><input type="checkbox" id="imFit" checked> Mismo tamaño que el modelo de la plantilla</label>
@@ -190,7 +192,7 @@ function renderList() {
 }
 async function open(row) {
   M.cur = row; M.tex = null; M.texImg = null; renderList(); msg('');
-  if (row.model === 'missing') return msg('Falta el .nif: ' + row.nif, true);
+  if (row.model === 'missing') return msg(`Falta el .nif: ${row.nif}`, true);
   try {
     const [info, glb] = await Promise.all([api('/api/model/info?path=' + encodeURIComponent(row.nif)),
       fetch('/api/model/glb?path=' + encodeURIComponent(row.nif)).then(r => r.arrayBuffer())]);
@@ -207,12 +209,14 @@ function renderInfo() {
     <td>${esc((i.nodes.find(n => n.id === s.parent) || {}).name || '')}</td><td>${s.verts}</td><td>${s.tris}</td></tr>`).join('')}</table>`;
   $('#texs').innerHTML = i.textures.map(t => `<div class="tx" data-b="${t.block}"><img src="/api/model/tex?path=${encodeURIComponent(i.path)}&block=${t.block}" alt="">
     ${esc(t.file)}${t.size ? '<br>' + t.size.join('×') : ''}${t.decal ? '<br><b>insignia</b>' : ''}</div>`).join('') || '<span class="muted">sin texturas</span>';
-  $('#texs').querySelectorAll('.tx').forEach(d => d.onclick = () => { M.tex = +d.dataset.b; M.texImg = null; $('#texs').querySelectorAll('.tx').forEach(x => x.classList.toggle('on', x === d)); $('#txDown').disabled = false; $('#txSave').disabled = true; });
-  $('#txDown').disabled = $('#txSave').disabled = true;
+  $('#texs').querySelectorAll('.tx').forEach(d => d.onclick = () => { M.tex = +d.dataset.b; M.texImg = null; $('#texs').querySelectorAll('.tx').forEach(x => x.classList.toggle('on', x === d)); $('#txDown').disabled = $('#txDownTga').disabled = false; $('#txSave').disabled = true; });
+  $('#txDown').disabled = $('#txDownTga').disabled = $('#txSave').disabled = true;
 }
 $('#exGlb').onclick = () => download('/api/model/glb?path=' + encodeURIComponent(M.cur.nif), M.cur.nif.split(/[\\/]/).pop().replace(/\.nif$/i, '.glb'));
 $('#exObj').onclick = () => download('/api/model/obj?path=' + encodeURIComponent(M.cur.nif), M.cur.nif.split(/[\\/]/).pop().replace(/\.nif$/i, '_obj.zip'));
-$('#txDown').onclick = () => { const t = M.info.textures.find(x => x.block === M.tex); download(`/api/model/tex?path=${encodeURIComponent(M.info.path)}&block=${M.tex}`, (t.file || 'textura').replace(/\.\w+$/, '') + '.png'); };
+const txExport = fmt => { const t = M.info.textures.find(x => x.block === M.tex); download(`/api/model/tex?path=${encodeURIComponent(M.info.path)}&block=${M.tex}&fmt=${fmt}`, (t.file || 'textura').replace(/\.\w+$/, '') + '.' + fmt); };
+$('#txDown').onclick = () => txExport('png');
+$('#txDownTga').onclick = () => txExport('tga');
 $('#txFile').onchange = async e => {
   const f = e.target.files[0]; e.target.value = ''; if (!f) return;
   if (M.tex === null) return msg('Elige primero la textura que quieres cambiar.', true);

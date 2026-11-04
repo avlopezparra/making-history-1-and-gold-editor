@@ -25,8 +25,10 @@ _CACHE = {}
 
 def _allowed(path):
     p = os.path.normcase(os.path.abspath(path))
+    # carpeta de datos: MH_ROOT (en MHEditor.exe, __file__/.. es la carpeta del programa y no la de datos: se rechazaban los .nif)
+    data = os.environ.get('MH_ROOT') or os.path.join(os.path.dirname(os.path.abspath(__file__)), '..')
     roots = [os.path.normcase(os.path.abspath(sc.GAME)), os.path.normcase(os.path.abspath(sc.SCEN_ROOT)),
-             os.path.normcase(os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..')))]
+             os.path.normcase(os.path.abspath(data))]
     if not any(p.startswith(r + os.sep) for r in roots) or not p.endswith('.nif'):
         raise ValueError('ruta no permitida: %s' % path)
     return os.path.abspath(path)
@@ -81,13 +83,13 @@ def glb(path):
     return M.export_glb(load(path), os.path.dirname(path))
 
 
-def tex_png(path, block):
+def tex_png(path, block, fmt='png'):
     n = load(path)
     img, _ = M.texture_image(n, int(block), os.path.dirname(path))
     if img is None:
         raise ValueError('textura no disponible')
     b = io.BytesIO()
-    img.save(b, 'PNG')
+    img.save(b, 'TGA' if fmt == 'tga' else 'PNG')
     return b.getvalue()
 
 
@@ -163,8 +165,39 @@ def set_texture(s, p):
     return {'notes': _write_to_scenario(s, p['sprite_id'], n, path)}
 
 
+def find_blender():
+    """blender.exe: variable MH_BLENDER, PATH, o las carpetas de instalación habituales (instalador y Steam)."""
+    import glob
+    cands = [os.environ.get('MH_BLENDER'), shutil.which('blender')]
+    for pat in (os.path.join(r'C:\Program Files', 'Blender Foundation', '*', 'blender.exe'),
+                os.path.join(r'C:\Program Files (x86)', 'Steam', 'steamapps', 'common', 'Blender', 'blender.exe'),
+                os.path.join(os.environ.get('LOCALAPPDATA', ''), 'Programs', 'Blender Foundation', '*', 'blender.exe')):
+        cands += sorted(glob.glob(pat), reverse=True)   # la versión más nueva primero
+    return next((c for c in cands if c and os.path.isfile(c)), None)
+
+
+def blend_to_glb(raw):
+    """.blend -> .glb con Blender en segundo plano (el formato .blend solo lo lee Blender)."""
+    import subprocess
+    import tempfile
+    exe = find_blender()
+    if not exe:
+        raise ValueError('Para importar .blend hace falta Blender instalado (blender.org o Steam). '
+                         'También puedes exportar desde Blender a .glb (Archivo › Exportar › glTF 2.0) e importar ese .glb.')
+    with tempfile.TemporaryDirectory() as d:
+        src, dst = os.path.join(d, 'in.blend'), os.path.join(d, 'out.glb')
+        open(src, 'wb').write(raw)
+        r = subprocess.run([exe, '--background', src, '--python-expr',
+                            'import bpy,sys; bpy.ops.export_scene.gltf(filepath=sys.argv[-1], export_format="GLB", export_skins=True, export_animations=False)',
+                            '--', dst], capture_output=True, text=True, timeout=300,
+                           creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+        if not os.path.exists(dst):
+            raise ValueError('Blender no pudo convertir el .blend: ' + (r.stderr or r.stdout)[-600:])
+        return open(dst, 'rb').read()
+
+
 def import_model(s, p):
-    """p: {template(path .nif), file(b64), ext('glb'|'gltf'|'obj'|'zip'), keep[], target_size?, sprite_id?}"""
+    """p: {template(path .nif), file(b64), ext('glb'|'gltf'|'obj'|'zip'|'nif'|'blend'), keep[], target_size?, sprite_id?}"""
     path = _allowed(p['template'])
     n = N.Nif.load(path)
     raw = base64.b64decode(p['file'].split(',', 1)[-1])
@@ -182,6 +215,8 @@ def import_model(s, p):
             raise ValueError('el .zip no tiene .glb, .gltf ni .obj')
     elif ext in ('glb', 'gltf'):
         meshes = M.load_gltf_meshes(raw)
+    elif ext == 'blend':
+        meshes = M.load_gltf_meshes(blend_to_glb(raw))
     elif ext == 'obj':
         meshes = M.load_obj_meshes(raw.decode('utf-8', 'replace'), {})
     elif ext == 'nif':

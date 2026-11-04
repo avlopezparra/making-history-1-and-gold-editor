@@ -127,6 +127,7 @@
     <button id="revert" disabled>Revertir</button>
     <button id="refresh" disabled title="Releer del disco el escenario y su regionpack (por si se cambiaron fuera del editor) y comprobar si son coherentes">Refrescar</button>
     <button id="validate" disabled>Validar</button>
+    <button id="bulkUnits" type="button" disabled title="Crear ejércitos, fuerzas aéreas y flotas para muchos países a la vez">⚔ Unidades en masa…</button>
     <button id="regXfer" type="button" disabled title="Copiar regiones (con sus ciudades, recursos y unidades) de otro escenario a este, o exportarlas a un archivo">⇄ Regiones entre escenarios…</button>
     <button id="gameLogBtn" type="button" onclick="gameLogOpen()" title="Si el juego no carga el escenario o el regionpack, o se cierra: registra lo que dice el juego mientras lo pruebas y explica el fallo">🩺 Registro del juego…</button>
     <label class="pill" title="Levantamientos de partisanos en regiones ocupadas (sharedDataPartisans.xml)"><input type="checkbox" id="partisans" disabled> Partisans</label>
@@ -209,6 +210,14 @@
     <div style="display:flex;gap:6px;align-items:center"><button class="btn primary" id="anthInstall">Instalar</button><span id="anthMsg" class="muted"></span></div>
   </div>
 </dialog>
+<dialog id="buDlg" style="width:min(820px,96vw);max-height:92vh;overflow:auto"><header><b>Unidades en masa</b><button class="btn small" style="margin-left:auto" onclick="buDlg.close()">Cerrar</button></header>
+  <div class="body"><p class="muted">Crea ejércitos, fuerzas aéreas y flotas para muchos países. Cada ejército se reparte en varias regiones del país, lejos de ciudades y de otras unidades; las flotas van a un mar junto a su costa (sin costa, sin flota). Solo plantillas que el país puede tener. Nada se escribe hasta «Guardar».</p>
+  <div class="row"><b>Países:</b> <label><input type="checkbox" class="buTier" value="playable"> jugables</label> <label><input type="checkbox" class="buTier" value="major"> principales</label> <label><input type="checkbox" class="buTier" value="minor"> menores</label>
+    <label><input type="checkbox" id="buAll"> todos</label> · y además: <input id="buNames" placeholder="País1, País2…" style="width:220px"></div>
+  <div class="row"><b>Qué crear:</b> <label><input type="radio" name="buMode" value="custom" checked> lo que elijo abajo</label> <label><input type="radio" name="buMode" value="base"> ejército base</label> <label><input type="radio" name="buMode" value="random"> ejército base aleatorio</label></div>
+  <div id="buCustom"></div>
+  <div class="row"><button class="btn" id="buPlan">Vista previa</button> <button class="btn primary" id="buApply" disabled>Crear</button> <button class="btn" id="buUndo" disabled>Deshacer la última creación</button></div>
+  <div id="buOut"></div></div></dialog>
 <dialog id="warDlg"><header><b>Nueva guerra por fecha</b><button class="btn small" style="margin-left:auto" onclick="warDlg.close()">Cerrar</button></header>
   <div class="body"><p class="muted">Crea un evento en sharedDataEvents.xml: el país atacante declara la guerra a partir de la fecha, con esa probabilidad en cada turno, si ambos existen y no están ya en guerra.</p>
   <div class="grid"><label>Atacante</label><input id="warA" list="dl-nations"><label>Objetivo</label><input id="warB" list="dl-nations">
@@ -314,7 +323,7 @@ async function openScenario(name) {
   S.opts = await api('/api/scen/options?name=' + encodeURIComponent(name));
   S.pack = r.info.regionpack || 'World'; S.external = r.info.external || [];
   showScenGame(r.info.game);
-  const packs = (r.info.packs || []).includes(S.pack) ? r.info.packs : [S.pack + ' (no instalado)'].concat(r.info.packs || []);
+  const packs = (r.info.packs || []).includes(S.pack) ? r.info.packs : [`${S.pack} (no instalado)`].concat(r.info.packs || []);
   $('#pack').innerHTML = packs.map(p => `<option value="${esc(p.replace(' (no instalado)', ''))}">${esc(p)}</option>`).join('');
   $('#pack').value = S.pack; $('#pack').disabled = false;
   $('#maplink').href = '/?pack=' + encodeURIComponent(S.pack) + '&scenario=' + encodeURIComponent(name);
@@ -324,7 +333,7 @@ async function openScenario(name) {
   { const i = tabs.findIndex(x => x.key === 'research'); tabs.splice(i >= 0 ? i + 1 : tabs.length, 0, { key: 'startunits', label: 'Starting units' }); }
   for (const tab of tabs) { const b = document.createElement('button'); b.textContent = TAB_ES[tab.key] || tab.label; b.dataset.key = tab.key; b.onclick = () => showTab(tab.key); t.appendChild(b); }
   LY.data = null; LY.points = null; BOMB.ranges = null; CI = null; $('#mapframe').dataset.u = ''; if (rview === 'map') showRight('map');
-  ['#validate', '#regXfer', '#revert', '#partisans', '#newwar', '#gjExport', '#gjImport', '#packSync', '#refresh'].forEach(s => $(s).disabled = false);
+  ['#validate', '#bulkUnits', '#regXfer', '#revert', '#partisans', '#newwar', '#gjExport', '#gjImport', '#packSync', '#refresh'].forEach(s => $(s).disabled = false);
   $('#partisans').checked = !!r.info.partisans;
   $('#tilt').disabled = false; $('#tilt').checked = r.info.tilt !== false;
   $('#dl-nations').innerHTML = (S.opts.strOwner || []).map(v => `<option value="${esc(v)}">`).join('');
@@ -679,7 +688,7 @@ function sendOverlay() {
     alpha = 0.45; legend = v ? `Clic: la región pasa a <b>${esc(v)}</b> (propietario y controlador).` : 'Elige una nación para asignarle regiones con clic.';
   } else if (k === 'historic') {
     const hs = new Set(D.historic[v] || []);
-    for (const [n, r] of Object.entries(R)) { if (hs.has(n)) colors[n] = '#22c55e'; tips[n] = (hs.has(n) ? 'histórica de ' + v : 'no histórica') + ' · dueño ' + r.owner; }
+    for (const [n, r] of Object.entries(R)) { if (hs.has(n)) colors[n] = '#22c55e'; tips[n] = `${hs.has(n) ? `histórica de ${v}` : 'no histórica'} · dueño ${r.owner}`; }
     for (const n of hs) if (!R[n]) colors[n] = '#22c55e';
     alpha = 0.5; legend = `<span class="sw" style="background:#22c55e"></span>${hs.size} regiones históricas de <b>${esc(v)}</b>. Clic: añadir / quitar.`;
     if (LY.fitHist && LY.frameReady && hs.size) { frameMsg({ cmd: 'fit', regions: [...hs] }); LY.fitHist = false; }   // encuadrarlas, como en MH2
@@ -1180,7 +1189,12 @@ async function onRegionClick(region, sea) {
     res = await api('/api/scen/update', { id: c.id, values: { strGovType: v } }); if (res.detail) res.dirty = res.detail.dirty;
     msg = `${r.owner}: gobierno ${c.gov} → ${v}`;
   }
-  if (k === 'alliance') { res = await api('/api/scen/alliance_toggle', { name: S.scen, alliance: +v, country: r.owner }); msg = (res.notes || []).join('; '); }
+  if (k === 'alliance') {
+    // pintar con la capa solo añade: antes cada clic alternaba, y dos regiones del mismo país lo sacaban otra vez (alianza vacía)
+    const al = (D.alliances || []).find(a => String(a.id) === String(v));
+    if (al && (al.members || []).includes(r.owner)) return note(`${r.owner} ya está en ${al.name}. Para sacarlo, «Quitar» en su ficha de miembro.`);
+    res = await api('/api/scen/alliance_toggle', { name: S.scen, alliance: +v, country: r.owner }); msg = (res.notes || []).join('; ');
+  }
   if (!res) return;
   if (res.error) return note(res.error, true);
   setDirty(res.dirty);
@@ -1267,7 +1281,7 @@ async function regionpackSection() {
     const lst = (xs, f) => xs.map(f).join(', ');
     if (!r.add.length && !r.remove.length) { $('#rpState').innerHTML = `<span class="ok-t">Compatible con «${esc(pack)}»: las regiones coinciden.</span>` + (pack !== S.pack ? ' Pulsa «Usar este regionpack».' : ''); return; }
     $('#rpState').innerHTML = `<span class="err-t">No compatible con «${esc(pack)}».</span>` +
-      (r.add.length ? `<br>Faltan en el escenario (${r.add.length}): ${esc(lst(r.add, x => x.name + (x.mother ? ' (desde ' + x.mother + ')' : '')))}` : '') +
+      (r.add.length ? `<br>Faltan en el escenario (${r.add.length}): ${esc(lst(r.add, x => x.name + (x.mother ? ` (desde ${x.mother})` : '')))}` : '') +
       (r.remove.length ? `<br>Sobran (${r.remove.length}): ${esc(lst(r.remove, x => x.name + (x.into ? ' → ' + x.into : '')))}` : '');
     $('#rpPop').style.display = r.poblacion_ref && r.add.length ? '' : 'none';
     $('#rpFit').disabled = false;
@@ -1351,7 +1365,7 @@ async function showStartUnits(msg) {
       Marca en la lista los proyectos completados al empezar: <b>para todos los países</b> (bCompletedByDefault en sharedDataResearch.xml) o <b>para un país</b>
       (su player&lt;País&gt;.xml). «The Modern World» completa así muchas más unidades que el juego de serie.</p>
     <div class="row">Para <select id="suCountry"><option value="">todos los países</option>${r.countries.map(c => `<option ${c === country ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select>
-      ${country && r.has_player === false ? '<span class="err-t">sin player' + esc(country) + '.xml</span>' : ''}</div>
+      ${country && r.has_player === false ? `<span class="err-t">sin player${esc(country)}.xml</span>` : ''}</div>
     <div class="row" style="margin-top:6px"><button class="btn small" id="suUnits">Marcar las que desbloquean unidades</button><button class="btn small" id="suNone">Desmarcar todas</button>
       <button class="btn primary" id="suApply">Aplicar</button></div>
     <div class="muted" style="margin-top:6px">Un proyecto con requisitos (columna «Proyecto» de la pestaña Investigación) necesita también los suyos completados.</div>`;
@@ -2418,6 +2432,9 @@ $('#validate').onclick = async () => {
       ${i.fix && i.fix.kind === 'range' ? `<br><button class="btn small" data-fixrange='${esc(JSON.stringify({ id: i.fix.id, prop: i.fix.prop, value: i.fix.value }))}'>${esc(i.fix.label)}</button>` : ''}
       ${i.fix && i.fix.kind === 'dupe' ? '<br>' + i.fix.choices.map(c => `<button class="btn small" data-fixdupe='${esc(JSON.stringify(c))}'>${esc(c.label)}</button>`).join(' ') : ''}
       ${i.fix && i.fix.kind === 'nation' ? '<br>' + i.fix.choices.map(c => `<button class="btn small" data-fixnat='${esc(JSON.stringify({ items: i.fix.items, ...c }))}'>${esc(c.label)}</button>`).join(' ') : ''}
+      ${i.fix && i.fix.kind === 'evcond' ? '<br>' + i.fix.choices.map(c => `<button class="btn small" data-fixevcond="${c.obj}">${esc(c.label)}</button>`).join(' ') : ''}
+      ${i.fix && i.fix.kind === 'evreg' ? '<br>' + i.fix.choices.map(c => `<button class="btn small" data-fixevreg='${esc(JSON.stringify(c))}'>${esc(c.label)}</button>`).join(' ') : ''}
+      ${i.fix && i.fix.kind === 'landless' ? '<br>' + i.fix.choices.map(c => `<button class="btn small" data-fixland='${esc(JSON.stringify({ country: i.fix.country, ...c }))}'>${esc(c.label)}</button>`).join(' ') : ''}
       ${i.fix && i.fix.kind === 'dip' ? '<br>' + (i.fix.choices || [{ use: i.fix.use, label: i.fix.label }]).map(c => `<button class="btn small" data-fixdip='${esc(JSON.stringify({ a: i.fix.a, b: i.fix.b, use: c.use }))}'>${esc(c.label)}</button>`).join(' ') : ''}</div>`).join('') : '<div class="note">Sin problemas.</div>');
   $('#vallist').querySelectorAll('.issue[data-id]').forEach(d => d.onclick = ev => { if (ev.target.closest('button')) return; if (d.dataset.id) { valDlg.close(); openObj(+d.dataset.id); } });
   const fixCaps = async only => {
@@ -2437,6 +2454,27 @@ $('#validate').onclick = async () => {
     if (f.error) return alert(f.error);
     if (f.detail) setDirty(f.detail.dirty);
     $('#validate').click(); note('Relación ajustada a ' + x.value + '. Falta «Guardar».');
+  });
+  $('#vallist').querySelectorAll('[data-fixevcond]').forEach(b => b.onclick = async () => {
+    const f = await api('/api/scen/remove_condition', { name: S.scen, obj: +b.dataset.fixevcond });
+    if (f.error) return alert(f.error);
+    setDirty(f.dirty); $('#validate').click(); note(f.notes.join('; ') + '. Falta «Guardar».');
+  });
+  $('#vallist').querySelectorAll('[data-fixevreg]').forEach(b => b.onclick = async () => {
+    const x = JSON.parse(b.dataset.fixevreg);
+    if (x.action === 'other') {
+      const r = prompt('Región que reemplaza a ' + x.region + ':');
+      if (!r) return;
+      x.action = 'replace'; x.new = r.trim();
+    }
+    const f = await api('/api/scen/fix_event_region', { name: S.scen, obj: x.obj, prop: x.prop, region: x.region, action: x.action, new: x.new });
+    if (f.error) return alert(f.error);
+    setDirty(f.dirty); $('#validate').click(); note(f.notes.join('; ') + '. Falta «Guardar».');
+  });
+  $('#vallist').querySelectorAll('[data-fixland]').forEach(b => b.onclick = async () => {
+    const x = JSON.parse(b.dataset.fixland), f = await api('/api/scen/fix_landless', { name: S.scen, country: x.country, action: x.action, member: x.member, regions: x.regions });
+    if (f.error) return alert(f.error);
+    setDirty(f.dirty); $('#validate').click(); note(f.notes.join('; ') + '. Falta «Guardar».');
   });
   $('#vallist').querySelectorAll('[data-fixdip]').forEach(b => b.onclick = () => fixDips([JSON.parse(b.dataset.fixdip)]));
   const pairs = dips.filter(d => d.fix.choices);       // las dos direcciones definidas con cifras distintas
@@ -2495,6 +2533,56 @@ $('#tilt').onchange = async e => {
   setDirty(r.dirty); $('#right').insertAdjacentHTML('afterbegin', `<div class="note">${esc(r.notes.join('; '))}. Falta «Guardar».</div>`);
 };
 $('#newwar').onclick = $('#newFutureWar').onclick = () => warDlg.showModal();
+const BU = { info: null, plan: null };
+$('#bulkUnits').onclick = async () => {
+  const i = await api('/api/scen/bulk_units', { name: S.scen, op: 'info' });
+  if (i.error) return alert(i.error);
+  BU.info = i; BU.plan = null; $('#buApply').disabled = true; $('#buOut').innerHTML = '';
+  const lab = { land: 'Terrestres', air: 'Aéreas', navy: 'Navales' };
+  const row = k => `<div class="row"><b style="min-width:110px;display:inline-block">${lab[k]}</b>` +
+    [0, 1, 2].map(() => `<select class="buT" data-k="${k}"><option value="">—</option>${i.kinds[k].map(t => `<option>${esc(t)}</option>`).join('')}</select><input class="buN" data-k="${k}" type="number" min="0" value="0" style="width:56px">`).join(' ') + '</div>';
+  $('#buCustom').innerHTML = row('land') + row('air') + row('navy');
+  buDlg.showModal();
+};
+const buReq = () => {
+  const sel = { tiers: [...document.querySelectorAll('.buTier:checked')].map(x => x.value), all: $('#buAll').checked,
+    countries: $('#buNames').value.split(',').map(x => x.trim()).filter(Boolean) };
+  const mode = document.querySelector('input[name=buMode]:checked').value, units = { land: [], air: [], navy: [] };
+  const ts = [...document.querySelectorAll('.buT')], ns = [...document.querySelectorAll('.buN')];
+  ts.forEach((t, j) => { if (t.value && +ns[j].value > 0) units[t.dataset.k].push({ type: t.value, n: +ns[j].value }); });
+  return { sel, mode, units };
+};
+$('#buPlan').onclick = async () => {
+  const q = buReq();
+  if (!q.sel.all && !q.sel.tiers.length && !q.sel.countries.length) return alert('Elige qué países');
+  if (q.mode === 'custom' && !q.units.land.length && !q.units.air.length && !q.units.navy.length) return alert('Elige al menos un tipo de unidad y cuántas');
+  const navy = {}; document.querySelectorAll('.buSea').forEach(x => { navy[x.dataset.c] = x.value; });
+  $('#buOut').innerHTML = '<div class="note">Calculando…</div>';
+  const r = await api('/api/scen/bulk_units', { name: S.scen, op: 'plan', sel: q.sel, mode: q.mode, units: q.units, seed: Date.now() % 100000, navy_seas: navy });
+  if (r.error) { $('#buOut').innerHTML = ''; return alert(r.error); }
+  BU.plan = r; $('#buApply').disabled = !r.items.length;
+  const kind = { land: 'Ejército', air: 'Fuerza aérea', navy: 'Flota' }, by = {};
+  r.items.forEach(it => (by[it.country] = by[it.country] || []).push(it));
+  const total = r.items.reduce((a, it) => a + it.units.reduce((b, u) => b + u.n, 0), 0);
+  $('#buOut').innerHTML = `<div class="note">${r.items.length} grupos, ${total} unidades en ${Object.keys(by).length} de ${r.countries} países.</div>` +
+    (r.skipped.length ? `<div class="note">${r.skipped.map(x => esc(x.country + ': ' + x.why)).join('<br>')}</div>` : '') +
+    '<table class="grid"><tr><th>País</th><th>Grupo</th><th>Dónde</th><th>Unidades</th></tr>' +
+    Object.entries(by).map(([c, l]) => l.map(it => `<tr><td>${esc(c)}</td><td>${kind[it.kind]}</td><td>${it.kind === 'navy' && it.seas.length > 1
+      ? `<select class="buSea" data-c="${esc(c)}">${it.seas.map(x => `<option ${x === it.region ? 'selected' : ''}>${esc(x)}</option>`).join('')}</select>` : esc(it.region)}</td><td>${esc(it.units.map(u => u.n + ' ' + u.type).join(', '))}</td></tr>`).join('')).join('') + '</table>';
+  document.querySelectorAll('.buSea').forEach(x => { x.onchange = () => { $('#buApply').disabled = true; note('Mar cambiado: vuelve a pulsar «Vista previa»'); }; });
+};
+$('#buApply').onclick = async () => {
+  if (!BU.plan) return;
+  const f = await api('/api/scen/bulk_units', { name: S.scen, op: 'apply', items: BU.plan.items });
+  if (f.error) return alert(f.error);
+  setDirty(f.dirty); $('#buApply').disabled = true; $('#buUndo').disabled = false; BU.plan = null;
+  note(f.notes.join('; ') + '. Falta «Guardar».');
+};
+$('#buUndo').onclick = async () => {
+  const f = await api('/api/scen/bulk_units', { name: S.scen, op: 'undo' });
+  if (f.error) return alert(f.error);
+  setDirty(f.dirty); $('#buUndo').disabled = true; note(f.notes.join('; ') + '.');
+};
 // ------------------------------------------------------------------ compatibilidad con un regionpack
 $('#packSync').onclick = () => {
   $('#syncPack').innerHTML = [...$('#pack').options].map(o => `<option value="${esc(o.value)}">${esc(o.textContent)}</option>`).join('');
@@ -2507,8 +2595,8 @@ async function syncPlan() {
   if (r.error) { $('#syncPlan').innerHTML = `<div class="note err">${esc(r.error)}</div>`; return; }
   const li = xs => xs.map(x => `<li>${x}</li>`).join('');
   let h = '';
-  if (r.remove.length) h += `<h3>Se quitan (${r.remove.length})</h3><ul>` + li(r.remove.map(x => `<b>${esc(x.name)}</b>${x.sea ? ' (mar)' : ''} → ${x.into ? 'su contenido vuelve a ' + esc(x.into) : '<span class="err-t">sin región a la que volver' + (x.cities.length ? ': se pierden ' + esc(x.cities.join(', ')) : '') + '</span>'}`)) + '</ul>';
-  if (r.add.length) h += `<h3>Se añaden (${r.add.length})</h3><ul>` + li(r.add.map(x => `<b>${esc(x.name)}</b>${x.sea ? ' (mar)' : ''} ${x.mother ? 'desde ' + esc(x.mother) : '<span class="err-t">sin vecina con datos: no se añade</span>'}`)) + '</ul>';
+  if (r.remove.length) h += `<h3>Se quitan (${r.remove.length})</h3><ul>` + li(r.remove.map(x => `<b>${esc(x.name)}</b>${x.sea ? ' (mar)' : ''} → ${x.into ? `<span>su contenido vuelve a ${esc(x.into)}</span>` : `<span class="err-t">sin región a la que volver${x.cities.length ? `: se pierden ${esc(x.cities.join(', '))}` : ''}</span>`}`)) + '</ul>';
+  if (r.add.length) h += `<h3>Se añaden (${r.add.length})</h3><ul>` + li(r.add.map(x => `<b>${esc(x.name)}</b>${x.sea ? ' (mar)' : ''} ${x.mother ? `<span>desde ${esc(x.mother)}</span>` : '<span class="err-t">sin vecina con datos: no se añade</span>'}`)) + '</ul>';
   if (!h) h = `<div class="note">El escenario ya es compatible con «${esc(r.pack)}».</div>`;
   if (r.current_pack !== r.pack) h += `<div class="muted">Ahora usa «${esc(r.current_pack || '—')}».</div>`;
   $('#syncPopRow').style.display = $('#syncPopNote').style.display = r.poblacion_ref && r.add.length ? '' : 'none';
@@ -2731,7 +2819,7 @@ $('#glRead').onclick = async () => {
   if (!r.attempts.length) { $('#glOut').innerHTML = '<div class="note">El registro no tiene ningún intento de cargar un escenario. ¿Se abrió el juego mientras registraba?</div>'; return; }
   const list = xs => xs.length ? ' <span class="muted">(' + xs.slice(0, 12).map(esc).join(', ') + (xs.length > 12 ? ', …' : '') + ')</span>' : '';
   $('#glOut').innerHTML = r.attempts.map(a => `<div class="issue ${a.result === 'ok' ? 'aviso' : 'error'}" style="margin-bottom:6px">
-      <b>${esc(a.scenario || '(escenario sin carpeta ui en el registro)')}</b>: ${a.result === 'ok' ? 'cargó bien' : 'no se creó la partida'}${a.stage ? ' <span class="muted">(falló en ' + esc(a.stage) + ')</span>' : ''}
+      <b>${esc(a.scenario || '(escenario sin carpeta ui en el registro)')}</b>: ${a.result === 'ok' ? 'cargó bien' : 'no se creó la partida'}${a.stage ? ` <span class="muted">(falló en ${esc(a.stage)})</span>` : ''}
       ${a.problems.map(p => `<div style="margin:4px 0 0 12px">• ${p.why ? `<b>${esc(p.why)}</b><br><span class="muted">Qué hacer:</span> ${esc(p.todo)}` : esc(p.msg)}
         ${p.count > 1 ? ` <span class="muted">×${p.count}</span>` : ''}${list(p.files)}${list(p.items)}
         ${p.why ? `<br><span class="muted" style="font-size:11px">${esc(p.msg)}</span>` : ''}</div>`).join('')}</div>`).join('');

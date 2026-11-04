@@ -15,14 +15,20 @@ jobs:
           python-version: '3.12'
       - run: python -m pip install -r requirements.txt
       - run: python tools/build_exe.py
-      - run: Compress-Archive -Path MHEditor -DestinationPath MHEditor.zip
+      - name: Zip (MHEditor.<version>.zip + skill)
         shell: powershell
+        run: |
+          $v = [regex]::Match((Get-Content tools/editor/i18n.js -Raw), "const VERSION = '([^']+)'").Groups[1].Value
+          if (-not $v) { throw 'VERSION not found in tools/editor/i18n.js' }
+          Copy-Item skill/making-history-modding/SKILL.md MHEditor/Making_History_1_and_Gold_Editing_Skill.md
+          Copy-Item tools/data/NIFSKOPE-LICENSE.md MHEditor/NIFSKOPE-LICENSE.md
+          Compress-Archive -Path MHEditor -DestinationPath "MHEditor.$v.zip"
       - uses: actions/upload-artifact@v4
         with:
           name: MHEditor
-          path: MHEditor.zip
+          path: MHEditor.*.zip
       - uses: softprops/action-gh-release@v2
         if: startsWith(github.ref, 'refs/tags/')
         with:
-          files: MHEditor.zip
+          files: MHEditor.*.zip
           generate_release_notes: true

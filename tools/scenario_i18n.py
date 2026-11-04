@@ -153,6 +153,14 @@ SHAPES = [
     ('no se encuentra la decisión {} (ni en el escenario ni en ScenarioDefaults) para copiarla', 'the decision {} was not found (neither in the scenario nor in ScenarioDefaults) to copy it'),
     ('no hay datos de jugador (player{}.xml) para {}', 'there is no player data (player{}.xml) for {}'), ('la meta no tiene su bloque de países', 'the goal has no country block'),
     ('no se puede quitar un {} desde aquí', 'a {} cannot be removed from here'),
+    ('ese objeto del evento ya no existe', 'that event object no longer exists'),
+    ('no se encuentra la condición o acción que usa {}', 'cannot find the condition or action that uses {}'),
+    ('{}: quitadas {} condiciones o acciones que usaban {}', '{}: removed {} conditions or actions that used {}'),
+    ('esa condición ya no existe', 'that condition no longer exists'),
+    ('quitada la condición «{}»', 'removed the condition «{}»'),
+    ('Cambiar por {} (la absorbió)', 'Change to {} (absorbed this region)'),
+    ('Cambiar por {} (salió de ella)', 'Change to {} (split off from this region)'),
+    ('Cambiar por {}', 'Change to {}'),
     ('el escenario no tiene CultureTemplateSet (sharedDataCultureTemplates.xml)', 'the scenario has no CultureTemplateSet (sharedDataCultureTemplates.xml)'),
     ('el escenario no tiene tipos de terreno que copiar', 'the scenario has no terrain types to copy'),
     ('{} y {} ya tienen un acuerdo de acceso militar', '{} and {} already have a military access agreement'),
@@ -168,6 +176,29 @@ SHAPES = [
     ('{}: una fuerza aérea debe estar en una región de tierra', '{}: an air force must be in a land region'),
     ('solo ciudades y unidades tienen orientación', 'only cities and units have a heading'),
     ('Si {}: {}', 'If {}: {}'), ('{}: {}', '{}: {}'),
+    # ---- efectos (primera versión de cada uno en action_text) y avisos de event_add / move_unit
+    ('{} propone un pacto de defensa a {}', '{} proposes a defence pact to {}'), ('{} obtiene acceso militar de {}', '{} gets military access from {}'),
+    ('cancela el pacto de defensa con {}', 'cancels the defence pact with {}'), ('{} cambia su postura internacional a {}', '{} changes its international stance to {}'),
+    ('{} cambia su agresividad a {}', '{} changes its aggressiveness to {}'),
+    ('la producción de {} sube {}', 'the production of {} goes up {}'), ('la producción de {} baja {}', 'the production of {} goes down {}'),
+    ('{} gana {} IPU', '{} gains {} IPU'), ('{} pierde {} IPU', '{} loses {} IPU'),
+    ('{} gana {} puntos en {}', '{} gains {} points in {}'), ('{} pierde {} puntos en {}', '{} loses {} points in {}'),
+    ('{} (región {} → {})', '{} (region {} → {})'),
+    ('ese efecto no hace nada', 'that effect does nothing'), ('efecto añadido: {}', 'effect added: {}'),
+    ('elige al menos un país', 'choose at least one country'), ('elige el país', 'choose the country'),
+    ('condición: existen {}', 'condition: {} exist'), ('condición: desde {}', 'condition: from {}'), ('el turno {}', 'turn {}'),
+    ('la probabilidad debe ser menor que 100 %', 'the chance must be less than 100 %'),
+    ('condición: {} % de probabilidad por turno', 'condition: {} % chance per turn'),
+    ('condición: {} y {} no están en guerra', 'condition: {} and {} are not at war'),
+    ('condición: {} está en guerra con la alianza de {}', 'condition: {} is at war with the alliance of {}'),
+    ('condición desconocida: {}', 'unknown condition: {}'),
+    ('elige la región (o el país del que sale una al azar)', 'choose the region (or the country a random one comes from)'),
+    ('escribe el proyecto de investigación', 'type the research project'),
+    ('elige la región y el texto', 'choose the region and the text'), ('elige la región y la ciudad', 'choose the region and the city'),
+    ('elige la postura o la agresividad', 'choose the stance or the aggressiveness'), ('ese evento ya no existe', 'that event no longer exists'),
+    ('pon una fecha MM/DD/AAAA o un turno', 'enter a date MM/DD/YYYY or a turn'),
+    ('decisión «{}» añadida: un país {} que conquiste la capital histórica de un país liberable podrá crearlo como aliado {}',
+     'decision «{}» added: a {} country that conquers the historic capital of a liberable country can create it as an ally {}'),
 ]
 # trozos fijos dentro de frases compuestas (planes de guerra, presión diplomática, listas de eventos)
 PHRASES = [
@@ -178,7 +209,9 @@ PHRASES = [
     (' turnos', ' turns'), (' % de declararles la guerra si no', ' % of declaring war on them otherwise'),
     (' (desde el ', ' (from '), (' (turno ', ' (turn '), (' pone embargo a ', ' embargoes '), (' declara la guerra a ', ' declares war on '),
     (' está en guerra con ', ' is at war with '), (' (desactivada)', ' (disabled)'), ('el país que recibe el evento', 'the country receiving the event'),
-    ('un país liberable', 'a liberable country'), ('el país liberable', 'the liberable country'), (' o ', ' or '), (' y ', ' and '),
+    ('un país liberable', 'a liberable country'),     ('el país liberable', 'the liberable country'), (' o ', ' or '), (' y ', ' and '),
+    ('Cambiar por otra región…', 'Change to another region…'), ('Quitar esa condición o acción', 'Remove that condition or action'),
+    ('Quitar esa condición', 'Remove that condition'),
 ]
 
 
@@ -206,18 +239,24 @@ def lang():
 
 NOUNS = [('el país que recibe el evento', 'the country receiving the event'), ('un país liberable', 'a liberable country'),
          ('el país liberable', 'the liberable country')]
+# frases que llevan dentro uno de esos nombres («… de un país liberable, …»): se prueban antes de cambiar los nombres
+_NOUN_SHAPES = [(_rx(es), en) for es, en in SHAPES if any(n in es for n, _x in NOUNS)]
 
 
 def _en(s, depth=0):
     if not s or depth > 6:
         return s
+    for rx, en in _NOUN_SHAPES:
+        m = rx.match(s)
+        if m:
+            return en.format(*[_en(g, depth + 1) for g in m.groups()])
     for es, en in NOUNS:            # antes que las frases: «el país que recibe el evento posee Il de France» no es «{} recibe {} de {}»
         s = s.replace(es, en)
     if '; ' in s and not s.startswith('«'):      # listas de efectos: cada uno por su lado
         return '; '.join(_en(x, depth + 1) for x in s.split('; '))
-    m = re.match(r'^«(.*?)»: (.*)$', s, re.S)      # «botón»: efectos
+    m = re.match(r'^«(.*?)»: (.*?)( \(la IA elige esta, (\S+) %\))?$', s, re.S)      # «botón»: efectos (y la que elige la IA)
     if m and '; ' in m.group(2):
-        return '«%s»: %s' % (m.group(1), _en(m.group(2), depth + 1))
+        return '«%s»: %s%s' % (m.group(1), _en(m.group(2), depth + 1), ' (the AI picks this one, %s %%)' % m.group(4) if m.group(3) else '')
     for rx, en in _SHAPES:
         m = rx.match(s)
         if m:

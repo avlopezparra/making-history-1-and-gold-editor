@@ -311,25 +311,33 @@ def analyze_shapes(project, shapes):
     return out
 
 
-def exclaves(project, polygon, max_pct=0.05):
-    """Trozos sueltos (exclaves) que dejaría recortar un contorno nuevo en las regiones de tierra que toca: partes de una región
-    que quedan separadas de su cuerpo principal y miden menos de max_pct de ella. Para cada uno: la vecina con la que más
-    frontera comparte (best) y cuánta comparte con el contorno nuevo (touch_new). 'merged' es el contorno con todos incluidos."""
+SLIVER_AREA = 1e-8     # grados²: lo que el guardado ignora (editor_core: migas); un exclave más pequeño nunca se traspasaría
+SLIVER_THIN = 0.01     # área / perímetro²: por debajo es una tira (un roce del borde dibujado con la frontera), no un exclave
+
+
+def exclaves(project, polygon, max_pct=0.05, sources=None):
+    """Trozos sueltos (exclaves) que dejaría recortar un contorno nuevo en las regiones de tierra de las que de verdad sale
+    ('sources': nombres; None = todas las que toca): partes de una región que quedan separadas de su cuerpo principal y miden menos
+    de max_pct de ella. Las astillas (menores que lo que traspasa el guardado, o tiras finas que deja un borde dibujado sobre la
+    frontera) no se preguntan: van en 'cleaned' (el contorno con ellas dentro), para que no queden migas sueltas.
+    Para cada exclave: la vecina con la que más frontera comparte (best) y cuánta comparte con el contorno nuevo (touch_new).
+    'merged' es el contorno con las astillas y todos los exclaves incluidos."""
     from shapely.geometry import mapping
     from shapely.ops import unary_union
     C = _project_geoms(project)
     names = list(C)
     tree = STRtree([C[n][0] for n in names])
     poly = make_valid(shape(polygon))
+    only = set(sources) if sources is not None else None
     eps = 1e-6
-    items = []
+    items, slivers = [], []
     for i in tree.query(poly):
         r = names[int(i)]
         gr, sea = C[r]
-        if sea:
+        if sea or (only is not None and r not in only) or not gr.intersects(poly):
             continue
         rem = gr.difference(poly)
-        parts = sorted([p for p in getattr(rem, 'geoms', [rem]) if p.geom_type == 'Polygon' and p.area > 1e-9], key=lambda p: -p.area)
+        parts = sorted([p for p in getattr(rem, 'geoms', [rem]) if p.geom_type == 'Polygon' and p.area > 1e-12], key=lambda p: -p.area)
         if len(parts) < 2:
             continue
         orig = [p for p in getattr(gr, 'geoms', [gr]) if p.geom_type == 'Polygon']
@@ -338,6 +346,9 @@ def exclaves(project, polygon, max_pct=0.05):
                 continue
             if any(abs(q.area - o.area) <= 1e-6 * o.area and q.intersects(o) for o in orig):
                 continue          # ya era una parte aparte (isla, enclave deliberado): no la genera este recorte
+            if q.area < SLIVER_AREA or q.area / max(q.length ** 2, 1e-30) < SLIVER_THIN:
+                slivers.append(q)
+                continue
             ring = q.buffer(eps)
             best, bl = None, 0.0
             for j in tree.query(ring):
@@ -349,8 +360,9 @@ def exclaves(project, polygon, max_pct=0.05):
                     best, bl = n, ln
             items.append({'region': r, 'area': round(q.area, 6), 'polygon': mapping(q), 'best': best, 'best_len': round(bl, 6),
                           'touch_new': round(q.boundary.intersection(poly.buffer(eps)).length, 6)})
-    merged = unary_union([poly] + [shape(x['polygon']) for x in items]).buffer(0) if items else poly
+    cleaned = unary_union([poly] + slivers).buffer(0) if slivers else poly
+    merged = unary_union([cleaned] + [shape(x['polygon']) for x in items]).buffer(0) if items else cleaned
     by_name = {project.rname(g.index): g.index for g in project.m['regions']}
     for x in items:
         x['best_index'] = by_name.get(x['best'])
-    return {'items': items, 'merged': mapping(merged)}
+    return {'items': items, 'merged': mapping(merged), 'cleaned': mapping(cleaned), 'slivers': len(slivers)}

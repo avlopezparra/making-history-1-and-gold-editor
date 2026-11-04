@@ -217,6 +217,33 @@ def toggle_historic(s, country, region):
     return {'added': True, 'note': '%s es ahora región histórica de %s' % (region, country)}
 
 
+def _alliance_name(al):
+    return prop(al, 'strDisplayName') or prop(al, 'strINITAllianceName') or '?'
+
+
+def leave_alliance(s, al, member):
+    """Quita un miembro de una alianza. Si era el líder, lo pasa al siguiente; si no queda nadie, la alianza desaparece (y las guerras
+    que la nombraban dejan de hacerlo). Antes quedaban alianzas vacías o sin líder en gamestate.xml."""
+    st = s.s
+    mem = [m for m in objs(al) if m.get('type') == 'AllianceMember']
+    leader = prop(member, 'bOwner') == 'true'
+    st.remove(member)
+    rest = [m for m in mem if m is not member]
+    if not rest:
+        key = prop(al, 'strINITAllianceName')
+        st.remove(al)
+        for w in s.all('War'):
+            for k in ('strINITOffenseAllianceName', 'strINITDefenseAllianceName'):
+                if key and prop(w, k) == key:
+                    st.set_prop(w, k, '')
+        return ['alianza %s: desaparece (no quedan miembros)' % _alliance_name(al)]
+    if leader:
+        st.set_prop(rest[0], 'bOwner', 'true')
+        st.set_prop(rest[0], 'bPrincipal', 'true')
+        return ['alianza %s: ahora la lidera %s' % (_alliance_name(al), prop(rest[0], 'strINITCountryName'))]
+    return []
+
+
 def toggle_alliance(s, alliance_id, country):
     """Añade o quita un país de una alianza; un país solo puede estar en una alianza."""
     st = s.s
@@ -226,15 +253,13 @@ def toggle_alliance(s, alliance_id, country):
         if m.get('type') == 'AllianceMember' and prop(m, 'strINITCountryName') == country:
             if prop(m, 'bOwner') == 'true' and len([x for x in objs(a) if x.get('type') == 'AllianceMember']) > 1:
                 raise ValueError('%s lidera la alianza: elige otro líder (bOwner) antes de quitarlo' % country)
-            st.remove(m)
-            return {'added': False, 'notes': ['%s sale de %s' % (country, prop(a, 'strDisplayName'))]}
-    for other in s.all('Alliance'):
+            return {'added': False, 'notes': ['%s sale de %s' % (country, _alliance_name(a))] + leave_alliance(s, a, m)}
+    for other in list(s.all('Alliance')):
         if other is a:
             continue
-        for m in objs(other):
-            if m.get('type') == 'AllianceMember' and prop(m, 'strINITCountryName') == country:
-                st.remove(m)
-                notes.append('%s sale de %s (solo puede estar en una alianza)' % (country, prop(other, 'strDisplayName')))
+        for m in [x for x in objs(other) if x.get('type') == 'AllianceMember' and prop(x, 'strINITCountryName') == country]:
+            notes.append('%s sale de %s (solo puede estar en una alianza)' % (country, _alliance_name(other)))
+            notes += leave_alliance(s, other, m)
     m = ET.Element('object', {'type': 'AllianceMember', 'name': 'objAllMembers'})
     ET.SubElement(m, 'property', {'name': 'strINITCountryName', 'value': country})
     st.attach(m, a)
@@ -451,6 +476,10 @@ def alliance_add(s, countries, alliance_id=None, new_name=None):
         name = (new_name or '').strip()
         if not name:
             raise ValueError('falta el nombre de la alianza nueva')
+        same = next((x for x in s.all('Alliance') if name.lower() in ((prop(x, 'strDisplayName') or '').lower(),
+                                                                       (prop(x, 'strINITAllianceName') or '').lower())), None)
+        if same is not None:      # «alianza nueva» con el nombre de una que ya existe: se usa esa (antes se creaba otra igual)
+            return alliance_add(s, countries, st.eid(same))
         existing = s.all('Alliance')
         mgr = st.parent[existing[0]] if existing else next(iter(s.all('AllianceManager')), None)
         if mgr is None:
@@ -708,6 +737,28 @@ def move_population(s, name, fractions):
         notes.append('población: %s hab. de %s (%.0f %%) pasan a %s; %s queda con %s' % (moved, mother, 100 * float(f), name, mother, int(pop) - moved))
     st.set_prop(new, 'nPopulation', str(total))
     notes.append('%s: %s hab.' % (name, total))
+    return notes
+
+
+def take_population(s, name, amounts):
+    """La región nueva 'name' tiene sum(amounts) habitantes (p. ej. puestos a mano o del GeoJSON), que se restan de cada región de
+    origen según 'amounts' ({madre: habitantes}; ninguna baja de 0). Antes la cifra a mano se ponía sin restarla de nadie."""
+    st = s.s
+    land = {prop(r, 'strName'): r for r in s.regions(sea=False)}
+    new = land.get(name)
+    if new is None:
+        return []
+    total, notes = 0, []
+    for mother, n in amounts.items():
+        n = max(0, int(round(n)))
+        total += n
+        src = land.get(mother)
+        pop = prop(src, 'nPopulation') if src is not None else None
+        if pop and pop.isdigit():
+            st.set_prop(src, 'nPopulation', str(max(0, int(pop) - n)))
+            notes.append('población: %s hab. de %s pasan a %s; %s queda con %s' % (n, mother, name, mother, max(0, int(pop) - n)))
+    st.set_prop(new, 'nPopulation', str(total))
+    notes.append('%s: %s hab. (puestos a mano)' % (name, total))
     return notes
 
 
@@ -1326,6 +1377,29 @@ def create_city(s, name, x, y, ipus=1, population=0, display=None, port=None, re
     return st.eid(el), notes
 
 
+def fix_landless(s, country, action, member=None, regions=None):
+    """A country with no land counts as surrendered and breaks its alliance's wars. 'regions': its historic regions (with their
+    cities) become its own and it stops being surrendered; 'leave': the AllianceMember 'member' is removed."""
+    st = s.s
+    if action == 'leave':
+        el = st.get(member)
+        if el is None or el.get('type') != 'AllianceMember':
+            raise ValueError('ese miembro de alianza ya no existe')
+        st.remove(el)
+        return ['%s sale de la alianza' % country]
+    if action != 'regions':
+        raise ValueError('acción desconocida: %s' % action)
+    names = set(regions or ()) or {prop(k, 'strRegion') for h in s.all('HistoricCountry') if prop(h, 'strCountry') == country for k in objs(h)}
+    moved = []
+    for r in s.regions(sea=False):
+        if prop(r, 'strName') in names and prop(r, 'strOwner') != country:
+            moved.append('%s (de %s)' % (prop(r, 'strName'), prop(r, 'strOwner')))
+            s.update(st.eid(r), {'strOwner': country, 'strController': country})
+    if not moved:
+        raise ValueError('%s no tiene regiones históricas que se le puedan dar' % country)
+    return ['%s recibe %s' % (country, ', '.join(moved))] + unsurrender(s, country)
+
+
 def unsurrender(s, owner, region=None):
     """Si 'owner' estaba rendido (bSurrendered) y ya tiene regiones: deja de estarlo y su capital pasa a una ciudad de su
     territorio (de 'region' si hay alguna, si no la de más IPUs). Sin ciudad en su territorio avisa de que hay que crear una."""
@@ -1430,10 +1504,10 @@ def relations(s, countries):
     amembers = {}
     for al in s.all('Alliance'):
         mem = [prop(m, 'strINITCountryName') for m in objs(al) if m.get('type') == 'AllianceMember']
-        amembers[prop(al, 'strName')] = mem
+        amembers[prop(al, 'strINITAllianceName')] = mem
         for i, a in enumerate(mem):
             for b in mem[i + 1:]:
-                tag(a, b, 'aliados (%s)' % (prop(al, 'strName') or '?'))
+                tag(a, b, 'aliados (%s)' % _alliance_name(al))
     for w in s.all('War'):
         att = {prop(w, 'strINITAttackerCountryName')} | set(amembers.get(prop(w, 'strINITOffenseAllianceName') or '', []))
         dfn = {prop(w, 'strINITDefenderCountryName')} | set(amembers.get(prop(w, 'strINITDefenseAllianceName') or '', []))
@@ -1633,18 +1707,10 @@ def delete_country(s, name, dest=None):
     # alianzas: se quita como miembro (si era el líder pasa a otro o la alianza desaparece)
     for al in list(s.all('Alliance')):
         mem = [m for m in objs(al) if m.get('type') == 'AllianceMember']
-        mine = [m for m in mem if prop(m, 'strINITCountryName') == name]
-        for m in mine:
-            leader = prop(m, 'bOwner') == 'true'
-            st.remove(m)
-            rest = [x for x in mem if x not in mine]
-            if not rest:
-                st.remove(al)
-                notes.append('alianza %s: desaparece (no quedan miembros)' % prop(al, 'strName'))
+        for m in [m for m in mem if prop(m, 'strINITCountryName') == name]:
+            notes += leave_alliance(s, al, m)
+            if al not in s.all('Alliance'):
                 break
-            if leader:
-                st.set_prop(rest[0], 'bOwner', 'true')
-                notes.append('alianza %s: ahora la lidera %s' % (prop(al, 'strName'), prop(rest[0], 'strINITCountryName')))
     for w in list(s.all('War')):
         if name in (prop(w, 'strINITAttackerCountryName'), prop(w, 'strINITDefenderCountryName')):
             st.remove(w)

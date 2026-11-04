@@ -235,6 +235,8 @@
     <label style="display:block">Propietario <select id="regOwner"></select> Controlador <select id="regCtl"></select></label>
     <label style="display:block">Tipo de región <select id="regType"></select></label>
     <label style="display:block">Población: <input id="regPct" type="number" min="0" max="100" step="0.1" style="width:70px"> % de los habitantes de la región de origen <b id="regInh"></b></label>
+    <label style="display:block">O habitantes a mano: <input id="regMan" type="number" min="0" step="1" placeholder="vacío = el %" style="width:110px"></label>
+    <p class="muted" id="regManNote" style="margin:2px 0 0"></p>
     <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px"><button value="cancel">Cancelar</button>
       <button value="ok" style="background:#0ea5e9;color:#fff;border:0;border-radius:6px;padding:5px 12px">Registrar</button></div>
   </form>
@@ -610,7 +612,7 @@ async function gapSelect(ll) {
     await askNewRegion(g.polygon, null, { nueva: true, cut: false, land: [], sea: [], forceSea: sea, preset: { fill: true, sea } }); };
   $('#gapSplit').onclick = async () => {
     const r = await (await fetch('/api/gap/split_proximity', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ polygon: g.polygon, neighbors: g.neighbors.map(n => n.index) }) })).json().catch(e => ({ error: e.message }));
-    if (r.error) return report('No se pudo repartir el hueco: ' + r.error + ' (¿hay que reiniciar el editor tras actualizarlo?)', 'err');
+    if (r.error) return report(`No se pudo repartir el hueco: ${r.error} (¿hay que reiniciar el editor tras actualizarlo?)`, 'err');
     if (!r.pieces || !r.pieces.length) return status('No hay regiones vecinas a las que repartirlo');
     for (const x of r.pieces) addOp({ kind: 'assign', polygon: x.polygon, region: x.into, fill: true, land_only: false, same_type_only: true });
     clearGap(); status(`El hueco se repartirá entre ${r.pieces.map(x => x.into_name).join(', ')} al guardar`);
@@ -1062,6 +1064,9 @@ async function askNewRegion(polygon, from, opt = {}) {
       take_from: opt.takeFrom || (opt.cut ? opt.landIdx || [] : []) });
   }
   const terrain = $('#nrType').value, cutAll = opt.nueva ? !!(opt.land.length && opt.cut) : false;
+  // regiones de las que de verdad sale la nueva (las únicas cuyos exclaves cuentan): las de tierra con «Cortar», o la recortada
+  const fromName = from != null ? ((M && M.props.name) || (S.meta.find(m => m.index === from) || {}).name) : null;   // la madre puede no estar cargada en pantalla
+  const sources = cutAll ? opt.land : (!opt.nueva && fromName ? [fromName] : []);
   const eqList = await eqOfKind($('#nrEquiv').value, false);
   const pop_fractions = {};
   const geoPopOn = geoPop != null && !!$('#nrPopSrcRow') && $('#nrPopSrcRow').style.display !== 'none' && document.querySelector('input[name=nrPopSrc]:checked').value === 'geojson';   // población del GeoJSON
@@ -1079,12 +1084,20 @@ async function askNewRegion(polygon, from, opt = {}) {
     const num = id => $(id).value.trim() === '' ? null : +$(id).value;
     const nation = { name: nn, color: $('#nrNatColor').value, culture: $('#nrNatCult').value.trim() || 'English', playable: $('#nrNatPlay').checked,
       capital: { name: cn, existing: !capAuto, population: cp, ipus: +$('#nrNatCapIpus').value || 0, x: num('#nrNatCapX'), y: num('#nrNatCapY') } };
-    polygon = await exclaveStep(polygon, from, opt);
+    polygon = await exclaveStep(polygon, sources, opt);
     return addOp({ kind: 'new_region', polygon, from: opt.nueva ? null : from, cut_all: cutAll, newName: name, u_type: SCEN_TERRAIN[terrain] || 1, terrain,
       pop_fractions: null, historic: null, population: rp, city: null, nation, equivalent: eqList, owner: nn, controller: nn, fill: pre.fill !== undefined ? pre.fill : $('#fill').checked });
   }
   if (!sc && !opt.noOwner && !S.nrPend.includes($('#nrCountry').value)) { alert('No hay escenario con este regionpack: crea una nación nueva (se crea el escenario)'); return askNewRegion(polygon, from, opt); }
-  polygon = await exclaveStep(polygon, from, opt);
+  const before = polygon;
+  polygon = await exclaveStep(polygon, sources, opt);
+  // exclaves o astillas incluidas: el % de cada región de origen se calculó con el polígono de antes; se corrige por el área que de
+  // verdad se le quita ahora (si no, la población no cuadraba con el área)
+  if (polygon !== before && Object.keys(pop_fractions).length && S.nrPreview) {
+    const r2 = await (await fetch('/api/cut_preview', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ polygon, sea: false }) })).json().catch(() => null);
+    const was = new Map((S.nrPreview || []).map(m => [m.name, m.taken])), now = new Map(((r2 && r2.mothers) || []).map(m => [m.name, m.taken]));
+    for (const k of Object.keys(pop_fractions)) if (was.get(k) > 0 && now.has(k)) pop_fractions[k] = Math.min(1, pop_fractions[k] * now.get(k) / was.get(k));
+  }
   addOp({ kind: 'new_region', polygon, from: opt.nueva ? null : from, cut_all: cutAll, newName: name, u_type: SCEN_TERRAIN[terrain] || 1, terrain,
     pop_fractions: !geoPopOn && Object.keys(pop_fractions).length ? pop_fractions : null,
     historic: S.nrHist ? [...$('#nrHist').querySelectorAll('input[data-hist]:checked')].map(i => i.value) : null,
@@ -1093,24 +1106,37 @@ async function askNewRegion(polygon, from, opt = {}) {
       x: $('#nrCityX').value.trim() === '' ? null : +$('#nrCityX').value, y: $('#nrCityY').value.trim() === '' ? null : +$('#nrCityY').value } : null,
     owner: $('#nrCountry').value || null, controller: $('#nrCtrl').value || null, equivalent: eqList, fill: pre.fill !== undefined ? pre.fill : $('#fill').checked });
 }
-// al sacar una región nueva de otra a mano (no en importaciones automáticas): si el recorte deja trozos sueltos (exclaves) en las regiones de origen,
-// ofrece que las vecinas los absorban o incluirlos en la forma nueva. Devuelve el polígono (con los exclaves dentro, si se pidió).
-async function exclaveStep(polygon, from, opt) {
-  if (!$('#nrExcl').checked || opt.auto || (from == null && !(opt.land && opt.land.length && opt.cut))) return polygon;
-  let ex; try { ex = await (await fetch('/api/geojson/exclaves', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ polygon }) })).json(); } catch (e) { return polygon; }
-  if (!ex || !ex.items || !ex.items.length) return polygon;
+// al sacar una región nueva de otra a mano (no en importaciones automáticas): si el recorte deja trozos sueltos (exclaves) en las regiones
+// de las que DE VERDAD sale ('sources': la madre, o las de tierra con «Cortar»), ofrece que las vecinas los absorban o incluirlos en la
+// forma nueva. Las astillas (tiras que deja un borde dibujado sobre la frontera, migas que el guardado no traspasaría) se incluyen sin
+// preguntar. Devuelve el polígono (con lo incluido).
+async function exclaveStep(polygon, sources, opt) {
+  if (!$('#nrExcl').checked || opt.auto || !sources || !sources.length) return polygon;
+  const ex = await exclavesOf(polygon, sources); if (!ex) return polygon;
+  const base = ex.cleaned || polygon;
+  if (ex.slivers) status(`${ex.slivers} astilla(s) del borde incluidas en la región nueva`);
+  if (!ex.items || !ex.items.length) return base;
   const list = [...new Set(ex.items.map(x => x.region))].slice(0, 6).join(', ');
   if (confirm(`Este recorte deja ${ex.items.length} trozo(s) suelto(s) (exclaves) en ${list || 'las regiones de origen'}.
 
 Aceptar: incluirlos en la región nueva.
-Cancelar: más opciones.`)) return ex.merged || polygon;
+Cancelar: más opciones.`)) return ex.merged || base;
   const nb = ex.items.filter(x => x.best_index != null);
   if (nb.length && confirm(`¿Que las regiones vecinas absorban los ${nb.length} exclave(s) que tienen vecina?
 
 Aceptar: se pasan a la vecina con la que más borde comparten.
-Cancelar: dejarlos como están.`))
-    for (const x of nb) addOp({ kind: 'assign', polygon: x.polygon, region: x.best_index, fill: false, land_only: true });
-  return polygon;
+Cancelar: dejarlos como están.`)) absorbExclaves(nb);
+  return base;
+}
+async function exclavesOf(polygon, sources) {
+  try { return await (await fetch('/api/geojson/exclaves', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ polygon, sources }) })).json(); }
+  catch (e) { return null; }
+}
+// una sola operación por vecina (antes, una por trozo: cientos de operaciones con un borde dibujado sobre la frontera)
+function absorbExclaves(items) {
+  const by = new Map();
+  for (const x of items) by.set(x.best_index, (by.get(x.best_index) || []).concat([x.polygon.type === 'Polygon' ? [x.polygon.coordinates] : x.polygon.coordinates].flat(1)));
+  for (const [region, coords] of by) addOp({ kind: 'assign', polygon: { type: 'MultiPolygon', coordinates: coords }, region, fill: false, land_only: true });
 }
 // equivalencias vanilla escritas en el diálogo: solo las del tipo de la región (mar con mar, tierra con tierra); avisa de las descartadas
 async function eqOfKind(text, sea) {
@@ -1166,10 +1192,12 @@ document.querySelectorAll('input[name=nrKind]').forEach(x => x.onchange = () => 
 // poblacion de la region nueva: % del area recortada de cada region de origen (editable en % o en habitantes)
 async function nrPopulation() {
   const T = $('#nrPop'), seaKind = isSeaKind();
+  S.nrPreview = null;
   $('#nrPopRow').style.display = seaKind ? 'none' : '';
   if (seaKind || !S.nrPolygon) { T.innerHTML = ''; return; }
   T.innerHTML = '<tr><td class="muted">Calculando…</td></tr>';
   const r = await (await fetch('/api/cut_preview', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ polygon: S.nrPolygon, sea: false }) })).json();
+  S.nrPreview = r.mothers || [];
   const ms = (r.mothers || []).filter(m => S.scen && S.scen.regions[m.name] && S.scen.regions[m.name].population != null && (!S.nrOnly || m.name === S.nrOnly));
   // sin regiones de origen con población (o sin escenario): los habitantes se pueden poner a mano
   const manual = `<tr><td style="padding-top:6px">Habitantes de la región nueva: <input id="nrPopManual" type="number" min="0" step="1" placeholder="automático" style="width:120px">
@@ -1251,7 +1279,7 @@ function showInfo() {
   const R = S.regions.get(S.selected); if (!R) return;
   const p = R.props, o = ownerOf(R);
   $('#info').innerHTML = `<h2>${p.name}<span class="tag">#${p.index}</span><span class="tag">${p.sea ? 'mar' : 'tierra'}</span>${R.modified ? '<span class="tag" style="color:var(--accent)">modificada</span>' : ''}</h2>
-    ${o ? `<div class="muted">${S.scenName}: ${o.owner || '—'}${o.controller && o.controller !== o.owner ? ' (controla ' + o.controller + ')' : ''} · ${o.terrain || ''}${o.population ? ' · ' + o.population.toLocaleString('es') + ' hab.' : ''}</div>` : ''}
+    ${o ? `<div class="muted">${S.scenName}: ${o.owner || '—'}${o.controller && o.controller !== o.owner ? ` (controla ${o.controller})` : ''} · ${o.terrain || ''}${o.population ? ' · ' + o.population.toLocaleString('es') + ' hab.' : ''}</div>` : ''}
     <div class="muted">Vecinos: ${p.neighbors.join(', ') || '—'}</div>
     ${p.sea ? '<div id="canalBox" style="margin-top:8px"></div>' : ''}
     <div style="margin-top:8px"><button type="button" id="convType" title="Cambia solo el tipo de la región (mar ↔ tierra); la forma y las fronteras no cambian. Útil si una región de tierra importada quedó como mar (en el juego no se puede seleccionar) o al revés">${p.sea ? 'Convertir en región de tierra…' : 'Convertir en región de mar'}</button>
@@ -1405,6 +1433,11 @@ async function askRegisterRegion(R) {
     el.textContent = mo && mo.population != null ? `= ${Math.round(mo.population * (+$('#regPct').value || 0) / 100).toLocaleString()} hab.` : '';
   };
   $('#regPct').oninput = regInh;
+  // habitantes puestos a mano al crearla (changelog): se proponen aquí en vez de aplicarlos sin decirlo (antes mandaban sobre el %)
+  { const cl = await fetch('/api/changelog').then(r => r.json()).catch(() => ({ entries: [] }));
+    const made = (cl.entries || []).flatMap(e => e.regiones_nuevas || []).filter(x => x.nombre === p.name && x.poblacion_manual != null).pop();
+    $('#regMan').value = made ? Math.round(made.poblacion_manual) : '';
+    $('#regManNote').textContent = made ? 'Habitantes puestos al crear la región (changelog). Vacía el campo para usar el %.' : ''; }
   $('#regMother').onchange = fill; $('#regOwner').onchange = () => { $('#regCtl').value = $('#regOwner').value; }; fill();
   const dlg = $('#regDlg');
   const ok = await waitDialog(dlg);
@@ -1412,9 +1445,11 @@ async function askRegisterRegion(R) {
   const force = await savePendingScen([S.scenName]);
   const r = await (await fetch('/api/register_region', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
     scenario: S.scenName, force_scenarios: force, name: p.name, mother: $('#regMother').value, owner: $('#regOwner').value, controller: $('#regCtl').value,
-    terrain: $('#regType').value, pop_pct: $('#regMother').value ? +$('#regPct').value : 0 }) })).json();
+    terrain: $('#regType').value, pop_pct: $('#regMother').value ? +$('#regPct').value : 0,
+    population: $('#regMan').value.trim() === '' ? null : Math.max(0, Math.round(+$('#regMan').value || 0)) }) })).json();
   report(scenarioNotes(r.scenarios), 'ok');
   if (r.conflicts && r.conflicts.length) showUnitConflicts(r.conflicts);
+  offerInstall(r);
   S.scen = await (await fetch('/api/scenario?name=' + encodeURIComponent(S.scenName))).json(); restyleAll(); showInfo();
 }
 async function askCutTarget(polygon, from, under) {
@@ -1508,7 +1543,7 @@ async function askRenameRegion(R) {
     if (S.scenName) refreshScen(); return;
   }
   const name = prompt('Nombre interno (sin acentos; es el que usan los escenarios):', plain); if (name == null || !name.trim()) return;
-  if (!confirm(`¿Renombrar «${old}» a «${name.trim()}»${text.trim() !== name.trim() ? ' (texto: «' + text.trim() + '»)' : ''}?
+  if (!confirm(`¿Renombrar «${old}» a «${name.trim()}»${text.trim() !== name.trim() ? ` (texto: «${text.trim()}»)` : ''}?
 
 ` +
     `Se añade un RegionRename a map.xml del regionpack (se copia al juego al «Instalar») y se renombra en los escenarios que lo usan, que se guardan.`)) return;
@@ -1546,14 +1581,17 @@ async function importShapes(shapes, o = {}) {
     if (raw) seen.set(raw.toLowerCase(), (seen.get(raw.toLowerCase()) || []).concat(sig));
     const name = uniq(raw);
     let geom = sh.geometry, extra = [];
-    if (!seaKind && o.exclaves && o.exclaves !== 'none' && land.length) {      // trozos sueltos que dejaría el recorte: a las vecinas o dentro de la forma importada
-      try {
-        const ex = await (await fetch('/api/geojson/exclaves', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ polygon: geom }) })).json();
+    // trozos sueltos que dejaría el recorte: a las vecinas o dentro de la forma importada. Solo de las regiones de tierra que de verdad
+    // se recortan («Cortar» marcado); las astillas del borde van siempre dentro de la forma
+    if (!seaKind && o.exclaves && o.exclaves !== 'none' && land.length && $('#dbCut').checked) {
+      const ex = await exclavesOf(geom, land.map(x => x.name));
+      if (ex) {
+        geom = ex.cleaned || geom;
         if (ex.items && ex.items.length) {
-          if (o.exclaves === 'include') geom = ex.merged; else extra = ex.items.filter(x => x.best_index != null);
+          if (o.exclaves === 'include') geom = ex.merged || geom; else extra = ex.items.filter(x => x.best_index != null);
           report(`${name || 'Contorno'}: ${ex.items.length} exclave(s) ${o.exclaves === 'include' ? 'incluidos en la forma importada' : 'para las regiones vecinas'}.`, 'ok');
         }
-      } catch (err) { /* sin exclaves: se importa tal cual */ }
+      }
     }
     let ownerName = o.ownerMode === 'geojson' ? (sh.owner || pr.owner || pr.pais || pr.country || pr.strOwner || null) : null;
     if (ownerName) ownerName = String(ownerName).replace(/[\\/:*?"<>|]+/g, ' - ').replace(/\s+/g, ' ').replace(/^[\s-]+|[\s-]+$/g, '') || null;   // nombre de archivo válido (countryX.xml): «A / B» → «A - B»
@@ -1586,7 +1624,7 @@ async function importShapes(shapes, o = {}) {
     if (S.ops.length > before) {
       if (o.opp === false) for (const op of S.ops.slice(before)) if (op.kind === 'new_region' && !op.sea) op.same_type_only = true;
       n++;
-      for (const x of extra) addOp({ kind: 'assign', polygon: x.polygon, region: x.best_index, fill: false, land_only: true });
+      if (extra.length) absorbExclaves(extra);
     }
   }
   status(`Importados ${n} de ${shapes.length} contorno(s) como regiones nuevas (falta «Guardar»)` + (skipped ? ` · ${skipped} repetido(s) omitido(s)` : ''));
@@ -1783,7 +1821,8 @@ async function save() {
   const modified = {};
   for (const [i, R] of S.regions) if (R.modified) modified[i] = R.polys.map(poly => poly.map(r => r.concat([r[0]])));
   const body = { modified, assigns: S.ops.map(({ name, ...op }) => op.kind === 'new_region' ? Object.assign(op, { name: op.newName }) : op),
-    centers: S.centers, topo: S.topo, paint: $('#paint').checked, register: $('#register').checked, scenario: S.scenName || null, new_scenario: S.newScen || null };
+    centers: S.centers, topo: S.topo, paint: $('#paint').checked, register: $('#register').checked, scenario: S.scenName || null, new_scenario: S.newScen || null, fix: S.saveFix || null };
+  S.saveFix = null;
   // World es el regionpack del juego sin modificar: no se cambia sin confirmarlo (lo normal es «Guardar como…» otro regionpack)
   if ($('#pack').value === 'World' && (body.assigns.length || Object.keys(modified).length) &&
       !confirm('Estás a punto de cambiar «World», el regionpack original del juego (lo usan todos los escenarios vanilla).\n\nAceptar: guardar en World igualmente.\nCancelar: no guardar; usa «Guardar como…» para hacer una copia con otro nombre y edita esa.')) {
@@ -1812,7 +1851,11 @@ async function save() {
     if (drop.length && confirm('No se guardó:\n' + r.errors.join('\n') + '\n\n¿Quitar de los cambios ' + drop.length + ' región(es) nueva(s) con problemas (' + [...new Set(drop.map(nm))].join(', ') + ') y guardar el resto?')) {
       S.ops = S.ops.filter(op => !drop.includes(op)); refreshRedoSave(); $('#save').click(); return;
     }
-    if (!drop.length) alert('No se guardó: ' + r.errors.join(String.fromCharCode(10)));   // que el fallo nunca pase desapercibido
+    // forma editada que rompe la malla: el servidor propone guardar sin las partes que la rompen (dice cuáles quita y dónde)
+    else if (r.errors.some(e => e.includes('Solución: guardar sin las partes')) && confirm('No se guardó:\n' + r.errors.join('\n') + '\n\n¿Guardar sin las partes del cambio que rompen la malla? El informe dirá cuáles se quitan y dónde.')) {
+      S.saveFix = 'drop_bad'; $('#save').click(); return;
+    }
+    else if (!drop.length) alert('No se guardó: ' + r.errors.join(String.fromCharCode(10)));   // que el fallo nunca pase desapercibido
   }
   if (r.new_scenario && (!r.errors || !r.errors.length)) {       // escenario creado desde cero: queda abierto en «Ver»
     const sel = $('#scenario'); if (![...sel.options].some(o => o.value === r.new_scenario)) { const o = document.createElement('option'); o.value = o.textContent = r.new_scenario; sel.appendChild(o); }
@@ -1833,12 +1876,7 @@ async function save() {
     report($('#report').textContent + `\n\nMapa instalado en el juego («${ai.regionpack}») para que ${ai.scenarios.map(n => `«${n}»`).join(', ')} siga(n) cargando.` +
       (ad.length ? '\nAdecuados al mapa:\n  ' + ad.map(([n, v]) => `${n}: ${v.length} cambio(s)`).join('\n  ') : ''), 'ok');
   }
-  const nl = Object.entries(r.not_loadable || {});
-  if (nl.length) {
-    const c = await mhChoice(`Las regiones nuevas ya están en ${nl.map(([n, v]) => `«${n}» (${v.length})`).join(', ')}, pero el mapa del juego aún no las tiene.\n\nHasta que pulses «Instalar», el juego no cargará esos escenarios («Error creating game»).`,
-      [['install', 'Instalar ahora', true], ['later', 'Más tarde']]);
-    if (c === 'install') { $('#install').click(); return; }
-  }
+  if (await offerInstall(r)) return;
   const o = r.open_other_pack;   // el escenario abierto usa otro regionpack: la región nueva no está en él
   if (o && (await (await fetch('/api/pack/info')).json()).virtual) { report($('#report').textContent + `
 
@@ -1861,7 +1899,7 @@ function showReport(r) {
     out.push('Traspasos:\n  ' + Object.entries(agg).map(([k, a]) => `${k}: ${a.toExponential(2)} grados²`).join('\n  '));
   }
   if (r.deleted && r.deleted.length) out.push('Regiones eliminadas: ' + r.deleted.map(d => `${d.name} → ${d.into || 'vacía'}`).join(', '));
-  if (r.new_regions && r.new_regions.length) out.push('Regiones nuevas:\n  ' + r.new_regions.map(c => `${c.text || c.name}${c.text && c.text !== c.name ? ' (interno: ' + c.name + ')' : ''} #${c.index}${c.mother ? ' de ' + c.mother + ' (' + Math.round(100 * (c.fraccion || 0)) + ' % del área)' : ' → ' + (c.owner || 'sin país')} · vecinas: ${(c.neighbors || []).join(', ')}`).join('\n  '));
+  if (r.new_regions && r.new_regions.length) out.push('Regiones nuevas:\n  ' + r.new_regions.map(c => `${c.text || c.name}${c.text && c.text !== c.name ? ` (interno: ${c.name})` : ''} #${c.index}${c.mother ? ' de ' + c.mother + ' (' + Math.round(100 * (c.fraccion || 0)) + ' % del área)' : ' → ' + (c.owner || 'sin país')} · vecinas: ${(c.neighbors || []).join(', ')}`).join('\n  '));
   if (r.map_xml && r.map_xml.length) out.push('Vínculos de map.xml heredados de la región madre (se instalan con «Instalar»):' + String.fromCharCode(10) + '  ' + r.map_xml.join(String.fromCharCode(10) + '  '));
   if (r.new_pairs && r.new_pairs.length) out.push('Vecindades nuevas: ' + r.new_pairs.map(p => p.join('–')).join(', '));
   if (r.tiles) out.push('Texturas repintadas: ' + r.tiles.join(', '));
@@ -1871,7 +1909,7 @@ function showReport(r) {
   report(out.join('\n\n') || 'Hecho', r.errors && r.errors.length ? 'err' : 'ok');
 }
 const scenarioNotes = sc => 'Escenarios:\n' + (Object.entries(sc).map(([n, notes]) => `  ${n}:\n    ` + (notes.join('\n    ') || 'sin cambios')).join('\n') || '  ninguno usa este regionpack');
-const report = (t, cls) => { const el = $('#report'); el.textContent = t; el.className = cls || 'muted'; };
+const report = (t, cls) => { const el = $('#report'); el.textContent = t; el.className = cls || 'muted'; if (cls === 'err' && window.mhLogErr) window.mhLogErr('report: ' + t); };
 const status = t => { $('#status').textContent = t; };
 function clearEdits() { S.newScen = null; S.ops = []; S.centers = {}; S.undo = []; S.redo = []; redrawOps(); for (const R of S.regions.values()) R.modified = false; updatePending(); updateHistoryButtons(); }
 async function reloadAll() {
@@ -1896,17 +1934,17 @@ async function reloadAll() {
 // ------------------------------------------------------------------ barra
 // estado de interacción limpio: si algo quedó a medias (un dibujo, un arrastre, el mapa sin arrastrar, la selección múltiple
 // abierta sin verse, una petición de punto del editor de escenarios…), los clics dejaban de elegir regiones
-function resetInteraction() {
+function resetInteraction(keepGap) {
   try { if (S.drawing) cancelDraw(); } catch (e) {}
   try { if (stroke) { map.removeLayer(stroke.layer); stroke = null; } } catch (e) {}
   drag = null; edgeDrag = false; S.pick = false; document.body.style.cursor = '';
   try { map.dragging.enable(); map.doubleClickZoom.enable(); } catch (e) {}
   if (S.multiOpen && $('#multiFrame') && $('#multiFrame').style.display === 'none') S.multiOpen = false;
-  try { clearGap(); } catch (e) {}
+  if (!keepGap) try { clearGap(); } catch (e) {}     // al pasar a «Recortar» con un hueco seleccionado se conserva: se recorta de él
   CYC.pt = null; CYC.list = []; PT.dragEnd = 0;
 }
 document.querySelectorAll('[data-mode]').forEach(b => b.onclick = () => {
-  resetInteraction();
+  resetInteraction(b.dataset.mode === 'recortar' && GAP.g);
   if (S.multiOpen) openMulti(false);       // elegir otra herramienta cierra la selección múltiple
   if (S.drawing) finishDraw();
   S.mode = b.dataset.mode; document.querySelectorAll('[data-mode]').forEach(x => x.classList.toggle('on', x.dataset.mode === S.mode));
@@ -1938,7 +1976,18 @@ $('#redoSave').onclick = async () => {
   const r = await (await fetch('/api/redo', { method: 'POST' })).json();
   report(r.msg + (r.scenarios ? '\n\n' + scenarioNotes(r.scenarios) : ''), r.ok ? 'ok' : 'err');
   S.version++; clearEdits(); if (r.added_regions && r.added_regions.length) await reloadMeta(); await reloadAll(); loadChangelog(); refreshRedoSave();
+  offerInstall(r);
 };
+// regiones ya escritas en escenarios del juego cuyo mapa instalado aún no las tiene: el juego no los carga hasta «Instalar».
+// El servidor ya no instala solo: se pregunta aquí. true si se pulsó «Instalar ahora».
+async function offerInstall(r) {
+  const nl = Object.entries((r && r.not_loadable) || {});
+  if (!nl.length) return false;
+  const c = await mhChoice(`Las regiones nuevas ya están en ${nl.map(([n, v]) => `«${n}» (${v.length})`).join(', ')}, pero el mapa del juego aún no las tiene.\n\nHasta que pulses «Instalar», el juego no cargará esos escenarios («Error creating game»).`,
+    [['install', 'Instalar ahora', true], ['later', 'Más tarde']]);
+  if (c === 'install') { $('#install').click(); return true; }
+  return false;
+}
 function showUnitConflicts(list) {
   const kind = k => k === 'Army' ? 'Ejército' : k === 'Fleet' ? 'Flota' : 'Aviación';
   $('#ucList').innerHTML = '<table style="width:100%;border-collapse:collapse;font-size:13px"><tr><th align=left>Escenario</th><th align=left>Unidad</th><th align=left>De</th><th align=left>En</th><th align=left>Qué hacer</th></tr>' +
@@ -1968,15 +2017,16 @@ $('#validateBtn').onclick = async () => {
   $('#valSum').textContent = `${e} errores, ${iss.length - e} avisos` + (pend ? ` · ${pend} cambio(s) sin guardar` : '');
   const groups = new Map();
   for (const i of iss.slice().sort((a, b) => (a.level === 'error' ? 0 : 1) - (b.level === 'error' ? 0 : 1))) {
-    const k = i.level + '|' + i.msg; if (!groups.has(k)) groups.set(k, { level: i.level, msg: i.msg, regions: [] });
+    const k = i.level + '|' + i.msg; if (!groups.has(k)) groups.set(k, { level: i.level, msg: i.msg, regions: [], fix: i.fix });
     if (i.region) groups.get(k).regions.push(i.region);
   }
   const esc_ = t => String(t).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   const col = l => l === 'error' ? '#dc2626' : '#d97706';
   $('#valList').innerHTML = groups.size ? [...groups.values()].map(g => `<div style="padding:6px 2px;border-bottom:1px solid var(--line);font-size:13px">
-      <b style="color:${col(g.level)}">${g.level}</b> ${esc_(g.msg)}${g.regions.length > 1 ? ` <span class="muted">(${g.regions.length})</span>` : ''}
+      <b style="color:${col(g.level)}">${g.level}</b> ${esc_(g.msg)}${g.regions.length > 1 ? ` <span class="muted">(${g.regions.length})</span>` : ''}${g.fix && g.fix.gaps_pair ? ` <button type="button" data-valfix="${g.fix.gaps_pair.join(',')}" title="Suma esas rendijas a la región vecina con más borde (se aplica al «Guardar»)">Cerrar huecos con la vecina</button>` : ''}
       ${g.regions.length ? `<div style="margin-top:3px;display:flex;flex-wrap:wrap;gap:4px">${g.regions.map(n => `<a href="#" data-valreg="${esc_(n)}" style="padding:1px 6px;border:1px solid var(--line);border-radius:10px;text-decoration:none;color:inherit">${esc_(n)}</a>`).join('')}</div>` : ''}</div>`).join('')
     : '<div style="padding:8px 2px">Sin problemas.</div>';
+  $('#valList').querySelectorAll('[data-valfix]').forEach(b => b.onclick = () => { $('#valDlg').close(); closeGaps(b.dataset.valfix.split(',').map(Number)); });
   $('#valList').querySelectorAll('[data-valreg]').forEach(a => a.onclick = ev => {   // ir a la región
     ev.preventDefault(); $('#valDlg').close(); $('#search').value = a.dataset.valreg; $('#search').dispatchEvent(new Event('change'));
   });
@@ -2012,7 +2062,7 @@ $('#bgRestore').onclick = async () => {
   if (!vis && !confirm('¿Restaurar en TODO el mapa (todos los tiles modificados)?')) return;
   report('Restaurando el fondo…');
   const r = await (await fetch('/api/background/restore', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ bbox: vis ? view : null, lines: !!(document.getElementById('bgLines') || {}).checked }) })).json();
-  if (r.error) return report(r.error, 'err');
+  if (r.error || !r.tiles) return report(r.error || (r.errors || []).join('\n') || 'Error', 'err');
   report((r.tiles.length ? 'Fondo restaurado en ' + r.tiles.map(t => t[0].replace('OperationalTerrain-', '').replace('.tga', '') + ' (' + t[1] + ' %)').join(', ') : 'No había nada que restaurar')
     + (r.lines && r.lines.length ? '\nLíneas de las regiones dibujadas en ' + r.lines.length + ' tiles.' : ''), 'ok');
   S.version++; updateTiles(); await reloadAll(); refreshRedoSave();   // updateTiles: que el mapa pida ya las texturas nuevas
@@ -2021,13 +2071,13 @@ $('#bgRedraw').onclick = async () => {
   // con una región seleccionada se puede redibujar solo ella y sus fronteras con las vecinas (rápido)
   const sel = S.selected, reg = sel != null ? S.regions.get(sel) : null;
   let one = false;
-  if (reg) one = confirm('¿Redibujar solo la región seleccionada «' + (reg.props.text || reg.props.name) + '» y sus fronteras con las vecinas?\n\nAceptar: solo esa región (rápido).  Cancelar: todo el mapa.');
-  if (!one && !confirm('¿Redibujar en el fondo las líneas de TODAS las fronteras a partir de los polígonos de las regiones?\n\nTarda mucho (unos 10 minutos en un mapa grande) y el editor no responde mientras tanto.\nSe pintan las fronteras tierra-tierra, mar-mar y el polígono de las islas (no su costa). Antes se respaldan los tiles del proyecto. Al juego llega con Guardar/Instalar.')) return;
+  if (reg) one = confirm(`¿Redibujar solo la región seleccionada «${reg.props.text || reg.props.name}» y sus fronteras con las vecinas?\n\nAceptar: solo esa región (rápido).  Cancelar: todo el mapa.`);
+  if (!one && !confirm('¿Redibujar en el fondo las líneas de TODAS las fronteras a partir de los polígonos de las regiones?\n\nTarda mucho (unos 10 minutos en un mapa grande) y el editor no responde mientras tanto.\nSe pintan las fronteras tierra-tierra, mar-mar y el polígono de las islas (no su costa). Se puede deshacer con «Volver». Al juego llega con Guardar/Instalar.')) return;
   const body = JSON.stringify(one ? { region: sel } : {});
   report('Redibujando fronteras…');
   const r = await (await fetch('/api/redraw_borders', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body })).json();
-  if (r.error) return report(r.error, 'err');
-  report('Fronteras redibujadas: ' + r.lines + ' líneas en ' + r.tiles.length + ' tiles.' + (r.backup ? '\nRespaldo de los tiles: ' + r.backup : ''), 'ok');
+  if (r.error || !r.tiles) return report(r.error || (r.errors || []).join('\n') || 'Error', 'err');
+  report('Fronteras redibujadas: ' + r.lines + ' líneas en ' + r.tiles.length + ' tiles. Se puede deshacer con «Volver».', 'ok');
   S.version++; updateTiles(); await reloadAll(); refreshRedoSave();
 };
 // cualquier fallo de un botón se ve en el informe (antes, p. ej. «Instalar» un regionpack nuevo fallaba sin decir nada)
@@ -2036,7 +2086,7 @@ window.addEventListener('error', e => { try { if (e.message) report('Error del e
 $('#save').onclick = save;
 $('#discard').onclick = async () => { if (confirm('¿Descartar los cambios sin guardar?')) { resetInteraction(); clearEdits(); await reloadAll(); report('Cambios descartados'); } };
 refreshRedoSave();
-$('#undoSave').onclick = async () => { if (!confirm('¿Volver al estado anterior al último guardado?')) return; const r = await (await fetch('/api/undo', { method: 'POST' })).json(); report(r.msg + (r.scenarios ? '\n\n' + scenarioNotes(r.scenarios) : ''), r.ok ? 'ok' : 'err'); S.version++; clearEdits(); if ((r.removed_regions && r.removed_regions.length) || (r.restored_regions && r.restored_regions.length)) await reloadMeta(); await reloadAll(); loadChangelog(); refreshRedoSave(); };
+$('#undoSave').onclick = async () => { if (!confirm('¿Volver al estado anterior al último guardado?')) return; const r = await (await fetch('/api/undo', { method: 'POST' })).json(); report(r.msg + (r.scenarios ? '\n\n' + scenarioNotes(r.scenarios) : ''), r.ok ? 'ok' : 'err'); S.version++; clearEdits(); if ((r.removed_regions && r.removed_regions.length) || (r.restored_regions && r.restored_regions.length)) await reloadMeta(); await reloadAll(); loadChangelog(); refreshRedoSave(); offerInstall(r); };
 $('#install').onclick = async () => {
   const info = await (await fetch('/api/pack/info')).json();
   { const uses = (info.users || {})[info.pack] || [], miss = S.scenName && uses.includes(S.scenName) ? gjMissing() : [];
@@ -2086,7 +2136,7 @@ async function askOwners(scens) {
     $('#ownList').innerHTML = data.map(([sc, d], i) => {
       const rows = d.regions.filter(r => all || r.ownerless);
       return rows.length ? `<h4 style="margin:8px 0 2px">${esc(sc)}</h4>` + rows.map(r => `<div style="display:flex;gap:8px;align-items:center;margin:2px 0"><span style="flex:1">${esc(r.name)}${r.ownerless ? ' <b style="color:#dc2626">· sin dueño</b>' : r.mother ? ` <span class="muted">(de ${esc(r.mother)})</span>` : ''}</span>
-        <select data-sc="${esc(sc)}" data-reg="${esc(r.name)}"><option value="">${r.owner ? '(por defecto: ' + esc(r.owner) + ')' : r.mother ? '(hereda de ' + esc(r.mother) + ')' : '(elige país)'}</option>` +
+        <select data-sc="${esc(sc)}" data-reg="${esc(r.name)}"><option value="">${r.owner ? `(por defecto: ${esc(r.owner)})` : r.mother ? `(hereda de ${esc(r.mother)})` : '(elige país)'}</option>` +
         d.countries.map(c => `<option ${c === (r.owner_here || '') ? 'selected' : ''}>${esc(c)}</option>`).join('') + '</select></div>').join('') : '';
     }).join('');
   };
@@ -2192,8 +2242,8 @@ $('#refreshAll').onclick = async () => {
       if (!confirm(`«${n}» tiene cambios sin guardar (${r.dirty.join(', ')}). ¿Descartarlos y leerlo de nuevo del disco?`)) return;
       r = await scenPost('/api/scen/reload', { name: n, force: true }); if (!r) return;
     }
-    notes.push(`Escenario «${n}» leído del disco` + (r.missing && r.missing.length ? `; faltan regiones del mapa: ${r.missing.join(', ')}` : '') +
-      (r.extra && r.extra.length ? `; sobran: ${r.extra.join(', ')}` : '') + (r.errors ? `; ${r.errors} errores de validación` : ''));
+    notes.push([`Escenario «${n}» leído del disco.`, r.missing && r.missing.length && `Faltan regiones del mapa: ${r.missing.join(', ')}.`,    // una frase por dato (cada una se traduce aparte)
+      r.extra && r.extra.length && `Sobran: ${r.extra.join(', ')}.`, r.errors && `${r.errors} errores de validación.`].filter(Boolean).join(' '));
   }
   const post = b => scenPost('/api/refresh', b);
   let m = await post({}); if (!m) return;
@@ -3070,7 +3120,12 @@ Cancelar: dejar las del mapa (esos contornos no se importan).`)) {
         del = del.concat(dups.filter(m => !del.includes(m))); replacing = true;
       } else {
         // descartados: no se importan (antes solo se omitían los de nombre idéntico y «Mauritius» entraba como «Mauritius 2»)
-        const n0 = shapes.length; shapes = shapes.filter(s => !gjDupOf(s));
+        // el mismo criterio que el aviso: nombre o «nearest» (gjDupOf), o un contorno que cae sobre todo (≥ 50 % de su área) dentro de
+        // una de las regiones avisadas (antes solo gjDupOf: los que tapaban una región por cobertura se importaban como «Nombre 2»)
+        const dupSet = new Set(dups.map(m => m.name)), dupBase = new Set(dups.map(m => gjBase(m.name)));
+        const isDup = s => !!gjDupOf(s) || (!!gjName(s) && dupBase.has(gjBase(gjName(s)))) ||
+          ((s.an && s.an.sources) || []).some(x => dupSet.has(x.region) && (x.pct_new || 0) >= 0.5);
+        const n0 = shapes.length; shapes = shapes.filter(s => !isDup(s));
         if (n0 > shapes.length) report(`${n0 - shapes.length} contorno(s) duplicado(s) de regiones del mapa no se importan.`, 'ok');
       }
     }
@@ -3318,7 +3373,7 @@ function setScenGame(g) {
     if (!body.scen && !body.pack) { alert('Elige qué convertir.'); return; }
     body.skip_images = $x('#xcImg').checked;
     const what = [body.scen && ('escenario ' + chk.scen_root + '\\' + body.scen_out), body.pack && ('regionpack ' + chk.maps_dir + '\\' + body.pack_out)].filter(Boolean).join('\n');
-    if (!confirm('Se escribirá en la carpeta de ' + chk.to_short + ':\n' + what + '\n¿Continuar?')) return;
+    if (!confirm(`Se escribirá en la carpeta de ${chk.to_short}:\n${what}\n¿Continuar?`)) return;
     $x('#xcGo').disabled = true; $x('#xcRes').textContent = 'Convirtiendo…';
     try {
       const r = await (await fetch('/api/xconvert', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })).json();

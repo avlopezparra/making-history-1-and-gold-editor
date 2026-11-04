@@ -13,7 +13,13 @@ from shapely.geometry import LineString, box
 
 import mhmap
 import new_region
-from fix_texture import decode, splice, tile_name, SIZE, MIPS
+from fix_texture import decode, splice, tile_name, write_mips, SIZE, MIPS
+
+
+def _have(tiles_dir, name, ref_tile):
+    """El archivo del proyecto si existe; si no, el de referencia."""
+    p = os.path.join(tiles_dir, name)
+    return p if os.path.exists(p) else ref_tile(name)
 from paint_changes import TILE_DEG, tile_bounds, SEA_LINE_COLOR, S as SUPER
 from fix_texture import LINE_WIDTH, LINE_BLUR, LINE_COLOR
 
@@ -106,13 +112,48 @@ def _paint(img, masks, size):
     return img
 
 
-def restore(cur_map, ref_map, tiles_dir, ref_tile, only_bbox=None, log=print, repaint=True):
+def _stale_mips(path):
+    """True si los mipmaps del tile tienen trazos oscuros que su nivel 0 no tiene (líneas viejas que solo se ven de lejos).
+    Solo cuenta zonas lisas del nivel 0: junto a las líneas actuales la compresión DXT da diferencias que no son restos."""
+    import numpy as np
+    l0 = decode(open(path, 'rb').read(), SIZE).convert('L')
+    n = 0
+    for k in range(1, MIPS + 1):
+        s = SIZE >> k
+        mp = path[:-4] + '-%02d.tga' % k
+        if not os.path.exists(mp):
+            return False
+        sh = l0.resize((s, s), Image.BOX)
+        a = np.asarray(sh).astype(int)
+        flat = a - np.asarray(sh.filter(ImageFilter.MinFilter(5))).astype(int) < 12
+        m = np.asarray(decode(open(mp, 'rb').read(), s).convert('L')).astype(int)
+        n += int(((a - m > 25) & flat).sum())
+    return n > 20           # World original: 0; WorldModern Irak-Irán: 41..939; recién rehechos: 0..5
+
+
+def restore(cur_map, ref_map, tiles_dir, ref_tile, only_bbox=None, log=print, repaint=True, map_tile=None):
     """cur_map / ref_map: mapas cargados (mhmap) del proyecto y del regionpack por defecto. tiles_dir: tiles modificados del proyecto.
-    ref_tile(name) -> ruta del tile original. only_bbox (x0, y0, x1, y1) limita la zona. Devuelve [(tile, porcentaje_restaurado)]."""
+    ref_tile(name) -> ruta del tile original. only_bbox (x0, y0, x1, y1) limita la zona. Devuelve [(tile, porcentaje_restaurado)].
+    map_tile(name) -> ruta del tile en la carpeta del mapa: los tiles que el proyecto no tiene pero cuyos mipmaps traen líneas viejas
+    (p. ej. un regionpack instalado antes del arreglo) se copian al proyecto y se arreglan también."""
+    import shutil
     from shapely.ops import unary_union
     cc, cr = {}, {}
     done = []
-    names = sorted(f for f in os.listdir(tiles_dir) if f.startswith('OperationalTerrain-') and len(f.split('-')) == 3)
+    names = set(f for f in os.listdir(tiles_dir) if f.startswith('OperationalTerrain-') and len(f.split('-')) == 3)
+    if map_tile:
+        for c in range(24):
+            for r in range(13):
+                fn = tile_name(c, r)
+                lon0, lat0 = tile_bounds(c, r)
+                if fn in names or (only_bbox and (only_bbox[2] < lon0 or only_bbox[0] > lon0 + TILE_DEG
+                                                  or only_bbox[3] < lat0 - TILE_DEG or only_bbox[1] > lat0)):
+                    continue
+                src = map_tile(fn)
+                if os.path.exists(src) and _stale_mips(src):
+                    shutil.copyfile(src, os.path.join(tiles_dir, fn))
+                    names.add(fn)
+    names = sorted(names)
     for fn in names:
         c, r = (int(x) for x in fn[:-4].split('-')[1:3])
         lon0, lat0 = tile_bounds(c, r)
@@ -151,22 +192,13 @@ def restore(cur_map, ref_map, tiles_dir, ref_tile, only_bbox=None, log=print, re
         masks = _border_masks(cur_map, tb, to_px) if repaint else []
         new = _paint(new, masks, SIZE)       # fronteras siempre continuas: se repintan las actuales encima
         nb, n0 = splice(cur_b, new, cur, SIZE)
-        if n0 == 0:
+        if n0:
+            open(cur_path, 'wb').write(nb)
+        # mipmaps rehechos desde el nivel 0 restaurado, aunque este ya estuviera limpio: de lejos se ve lo mismo que de cerca
+        nm = sum(write_mips(c, r, new, lambda n: open(_have(tiles_dir, n, ref_tile), 'rb').read(), tiles_dir))
+        if not n0 and not nm:
             continue
-        open(cur_path, 'wb').write(nb)
-        for k in range(1, MIPS + 1):
-            s = SIZE >> k
-            mn = tile_name(c, r, k)
-            cp, rp = os.path.join(tiles_dir, mn), ref_tile(mn)
-            if not (os.path.exists(cp) and os.path.exists(rp)):
-                continue
-            cb, rb = open(cp, 'rb').read(), open(rp, 'rb').read()
-            ci, ri = decode(cb, s), decode(rb, s)
-            ni = Image.composite(ri, ci, mask.resize((s, s), Image.BILINEAR))
-            ni = _paint(ni, masks, s)
-            out, _ = splice(cb, ni, ci, s)
-            open(cp, 'wb').write(out)
-        log('tile %02d-%02d: fondo restaurado (%d bloques, %.0f %% de la imagen)' % (c, r, n0, frac * 100))
+        log('tile %02d-%02d: fondo restaurado (%d bloques, %.0f %% de la imagen; %d bloques de mipmaps)' % (c, r, n0, frac * 100, nm))
         done.append((fn, round(frac * 100, 1)))
     return done
 
@@ -188,15 +220,15 @@ def repaint_tiles(m, tiles_dir, names=None, only_bbox=None, log=print):
         masks = _border_masks(m, tb, to_px)
         if not masks:
             continue
-        for k in range(0, MIPS + 1):
-            s = SIZE >> k
-            p = os.path.join(tiles_dir, tile_name(c, r, k))
-            if not os.path.exists(p):
-                continue
-            b = open(p, 'rb').read()
-            cur = decode(b, s)
-            out, _ = splice(b, _paint(cur, masks, s), cur, s)
-            open(p, 'wb').write(out)
+        p = os.path.join(tiles_dir, tile_name(c, r))
+        if not os.path.exists(p):
+            continue
+        b = open(p, 'rb').read()
+        cur = decode(b, SIZE)
+        img = _paint(cur, masks, SIZE)
+        out, _ = splice(b, img, cur, SIZE)
+        open(p, 'wb').write(out)
+        write_mips(c, r, img, lambda n: open(os.path.join(tiles_dir, n), 'rb').read(), tiles_dir)    # los mipmaps, desde el nivel 0
         log('tile %02d-%02d: líneas de las regiones dibujadas' % (c, r))
         done.append('%02d-%02d' % (c, r))
     return done

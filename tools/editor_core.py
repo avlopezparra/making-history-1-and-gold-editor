@@ -37,6 +37,14 @@ MIN_AREA = 1e-10
 SLIVER = 1e-3        # grados2: un trozo tan pequeno, junto a otros mucho mayores, es un roce del borde, no un recorte
 
 
+class _DryOK(Exception):
+    """_save_once con '_dry': la malla saldría sana (no se escribe nada)."""
+
+
+def _where(x, y):
+    return '(lon %.2f, lat %.2f)' % (x, y)
+
+
 def drop_slivers(pieces):
     """Quita los trozos diminutos que salen al rozar el borde de una region vecina (rompen la malla al traspasarlos)."""
     big = max((p.area for p, _ in pieces), default=0)
@@ -624,6 +632,10 @@ class Project:
         """Guarda; si la malla resultante quedara rota (contorno invalido) reintenta saneando los poligonos poco a poco
         (valido -> rejilla -> simplificado -> redondeado) en vez de negarse. El informe avisa del nivel usado."""
         last = None
+        payload = self._effective_modified(payload)
+        asg_ok = any(a.get('kind', 'assign') == 'assign' and a.get('polygon') for a in payload.get('assigns') or [])
+        if payload.get('fix') == 'drop_bad' and (payload.get('modified') or asg_ok):
+            return self._save_dropping_bad(payload, log)
         for level in range(self.CLEAN_LEVELS + 1):
             pl = payload if level == 0 else self._clean_payload(payload, level)
             try:
@@ -640,7 +652,98 @@ class Project:
                 rep.setdefault('warnings', []).append('El contorno se ajustó automáticamente (nivel %d de %d: %s) para que la malla no se rompiera'
                                                        % (level, self.CLEAN_LEVELS, ('válido', 'rejilla de 1e-5°', 'simplificado', 'redondeado')[level - 1]))
             return rep
+        if payload.get('modified') or asg_ok:      # la página lo ofrece como botón (reenvía con fix='drop_bad')
+            raise SystemExit(str(last) + ' Solución: guardar sin las partes del cambio que rompen la malla (el editor las busca y dice cuáles quita).')
         raise last
+
+    def _save_dropping_bad(self, payload, log=print):
+        """La solución que propone el editor cuando un cambio de forma rompe la malla: prueba sus partes (lo ganado y lo perdido) de
+        mayor a menor, sin escribir, y guarda solo las que la dejan sana. El informe dice qué se quitó y dónde."""
+        mod = payload.get('modified') or {}
+        asgs = payload.get('assigns') or []
+        with self.lock:
+            mesh = {k: new_region.mesh_polygon(self.m, int(k)) for k in mod}
+            parts = []
+            for k, coords in mod.items():
+                g = make_valid(shape({'type': 'MultiPolygon', 'coordinates': coords}))
+                parts += [(k, 1, p) for p in polys_of(g.difference(mesh[k]))] + [(k, -1, p) for p in polys_of(mesh[k].difference(g))]
+            for i, a in enumerate(asgs):     # «Añadir área» (GeoJSON, asignar): cada parte de su polígono
+                if a.get('kind', 'assign') == 'assign' and a.get('polygon'):
+                    parts += [(i, 0, p) for p in polys_of(make_valid(shape(a['polygon'])))]
+        parts.sort(key=lambda x: -x[2].area)
+        tried, skipped = parts[:12], parts[12:]      # shortcut: ~3 s por prueba, solo las 12 mayores; si hiciera falta, subir el tope
+
+        def build(sel):
+            out = {}
+            for k in mod:
+                add = unary_union([p for kk, s, p in sel if kk == k and s > 0] or [Polygon()])
+                sub = unary_union([p for kk, s, p in sel if kk == k and s < 0] or [Polygon()])
+                polys = polys_of(make_valid(mesh[k].union(add).difference(sub)))
+                if polys:
+                    out[k] = mapping(MultiPolygon(polys))['coordinates']
+            na = []
+            for i, a in enumerate(asgs):
+                if a.get('kind', 'assign') == 'assign' and a.get('polygon'):
+                    ps = [p for kk, s, p in sel if kk == i and s == 0]
+                    if ps:
+                        na.append(dict(a, polygon=mapping(MultiPolygon(ps))))
+                else:
+                    na.append(a)
+            return dict(payload, modified=out, assigns=na, fix=None)
+
+        kept = []
+        for part in tried:
+            try:
+                self._save_once(dict(build(kept + [part]), _dry=True), lambda *a: None)
+            except _DryOK:
+                kept.append(part)
+            except SystemExit:
+                pass
+            finally:
+                self._drop_pending_snapshot()
+                self.reload()
+        if not kept:
+            raise SystemExit('No se guardó nada: ninguna parte del cambio, ni siquiera sola, deja la malla sana. Descarta el cambio y añádelo por partes más pequeñas.')
+        rep = self._save_once(build(kept), log)
+        for k, s, p in tried + skipped:
+            if (k, s, p) not in kept:
+                c = p.representative_point()
+                rep.setdefault('warnings', []).append('%s: se quitó del cambio una parte de %.4f grados² cerca de %s para que la malla no se rompiera'
+                                                       % (self.rname(int(asgs[k]['region'] if s == 0 else k)), p.area, _where(c.x, c.y)))
+        return rep
+
+    def _effective_modified(self, payload):
+        """Las formas editadas ('modified') llegan sobre el contorno que dibuja la página (features: trozos con rendijas fundidos,
+        contorno trazado), que no es exactamente la malla (p. ej. Ubangi Shari: 146 trozos de diferencia). Se aplica a la malla solo lo
+        que cambió el usuario (lo ganado y lo perdido respecto a lo dibujado); si no, cada rendija y cada redondeo pasaba a ser un traspaso."""
+        mod = payload.get('modified') or {}
+        if not mod:
+            return payload
+        out = {}
+        with self.lock:
+            for k, coords in mod.items():
+                out[k] = coords
+                try:
+                    r = int(k)
+                    g = shape({'type': 'MultiPolygon', 'coordinates': coords})
+                    if not g.is_valid:
+                        continue          # _save_once explica por qué no es válido
+                    main = self.outline(r)[0]
+                    if not main:
+                        continue
+                    drawn = make_valid(shape({'type': 'MultiPolygon', 'coordinates': self._merge_seams(main)}))
+                    mesh = new_region.mesh_polygon(self.m, r)
+                    # sin las rendijas de redondeo (p. ej. un GeoJSON de Mauritius que repite su contorno con otros decimales: tiras
+                    # de 1e-4 grados² a lo largo del borde que, pegadas a la malla, cruzaban su contorno y el guardado se negaba)
+                    ch = drop_slivers([(p, 1) for p in polys_of(g.difference(drawn))] + [(p, -1) for p in polys_of(drawn.difference(g))])
+                    eff = make_valid(mesh.union(unary_union([p for p, s in ch if s > 0] or [Polygon()]))
+                                     .difference(unary_union([p for p, s in ch if s < 0] or [Polygon()])))
+                    polys = polys_of(eff)
+                    if polys:
+                        out[k] = mapping(MultiPolygon(polys))['coordinates']
+                except Exception:
+                    pass                  # geometría que GEOS no sabe restar: se usa tal cual (como antes)
+        return dict(payload, modified=out)
 
     def _save_once(self, payload, log=print):
         """payload: {modified: {idx: coords MultiPolygon}, assigns: [{polygon, region, fill}], centers: {idx: [x, y]},
@@ -688,6 +791,13 @@ class Project:
             taken = {}   # region origen -> area ya traspasada
 
             def add(piece, src, dst):
+                if dst is not None and src is not None and not piece.is_empty:
+                    # lo que el destino YA tiene (mallas solapadas, p. ej. una isla dibujada encima de su mar): no se le vuelve a
+                    # añadir (duplicaría triángulos y su malla quedaría rota, p. ej. recortar mar hacia Mauritius); solo se quita al origen
+                    dup = piece.intersection(P(dst))
+                    if dup.area > MIN_AREA:
+                        add(dup, src, None)
+                        piece = piece.difference(P(dst))
                 for p in polys_of(piece):
                     if p.area < 1e-8:      # migas de ~100 m² que deja un contorno al rozar fronteras: solo crean «pellizcos» en la malla
                         continue
@@ -695,6 +805,9 @@ class Project:
                     if src is not None:
                         taken[src] = unary_union([taken[src], p]) if src in taken else p
 
+            for r in new_polys:
+                if R[r].u_type != SEA:
+                    new_polys[r] = self._snap(new_polys[r], owners, P, r)[0]
             # 1. areas ganadas: se quitan a quien las tenga; lo que no tiene dueno sale de la nada
             for r, g in new_polys.items():
                 gained = g.difference(P(r))
@@ -731,7 +844,8 @@ class Project:
                     into = asg.get('into')
                     into = int(into) if into is not None else None
                     # (un mar, lago o río también puede pasar a una región de tierra: sus flotas y puertos van al mar vecino)
-                    add(P(d), d, into)
+                    # lo que ya se llevó una región nueva de este mismo guardado (GeoJSON «Reemplazar») no se traspasa otra vez
+                    add(P(d).difference(taken[d]) if d in taken else P(d), d, into)
                     report.setdefault('deleted', []).append({'index': d, 'name': self.rname(d), 'raw': R[d].name,
                                                              'into': self.rname(into) if into is not None else None,
                                                              'sea': R[d].u_type == SEA})
@@ -793,6 +907,14 @@ class Project:
                         if part.area > MIN_AREA:
                             report['warnings'].append('ignorados %.1e grados² que el contorno tocaba de %s (roce con el borde)' % (part.area, R[s].name))
                         continue
+                    if kind == 'assign':
+                        # tiras de menos de ~100 m de ancho a lo largo de un borde (el GeoJSON repite el contorno con otros decimales,
+                        # p. ej. «Añadir área» a Mauritius): pegadas a la malla cruzaban su contorno y el guardado se negaba
+                        thin = [q for q in polys_of(part) if q.buffer(-self.SNAP / 2, join_style=2).is_empty]
+                        if thin:
+                            part = part.difference(unary_union(thin))
+                            if part.area <= MIN_AREA:
+                                continue
                     add(part, s, r)
                 if asg.get('fill'):
                     rest = poly.difference(unary_union([P(s) for s in owners(poly)] or [Polygon()]))
@@ -803,6 +925,11 @@ class Project:
                 self.reload()
                 return report
             if not transfers and not centers:
+                if created:      # create_region ya la añadió a self.m: sin recargar quedaba vacía y se escribía en el siguiente guardado
+                    self.reload()
+                    report['errors'] += ['%s: la región nueva quedaría sin área (el polígono solo toca migas de otras regiones)' % c['name']
+                                         for c in created]
+                    return report
                 report['warnings'].append('no hay cambios que guardar')
                 return report
             progress.step(25, 'Copia para «Volver»')
@@ -842,21 +969,29 @@ class Project:
                 R[r].cx, R[r].cy = f32(x), f32(y)
             progress.step(55, 'Comprobando la malla')
             self._guard(m, created, was_valid, report)      # aborta (sin escribir) si el resultado no es el esperado
+            if payload.get('_dry'):
+                raise _DryOK()
             progress.step(60, 'Escribiendo regions.bin, regions.nts y borders.brd')
             mhmap.save_map(m, self.xml)
             self._geom_cache = {}
             self._pending_snapshot = False
-            if os.path.isdir(self._redo_dir()):
-                shutil.rmtree(self._redo_dir())        # un guardado nuevo invalida lo que se podia rehacer
+            # el mapa ya está escrito: desde aquí nada puede dejar el guardado a medias (changelog primero; el resto, con aviso)
+            report['new_regions'] = [{k: v for k, v in c.items() if k != 'mother_index'} for c in created]
+            self.log_change(report, new_pairs, centers, R, payload)
+
+            def later(label, f):
+                try:
+                    return f()
+                except Exception as e:
+                    report.setdefault('warnings', []).append('%s: %s' % (label, e))
+            later('no se pudo vaciar «Rehacer»', lambda: shutil.rmtree(self._redo_dir()) if os.path.isdir(self._redo_dir()) else None)
             if payload.get('paint', True) and (changes['erase'] or changes['paint']):
                 progress.step(65, 'Pintando el terreno')
-                tiles = paint_tiles(changes, os.path.join(self.map_dir, 'art', 'OperationalTerrain'), self.tiles,
-                                    originals=self.tiles, log=log)
-                report['tiles'] = ['%02d-%02d' % t for t in tiles]
-            json.dump(changes, open(os.path.join(self.dir, 'ultimo_cambio.json'), 'w'))
-            report['new_regions'] = [{k: v for k, v in c.items() if k != 'mother_index'} for c in created]
+                tiles = later('no se pudo pintar el fondo (usa «Redibujar fronteras»)', lambda: paint_tiles(
+                    changes, os.path.join(self.map_dir, 'art', 'OperationalTerrain'), self.tiles, originals=self.tiles, log=log))
+                report['tiles'] = ['%02d-%02d' % t for t in tiles or []]
+            later('no se pudo escribir ultimo_cambio.json', lambda: json.dump(changes, open(os.path.join(self.dir, 'ultimo_cambio.json'), 'w')))
             progress.step(70, 'Comprobando el mapa')
-            self.log_change(report, new_pairs, centers, R, payload)
             self.reload()
             # islas nuevas: su tierra y su costa en el fondo (si no, en el juego solo se ve mar)
             isl = [c['name'] for c in created if not c.get('sea') and self.is_island(c['name'])]
@@ -865,11 +1000,11 @@ class Project:
                     report['islands_painted'] = self.paint_islands(isl, log=log)
                 except Exception as e:      # el fondo no debe impedir guardar el mapa
                     report.setdefault('warnings', []).append('no se pudo pintar en el fondo %s: %s' % (', '.join(isl), e))
-            report['map_xml'] = self.inherit_links(created)
+            report['map_xml'] = later('no se copiaron los vínculos de map.xml', lambda: self.inherit_links(created)) or []
             report['new_pairs'] = [[R[a].name, R[b].name] for a, b in new_pairs]
             if report.get('deleted'):
-                self._finish_deletions(report['deleted'], log)
-            report['check'] = self.check()
+                later('no se terminaron de quitar las regiones borradas', lambda: self._finish_deletions(report['deleted'], log))
+            report['check'] = later('no se pudo comprobar el mapa', self.check)
             report['seconds'] = round(time.time() - t0, 1)
             return report
 
@@ -898,6 +1033,30 @@ class Project:
                    for p, (i, t) in pieces]
             return sorted(res, key=lambda x: -x['taken'])
 
+    SNAP = 1e-3     # grados (~100 m)
+
+    def _snap(self, poly, owners, P, r=None):
+        """Ajusta un polígono nuevo o editado a las fronteras vecinas: las rendijas SIN región de menos de ~2·SNAP de ancho entre
+        él y una vecina pasan a él, y los solapes nuevos más finos que SNAP se quedan en la vecina. Si no, un GeoJSON que no
+        encajaba dejaba puntos del fondo a lo largo de la frontera (Irak–Irán en WorldModern). Devuelve (polígono, rendijas)."""
+        t = self.SNAP
+        win = poly.buffer(4 * t, join_style=2)
+        near = [s for s in owners(win) if s != r]
+        if not near:
+            return poly, []
+        U = unary_union([P(s).intersection(win) for s in near])
+        both = unary_union([poly, U, P(r) if r is not None else Polygon()])
+        closed = both.buffer(t, join_style=2).buffer(-t, join_style=2).intersection(poly.buffer(2 * t, join_style=2))
+        slits = [q for q in polys_of(closed.difference(both)) if q.distance(poly) < 1e-9 and q.distance(U) < 1e-9]
+        new = poly.difference(P(r)) if r is not None else poly
+        thin = [q for q in polys_of(new.intersection(U)) if q.buffer(-t / 2, join_style=2).is_empty]
+        out = poly
+        if thin:
+            out = out.difference(unary_union(thin))
+        if slits:
+            out = out.union(unary_union(slits))
+        return (make_valid(out) if thin or slits else poly), slits
+
     def _plan_new_region(self, asg, created, add, owners, P, report):
         """Crea (vacia) la region nueva y planifica los traspasos que le dan su area.
         asg: {polygon, name, from (region madre: subdividir) o None (dibujada sobre el mar), owner, u_type, fill}"""
@@ -914,6 +1073,9 @@ class Project:
                                     'bórrala con «Eliminar región» (modo Editar forma) y dibújala de nuevo' % name)
             return
         poly = make_valid(shape(asg['polygon']))
+        slits = []
+        if not asg.get('sea'):
+            poly, slits = self._snap(poly, owners, P)
         mother = asg.get('from')
         mother = int(mother) if mother is not None else None
         pieces = []
@@ -1003,9 +1165,12 @@ class Project:
         if not asg.get('sea') and not 1 <= u_type <= 4:
             report['errors'].append('%s: tipo de terreno %s no válido (1..4)' % (name, u_type))
             return
+        if slits and not asg.get('fill'):       # con «rellenar huecos» ya van en las piezas
+            pieces += [(q, None) for q in slits]
         expected = sum(p.area for p, _ in pieces)
         idx = new_region.create_region(self.m, name, u_type)
-        created.append({'index': idx, 'name': name, 'text': text, 'mother': R[mother].name if mother is not None else None,
+        # madre con el nombre de los escenarios (RegionRename de map.xml): con el de regions.bin no se encontraba al registrarla
+        created.append({'index': idx, 'name': name, 'text': text, 'mother': self.rname(mother) if mother is not None else None,
                         'mother_index': mother, 'owner': asg.get('owner'), 'controller': asg.get('controller'), 'u_type': u_type,
                         'terrain': asg.get('terrain'), 'sea': bool(asg.get('sea')),
                         'pop_fractions': asg.get('pop_fractions'), 'expected_area': round(expected, 6),
@@ -1067,7 +1232,7 @@ class Project:
                 out.append({'polygon': _mp(u.buffer(1e-7)), 'into': n, 'into_name': self.rname(n), 'area': round(u.area, 6)})
         return out
 
-    def small_gaps(self, max_area=0.05, eps=0.03, pair=None, region=None):
+    def small_gaps(self, max_area=0.05, eps=0.03, pair=None, region=None, max_width=None):
         """Huecos pequeños (sin región) entre regiones: agujeros cerrados y rendijas estrechas de menos de max_area grados².
         Cada uno con la región (de tierra si la hay) con la que más borde comparte. pair=(a, b): solo los que tocan a las dos."""
         from shapely.geometry import mapping as _mp, Polygon as _Poly
@@ -1102,6 +1267,8 @@ class Project:
             for gp in getattr(gaps, 'geoms', [gaps]):
                 if gp.geom_type != 'Polygon' or gp.area <= MIN_AREA or gp.area > max_area:
                     continue
+                if max_width and 2 * gp.area / max(gp.length, 1e-12) >= max_width:     # ancho medio: solo rendijas
+                    continue
                 ring = gp.buffer(1e-5)
                 touch = []
                 for j in tree.query(ring):
@@ -1115,7 +1282,8 @@ class Project:
                     continue
                 landt = [t for t in touch if not t[2]]
                 best = region if region is not None else max(landt or touch, key=lambda t: t[1])[0]
-                out.append({'polygon': _mp(gp), 'into': best, 'into_name': self.rname(best), 'area': round(gp.area, 8)})
+                out.append({'polygon': _mp(gp), 'into': best, 'into_name': self.rname(best), 'area': round(gp.area, 8),
+                            'land': [t[0] for t in sorted(landt, key=lambda t: -t[1])]})
             return out
 
     def validate(self):
@@ -1140,6 +1308,16 @@ class Project:
             for k, v in seen.items():
                 if len(v) > 1:
                     out.append({'level': 'error', 'region': v[0], 'msg': 'nombre repetido %d veces' % len(v)})
+        # rendijas sin región entre dos regiones de tierra (un GeoJSON que no encajaba): en el juego, puntos del fondo en la frontera
+        pairs = {}
+        for x in self.small_gaps(max_area=0.05, eps=self.SNAP, max_width=self.SNAP):
+            g = shape(x['polygon'])
+            if len(x['land']) >= 2:
+                k = tuple(sorted(x['land'][:2]))
+                pairs[k] = (pairs.get(k, (0, 0))[0] + 1, pairs.get(k, (0, 0))[1] + g.area)
+        for (a, b), (n, ar) in sorted(pairs.items(), key=lambda kv: -kv[1][1]):
+            out.append({'level': 'aviso', 'region': self.rname(a), 'fix': {'gaps_pair': [a, b]},
+                        'msg': '%d rendija(s) sin región en la frontera con %s (%.6f grados²): en el juego se ven como puntos del fondo' % (n, self.rname(b), ar)})
         for x in self.new_regions_info():
             if x.get('ownerless'):
                 out.append({'level': 'aviso', 'region': x['name'], 'msg': 'región nueva sin dueño ni región de origen: al adecuar un escenario hay que elegirle país'})
@@ -1304,12 +1482,16 @@ class Project:
 
     def redraw_borders(self, region=None, log=print):
         """«Redibujar fronteras»: vuelve a pintar en el fondo (tiles/ del proyecto) las líneas de todas las fronteras según
-        borders.brd: tierra-tierra, mar-mar y el polígono de las islas (no su costa). Antes respalda los tiles del proyecto."""
-        R = self.m['regions']
+        borders.brd: tierra-tierra, mar-mar y el polígono de las islas (no su costa). Se puede deshacer con «Volver»."""
         ch = {'erase': [], 'paint': [], 'islands': []}
         with self.lock:
+            R = self.m['regions']
+            if region is not None and not 0 <= region < len(R):
+                raise ValueError('la región %s ya no existe (recarga el mapa)' % region)
             for b in self.m['borders']:
                 if region is not None and region not in b.regions:     # solo la región elegida y sus fronteras con las vecinas
+                    continue
+                if len(b.regions) != 2:          # frontera sin fila en la tabla de vecinos: no se sabe de qué tipo es
                     continue
                 a, c = (R[i].u_type == SEA for i in b.regions)
                 if a != c:        # costa: solo la de las islas (su polígono, como Cabo Verde); la de los continentes ya está en el fondo
@@ -1320,13 +1502,13 @@ class Project:
                 for f, p in b.segments:
                     if len(p) > 1:
                         ch['paint'].append({'type': 'LineString', 'coordinates': [list(q) for q in p], 'kind': 'sea' if a else 'land'})
-            bak = os.path.join(self.backup_dir, 'tiles_antes_redibujar_' + time.strftime('%Y%m%d-%H%M%S'))
-            if os.path.isdir(self.tiles) and os.listdir(self.tiles):
-                shutil.copytree(self.tiles, bak)
             if region is not None and R[region].u_type != SEA and self.is_island(self.rname(region)):
-                ch['unring'] = [mapping(self.region_geom(self.rname(region)))]      # isla: sin contorno pegado a la costa
+                g = self.region_geom(self.rname(region))
+                if g is not None and not g.is_empty:
+                    ch['unring'] = [mapping(g)]      # isla: sin contorno pegado a la costa
+            self.snapshot(log)       # se puede deshacer con «Volver» (sin copias aparte de los tiles)
             tiles = paint_tiles(ch, os.path.join(self.map_dir, 'art', 'OperationalTerrain'), self.tiles, originals=self.tiles, log=log)
-        return {'tiles': ['%02d-%02d' % t for t in tiles], 'lines': len(ch['paint']), 'backup': bak if os.path.isdir(bak) else None}
+        return {'tiles': ['%02d-%02d' % t for t in tiles], 'lines': len(ch['paint'])}
 
     def install_tiles(self, tiles):
         """Copia al juego solo esos tiles del fondo (y sus mipmaps) desde tiles/ del proyecto: un cambio de fondo sin tocar el mapa."""
@@ -1418,6 +1600,16 @@ class Project:
             pass
         return self._mesh_ok(m, r)
 
+    @staticmethod
+    def _broken_where(m, r):
+        """' cerca de (lon, lat)': el punto donde el contorno de r deja de ser válido (o '' si GEOS no lo dice)."""
+        try:
+            main, _ = outlines.region_polygons(m, r)
+            hit = re.search(r'\[(-?[\d.e-]+) (-?[\d.e-]+)\]', explain_validity(shape({'type': 'MultiPolygon', 'coordinates': main})))
+            return ' cerca de %s' % _where(float(hit.group(1)), float(hit.group(2))) if hit else ''
+        except Exception:
+            return ''
+
     def _guard(self, m, created, was_valid, report):
         """Antes de escribir el mapa: ninguna region que era valida queda rota, y cada region nueva tiene
         (casi) el area que se dibujo. Si no, se descarta todo y se explica por qué."""
@@ -1426,7 +1618,7 @@ class Project:
         gone = {d['index'] for d in report.get('deleted', [])}     # las que se eliminan quedan vacías a propósito
         for r, ok in was_valid.items():
             if ok and r < len(R) and r not in gone and not self._mesh_valid(m, r):
-                problems.append('la malla de %s quedaría rota (contorno inválido)' % self.rname(r))
+                problems.append('la malla de %s quedaría rota (contorno inválido)' % self.rname(r) + self._broken_where(m, r))
         for c in created:
             exp = c.get('expected_area') or 0
             got = new_region.mesh_polygon(m, c['index'])

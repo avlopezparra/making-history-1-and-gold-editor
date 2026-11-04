@@ -110,10 +110,11 @@ def region_polygons(m, r):
     main, detail = [], []
     if len(per) > 1:
         geo = [unary_union([Polygon(p[0], p[1:]) for p in ps]) if ps else None for ps in per]
+        cov = [g.buffer(1e-7) if g is not None else None for g in geo]
         for i, ps in enumerate(per):
-            covered = geo[i] is not None and any(j != i and geo[j] is not None and geo[j].buffer(1e-7).covers(geo[i])
-                                                 for j in range(len(per)))
-            (detail if covered else main).extend(ps)
+            for p in ps:      # por polígono: un shape con la isla bajo su halo y otra isla aparte (Mauritius + una isla importada)
+                covered = any(j != i and cov[j] is not None and cov[j].covers(Polygon(p[0], p[1:])) for j in range(len(per)))
+                (detail if covered else main).append(p)
     else:
         main = per[0] if per else []
     fmt = lambda polys: [[[list(q) for q in ring + ring[:1]] for ring in poly] for poly in polys]

@@ -4,6 +4,7 @@ con User-Agent propio; las respuestas se guardan en caché para poder trabajar s
 import hashlib
 import json
 import os
+import sys
 import time
 import urllib.parse
 import urllib.request
@@ -11,7 +12,9 @@ import urllib.request
 UA = 'MHModdingKit/3.1 (Making History scenario editor; local tool) Python-urllib'
 API = 'https://www.wikidata.org/w/api.php'
 SPARQL = 'https://query.wikidata.org/sparql'
-CACHE = os.path.join(os.path.dirname(os.path.abspath(__file__)), '.cache', 'wikidata')
+# en MHEditor.exe, junto a los datos (MH_ROOT): dentro de _internal la borraba cada compilación
+CACHE = os.path.join(os.environ['MH_ROOT'] if getattr(sys, 'frozen', False) and os.environ.get('MH_ROOT') else os.path.dirname(os.path.abspath(__file__)),
+                     '.cache', 'wikidata')
 MAX_GAP = 20          # años: población solo si el dato está a esta distancia del año del escenario
 WORLDCITYPOP = 'https://www.worldcitypop.com/data.asp'
 SETTLEMENT = 'Q486972'     # asentamiento humano (ciudades, pueblos…)

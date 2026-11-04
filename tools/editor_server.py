@@ -4,10 +4,12 @@ Uso:  python editor_server.py [--proyecto CARPETA] [--puerto 8765]
 Luego abrir http://localhost:8765 en el navegador.
 """
 import argparse
+import hmac
 import io
 import json
 import os
 import re
+import secrets
 import shutil
 import sys
 import threading
@@ -31,8 +33,18 @@ try:
 except ImportError:
     ai_chat = None
 import changelog_keys  # noqa: E402
+import diag_log  # noqa: E402   (MHEditor.log)
 
 PROJECT = None
+# seguridad: el servidor solo escucha en 127.0.0.1, pero cualquier web abierta en el navegador podía mandarle un POST (CSRF) o leerlo
+# con DNS rebinding. Se exige Host local, Origin local (si lo hay) y, en los POST, este token, que el servidor mete en sus páginas.
+# MH_API_TOKEN fija el token (pruebas con curl); si no, uno nuevo por arranque, escrito en logs/mheditor_token_<puerto>.txt.
+API_TOKEN = os.environ.get('MH_API_TOKEN') or secrets.token_urlsafe(24)
+LOCAL_HOSTS = ('127.0.0.1', 'localhost', '::1')
+TOKEN_JS = ('<script>(() => {{ const T = window.MH_TOKEN = {tok}; const f = window.fetch;'
+            ' window.fetch = (u, o) => {{ try {{ const url = new URL(typeof u === "string" || u instanceof URL ? u : u.url, location.href);'
+            ' if (url.origin === location.origin) {{ o = Object.assign({{}}, o || {{}}); const h = new Headers(o.headers || (u && u.headers) || {{}});'
+            ' h.set("X-MH-Token", T); o.headers = h; }} }} catch (e) {{}} return f(u, o); }}; }})();</script>')
 TILE_CACHE = OrderedDict()
 TILE_LOCK = threading.Lock()
 LOG = []
@@ -48,11 +60,29 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, *a):
         pass
 
+    def _local(self, post=False):
+        """La petición viene de una página de este servidor (o de un programa local), no de otra web: Host local siempre; Origin local
+        si lo trae; en los POST, el token de la página (cabecera X-MH-Token)."""
+        host = (self.headers.get('Host') or '').strip().lower()
+        name = host[1:].split(']')[0] if host.startswith('[') else host.rsplit(':', 1)[0]
+        if name not in LOCAL_HOSTS:
+            return False
+        origin = self.headers.get('Origin')
+        if origin is not None and (urlparse(origin).hostname or '') not in LOCAL_HOSTS:
+            return False
+        return not post or hmac.compare_digest(self.headers.get('X-MH-Token') or '', API_TOKEN)
+
     def send(self, code, body, ctype='application/json; charset=utf-8', cache=False):
+        self._status = code         # para MHEditor.log (diag_log)
+        if isinstance(body, dict) and (body.get('error') or body.get('errors')):
+            self._err = body.get('error') or body.get('errors')
         if isinstance(body, (dict, list)):
             body = json.dumps(body).encode('utf-8')
         elif isinstance(body, str):
             body = body.encode('utf-8')
+        if ctype.startswith('text/html') and b'<head>' in body:      # token para los POST de la página (y de sus iframes)
+            body = body.replace(b'<head>', b'<head>' + TOKEN_JS.format(tok=json.dumps(API_TOKEN)).encode('utf-8'), 1)
+            cache = False
         self.send_response(code)
         self.send_header('Content-Type', ctype)
         self.send_header('Content-Length', str(len(body)))
@@ -61,11 +91,15 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_GET(self):
+        if not self._local():
+            return self.send(403, {'error': 'solo se aceptan peticiones del propio editor (localhost)'})
         u = urlparse(self.path)
         q = parse_qs(u.query)
         try:
             if u.path in ('/', '/index.html'):
                 return self.send(200, open(os.path.join(HERE, 'editor', 'index.html'), 'rb').read(), 'text/html; charset=utf-8')
+            if u.path == '/api/log':         # texto de MHEditor.log para «Copiar log»
+                return self.send(200, {'path': diag_log.PATH[0], 'text': diag_log.read(), 'enabled': diag_log.enabled()})
             if u.path.startswith('/api/wikidata/'):
                 return self.send(200, wikidata_api(u.path, {k: v[0] for k, v in q.items()}))
             if u.path == '/api/meta':
@@ -196,7 +230,11 @@ class Handler(BaseHTTPRequestHandler):
             if u.path == '/api/progress':
                 return self.send(200, progress.get())
             if u.path == '/ai_chat.js':
+                if ai_chat is None:       # sin ai_chat.py (MHEditor.exe lo excluye): sin el botón del chat (antes daba errores 500)
+                    return self.send(200, '// chat de IA no incluido en esta versión', 'text/javascript; charset=utf-8')
                 return self.send(200, open(os.path.join(HERE, 'editor', 'ai_chat.js'), 'rb').read(), 'text/javascript; charset=utf-8')
+            if u.path.startswith('/api/ai/') and ai_chat is None:
+                return self.send(200, {'error': 'el chat de IA no está incluido en esta versión'})
             if u.path == '/api/ai/config':     # chat de IA: proveedores (sin claves)
                 return self.send(200, ai_chat.public())
             if u.path == '/api/ai/routes':
@@ -233,7 +271,8 @@ class Handler(BaseHTTPRequestHandler):
                     if u.path == '/api/model/glb':
                         return self.send(200, models_api.glb(g['path']), 'model/gltf-binary')
                     if u.path == '/api/model/tex':
-                        return self.send(200, models_api.tex_png(g['path'], g['block']), 'image/png')
+                        fmt = g.get('fmt', 'png')
+                        return self.send(200, models_api.tex_png(g['path'], g['block'], fmt), 'image/x-tga' if fmt == 'tga' else 'image/png')
                     if u.path == '/api/model/obj':
                         return self.send(200, models_api.obj_zip(g['path']), 'application/zip')
                 except (ValueError, KeyError, OSError) as e:
@@ -296,6 +335,9 @@ class Handler(BaseHTTPRequestHandler):
             return self.send(500, {'error': str(e)})
 
     def do_POST(self):
+        if not self._local(post=True):
+            return self.send(403, {'error': 'petición rechazada: no viene de una página del editor (falta el token o no es localhost); recarga la página',
+                                   'errors': ['petición rechazada: no viene de una página del editor (falta el token o no es localhost); recarga la página']})
         # avance de la acción para la barra de carga de la página (GET /api/progress)
         progress.begin()
         try:
@@ -307,7 +349,22 @@ class Handler(BaseHTTPRequestHandler):
         u = urlparse(self.path)
         n = int(self.headers.get('Content-Length') or 0)
         payload = json.loads(self.rfile.read(n) or b'{}')
+        self._payload = payload if not u.path.startswith('/api/ai/') else {'ai': u.path}    # nada de los ajustes / claves de la IA
         try:
+            if u.path == '/api/log':            # errores y pasos que manda la página (MHEditor.log)
+                diag_log.client(payload.get('entries') or [])
+                self._payload = None
+                return self.send(200, {'ok': True})
+            if u.path == '/api/log/enable':       # casilla «Guardar registro de diagnóstico»
+                return self.send(200, {'enabled': diag_log.set_enabled(bool(payload.get('on')))})
+            if u.path == '/api/log/folder':       # «Abrir carpeta del log»
+                if diag_log.PATH[0] and hasattr(os, 'startfile'):
+                    os.startfile(os.path.dirname(os.path.abspath(diag_log.PATH[0])))
+                return self.send(200, {'path': diag_log.PATH[0] and os.path.dirname(os.path.abspath(diag_log.PATH[0]))})
+            if u.path == '/api/log/open':
+                if diag_log.PATH[0] and hasattr(os, 'startfile'):
+                    os.startfile(diag_log.PATH[0])
+                return self.send(200, {'path': diag_log.PATH[0]})
             if u.path.startswith('/api/ai/'):
                 return self.send(200, ai_post(u.path, payload))
             if u.path.startswith('/api/wikidata/'):
@@ -352,7 +409,8 @@ class Handler(BaseHTTPRequestHandler):
                     news = [{'nombre': c['name'], 'texto': c.get('text'), 'madre': c['mother'], 'pais': c.get('owner'), 'tipo': c['u_type'],
                              'fraccion': c.get('fraccion'), 'controlador': c.get('controller'), 'terreno': c.get('terrain'),
                              'mar': c.get('sea'), 'poblacion': c.get('pop_fractions'), 'historicos': c.get('historic'),
-                             'poblacion_manual': c.get('population'), 'ciudad': c.get('city'), 'nacion': c.get('nation')} for c in rep['new_regions']]
+                             'poblacion_manual': c.get('population'), 'ciudad': c.get('city'), 'nacion': c.get('nation'),
+                             'madres': c.get('mothers')} for c in rep['new_regions']]
                     ns = payload.get('new_scenario')
                     if ns:
                         try:
@@ -360,17 +418,17 @@ class Handler(BaseHTTPRequestHandler):
                                                                                ns.get('display') or None, ns.get('description') or None)
                         except (ValueError, OSError) as e:
                             rep.setdefault('warnings', []).append('escenario nuevo «%s» no creado: %s' % (ns.get('name'), e))
-                    register_regions.force = set(payload.get('force_scenarios') or [])
-                    rep['scenarios'] = register_regions(news, scenario_core.scenarios_using(PROJECT.pack), pf=progress.part(75, 99))
-                    register_regions.force = set()
-                    rep['conflicts'] = register_regions.conflicts
+                    rep['conflicts'] = []
+                    rep['scenarios'] = register_regions(news, scenario_core.scenarios_using(PROJECT.pack), pf=progress.part(75, 99),
+                                                        force=set(payload.get('force_scenarios') or []), conflicts=rep['conflicts'])
                     # el escenario abierto en el editor usa otro regionpack: la página pregunta si pasarlo a este
                     op = payload.get('scenario')
                     if op and op not in rep['scenarios'] and op in scenario_core.scenarios():
                         rep['open_other_pack'] = {'name': op, 'pack': scenario_core.pack_of(scenario(op))}
                 if rep.get('deleted') and not rep.get('errors') and payload.get('register', True):
-                    dele = delete_from_scenarios(rep['deleted'], scenario_core.scenarios_using(PROJECT.pack), pf=progress.part(75, 99))
-                    PROJECT.note_deleted_population(delete_from_scenarios.pops)
+                    pops = {}
+                    dele = delete_from_scenarios(rep['deleted'], scenario_core.scenarios_using(PROJECT.pack), pf=progress.part(75, 99), pops=pops)
+                    PROJECT.note_deleted_population(pops)
                     rep.setdefault('scenarios', {})
                     for k, v in dele.items():
                         rep['scenarios'].setdefault(k, []).extend(v)
@@ -400,18 +458,14 @@ class Handler(BaseHTTPRequestHandler):
                      'controlador': payload.get('controller'), 'terreno': payload.get('terrain'),
                      'poblacion_manual': payload.get('population'), 'texto': payload.get('text'),
                      'poblacion': {payload['mother']: float(payload.get('pop_pct') or 0) / 100} if payload.get('mother') else None}
-                # habitantes puestos a mano al crearla (changelog): mandan sobre el % de la madre del diálogo (antes se perdían)
-                if x['poblacion_manual'] is None:
-                    try:
-                        made = [c for e in PROJECT.changelog() for c in e.get('regiones_nuevas', []) if c.get('nombre') == payload['name']]
-                    except Exception:
-                        made = []
-                    if made and made[-1].get('poblacion_manual') is not None:
-                        x['poblacion_manual'], x['poblacion'] = made[-1]['poblacion_manual'], None
-                register_regions.force = set(payload.get('force_scenarios') or [])
-                out = register_regions([x], [payload['scenario']])
-                register_regions.force = set()
-                rep = {'scenarios': out, 'conflicts': register_regions.conflicts}
+                # habitantes a mano (el diálogo propone los del changelog): salen de la madre en vez de usar el %
+                if x['poblacion_manual'] is not None:
+                    x['poblacion'] = None
+                    if x.get('madre'):
+                        x['madres'] = {x['madre']: 1.0}
+                conflicts = []
+                out = register_regions([x], [payload['scenario']], force=set(payload.get('force_scenarios') or []), conflicts=conflicts)
+                rep = {'scenarios': out, 'conflicts': conflicts}
                 keep_game_loadable(rep)
                 return self.send(200, rep)
             if u.path == '/api/geojson/create_nations':
@@ -429,7 +483,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send(200, {'nations': out, 'dirty': dirty})
             if u.path == '/api/geojson/exclaves':
                 import geojson_compare
-                return self.send(200, geojson_compare.exclaves(PROJECT, payload['polygon'], float(payload.get('max_pct') or 0.05)))
+                return self.send(200, geojson_compare.exclaves(PROJECT, payload['polygon'], float(payload.get('max_pct') or 0.05),
+                                                               payload.get('sources')))
             if u.path == '/api/background/restore':
                 # restaura el fondo desde el World original donde no hay frontera dibujada (ver background_restore.py); se puede deshacer con «Volver»
                 ref = vanilla_folder()
@@ -443,7 +498,8 @@ class Handler(BaseHTTPRequestHandler):
                         orig = gamepaths.map_backup()
                         world = os.path.join(editor_core.MAPS, 'World')
                         done = background_restore.restore(PROJECT.m, mhmap.load_map(os.path.join(ref, 'xml')), PROJECT.tiles,
-                                                          lambda n: vanilla_ref.tile_path(n, orig, world), bb, log)
+                                                          lambda n: vanilla_ref.tile_path(n, orig, world), bb, log,
+                                                          map_tile=lambda n: os.path.join(PROJECT.map_dir, 'art', 'OperationalTerrain', n))
                         lines = background_restore.repaint_tiles(PROJECT.m, PROJECT.tiles, only_bbox=bb, log=log) \
                             if payload.get('lines') else []          # opción «Dibujar las líneas de las regiones»
                     except Exception as e:
@@ -600,9 +656,12 @@ class Handler(BaseHTTPRequestHandler):
                 # «Redibujar fronteras»: líneas de todas las fronteras en tiles/ del proyecto (el juego, solo al Instalar)
                 try:
                     r = payload.get('region')
-                    return self.send(200, PROJECT.redraw_borders(None if r is None else int(r)))
-                except (ValueError, OSError) as e:
-                    return self.send(200, {'error': str(e)})
+                    out = PROJECT.redraw_borders(None if r is None else int(r), log=log)
+                    PROJECT_VERSION[0] += 1
+                    return self.send(200, out)
+                except Exception as e:      # cualquier fallo con su texto (antes la página mostraba «Cannot read properties of undefined»)
+                    traceback.print_exc()
+                    return self.send(200, {'error': 'no se pudieron redibujar las fronteras: %s' % e})
             if u.path == '/api/install_tiles':
                 # instalar solo el fondo: copia al juego esos tiles del proyecto (sin tocar regions.bin, borders.brd ni escenarios)
                 return self.send(200, {'copied': PROJECT.install_tiles(payload.get('tiles') or [])})
@@ -901,9 +960,25 @@ class Handler(BaseHTTPRequestHandler):
             return self.send(404, {'error': 'no encontrado'})
         except Exception as e:
             traceback.print_exc()
+            PROJECT._drop_pending_snapshot()      # instantánea de un guardado que no llegó a escribir el mapa
             PROJECT.reload()
-            return self.send(500, {'errors': ['error interno: %s' % e], 'warnings': [], 'transfers': []})
+            return self.send(500, {'error': 'error interno: %s' % e, 'errors': ['error interno: %s' % e], 'warnings': [], 'transfers': []})
 
+
+def _logged(method, fn):
+    """Cada petición a /api queda en MHEditor.log: método, ruta, estado, duración, resumen del contenido y el error si lo hubo."""
+    def run(self):
+        t0, self._status, self._err, self._payload = time.time(), None, None, None
+        try:
+            return fn(self)
+        finally:
+            if self.path.startswith('/api/'):
+                diag_log.request(method, self.path, self._status, t0, self._payload, self._err)
+    return run
+
+
+Handler.do_GET = _logged('GET', Handler.do_GET)
+Handler.do_POST = _logged('POST', Handler.do_POST)
 
 PROJECT_VERSION = [0]
 
@@ -1076,13 +1151,13 @@ def scenario_countries(name):
     return sorted(f[7:-4] for f in os.listdir(d) if f.startswith('country') and f.endswith('.xml')) if os.path.isdir(d) else []
 
 
-def register_regions(news, names, check_pack=False, pf=None):
+def register_regions(news, names, check_pack=False, pf=None, force=(), conflicts=None):
     """Registra regiones nuevas del mapa (entradas 'regiones_nuevas' del changelog) en los escenarios 'names'
     y los guarda (con copia de seguridad). Devuelve {escenario: notas}."""
     from shapely.geometry import Point
     import new_region
     out = {}
-    register_regions.conflicts = []
+    conflicts = conflicts if conflicts is not None else []      # unidades que quedan en territorio de otro (parámetro: el servidor es multihilo)
     R = PROJECT.m['regions']
     ub = {PROJECT.rname(g.index): g.u_b for g in R}
     with SCEN_LOCK:
@@ -1092,7 +1167,7 @@ def register_regions(news, names, check_pack=False, pf=None):
             try:
                 s = scenario(name)
                 st = scenario_core.STORE
-                forced = name in (getattr(register_regions, 'force', None) or ())
+                forced = name in force
                 if any(x in st.dirty for x in s.paths) and not forced:
                     out[name] = ['no se ha tocado: el escenario tiene cambios sin guardar en el editor de escenarios '
                                  '(guárdalos o reviértelos y usa «Aplicar changelog»)']
@@ -1107,7 +1182,9 @@ def register_regions(news, names, check_pack=False, pf=None):
                 for j, x in enumerate(news):
                     x = scenario_layers.for_scenario(x, name)     # dueño propio de este escenario, si el changelog lo trae
                     nm, mother = x['nombre'], x.get('madre')
-                    if nm in have_regions:          # ya está en el escenario: no se vuelve a repartir población ni a cambiar de dueño
+                    if mother and mother not in have_regions:      # changelogs antiguos: madre con el nombre de regions.bin
+                        mother = PROJECT.renames.get(mother, mother)
+                    if nm in have_regions:         # ya está en el escenario: no se vuelve a repartir población ni a cambiar de dueño
                         notes.append('%s: ya existía en el escenario; no se toca' % nm)
                         continue
                     sp(j * 6, '%s: creando la región' % nm)
@@ -1128,14 +1205,22 @@ def register_regions(news, names, check_pack=False, pf=None):
                             if g_new is not None and g_m is not None:
                                 goes = (lambda gn, gm: lambda px, py: gn.distance(Point(px, py)) < gm.distance(Point(px, py)))(g_new, g_m)
                             pops = x.get('poblacion')   # {region de origen: fraccion de sus habitantes} elegida en el dialogo
-                            notes += scenario_core.add_new_region(s, nm, mother=mother, fraction=0 if (pops or (x.get('pob_por_escenario') or {}).get(name) is not None) else (x.get('fraccion') or 0),
+                            exact = (x.get('pob_por_escenario') or {}).get(name)
+                            manual = x.get('poblacion_manual') if not pops and exact is None else None   # a mano o del GeoJSON
+                            notes += scenario_core.add_new_region(s, nm, mother=mother, fraction=0 if (pops or exact is not None or manual is not None) else (x.get('fraccion') or 0),
                                                                   goes_to_new=goes, text=x.get('texto'), terrain=terrain)
                             sp(j * 6 + 2, '%s: repartiendo la población' % nm)
                             if pops:
                                 notes += scenario_layers.move_population(s, nm, pops)
-                            exact = (x.get('pob_por_escenario') or {}).get(name)
                             if exact is not None:
                                 notes += scenario_layers.set_population_from(s, nm, mother, exact)
+                            if manual is not None:
+                                # los habitantes puestos a mano salen de las regiones de origen (por su área), no de la nada:
+                                # antes la madre perdía el % de área y luego la cifra a mano lo pisaba (se perdían habitantes)
+                                ms = {PROJECT.renames.get(k, k) if k not in have_regions else k: float(a or 0) for k, a in (x.get('madres') or {}).items()}
+                                ms = {k: a for k, a in ms.items() if k in have_regions and a > 0} or {mother: 1.0}
+                                tot = sum(ms.values())
+                                notes += scenario_layers.take_population(s, nm, {k: float(manual) * a / tot for k, a in ms.items()})
                             # dueño / controlador elegidos al crearla (si no, hereda los de la madre)
                             sp(j * 6 + 3, '%s: asignando propietario y controlador' % nm)
                             vals = {k: v for k, v in (('strOwner', x.get('pais')), ('strController', x.get('controlador') or x.get('pais'))) if v}
@@ -1161,8 +1246,6 @@ def register_regions(news, names, check_pack=False, pf=None):
                                 population = int(x['poblacion_manual'])
                             notes += scenario_core.add_new_region(s, nm, owner=owner, terrain=terrain, population=population,
                                                                   text=x.get('texto'))
-                        if mother and x.get('poblacion_manual') is not None and not x.get('poblacion'):
-                            notes += scenario_layers.set_region_population(s, nm, x['poblacion_manual'])
                         notes += scenario_layers._city_and_liberate(s, nm, x, g_new)    # ciudad pedida + país rendido → liberado
                         notes += scenario_new.finish_region(s, x, nm)                   # capital y país histórico de la nación nueva
                         # países históricos elegidos al crearla (si no se eligieron, los de la madre)
@@ -1175,7 +1258,7 @@ def register_regions(news, names, check_pack=False, pf=None):
                         for c in scenario_layers.unit_conflicts(s, nm):
                             c['scenario'] = name
                             c['nearest'] = nearest_region_of(s, c['owner'], c['xy'], exclude=nm, port=c['kind'] == 'Fleet')
-                            register_regions.conflicts.append(c)
+                            conflicts.append(c)
                             notes.append('AVISO: %s %s es de %s y queda en %s (de %s): elige qué hacer' % (
                                 {'Army': 'el ejército', 'AirForce': 'la aviación', 'Fleet': 'la flota'}[c['kind']], c['unit'], c['owner'], nm, c['region_owner']))
                     except ValueError as e:
@@ -1197,12 +1280,12 @@ def register_regions(news, names, check_pack=False, pf=None):
     return out
 
 
-def delete_from_scenarios(deleted, names, pf=None):
+def delete_from_scenarios(deleted, names, pf=None, pops=None):
     """Quita de los escenarios las regiones borradas del mapa. Si su área pasó a una región de tierra, sus ciudades,
     recursos, población y unidades pasan a ella; si no, las unidades van a la región más cercana de su país."""
     P = scenario_core.prop
     out = {}
-    delete_from_scenarios.pops = {}
+    pops = pops if pops is not None else {}       # {región: {escenario: habitantes}} que se pierden (para «Volver»)
     with SCEN_LOCK:
         for k, name in enumerate(names):
             (pf or progress.part(5, 99))(k, len(names), 'Quitando las regiones borradas de «%s»' % name)
@@ -1242,7 +1325,7 @@ def delete_from_scenarios(deleted, names, pf=None):
                         continue
                     pop_ = P(land[nm], 'nPopulation')
                     if pop_ and pop_.isdigit():
-                        delete_from_scenarios.pops.setdefault(nm, {})[name] = int(pop_)
+                        pops.setdefault(nm, {})[name] = int(pop_)
                     if into in land:
                         notes += scenario_core.remove_new_region(s, nm, into)
                         notes.append('%s se incorpora a %s (ciudades, recursos, población y unidades)' % (nm, into))
@@ -1322,6 +1405,11 @@ def keep_game_loadable(rep):
     bad = uninstalled_in_scenarios(PROJECT.pack)
     if not bad:
         return
+    if not getattr(keep_game_loadable, 'auto', False):
+        # el juego solo se toca con «Instalar» explícito: la página pregunta («Instalar ahora» / «Más tarde») con not_loadable.
+        # Antes se instalaba aquí sin preguntar y se adecuaban otros escenarios del regionpack.
+        rep['not_loadable'] = bad
+        return
     r = PROJECT.install('same', None, [], backup_root=scenario_core.BACKUP_ROOT)
     if not r.get('ok'):
         rep['not_loadable'] = bad
@@ -1385,8 +1473,12 @@ def unregister_regions(removed, names):
                     out[name] = ['no se ha tocado: tiene cambios sin guardar en el editor de escenarios']
                     continue
                 notes = []
+                have = {scenario_core.prop(r, 'strName') for r in s.regions()}
                 for x in removed:
-                    notes += scenario_core.remove_new_region(s, x['nombre'], x.get('madre'), x.get('poblacion'))
+                    mo = x.get('madre')
+                    if mo and mo not in have:      # changelogs antiguos: madre con el nombre de regions.bin
+                        mo = PROJECT.renames.get(mo, mo)
+                    notes += scenario_core.remove_new_region(s, x['nombre'], mo, x.get('poblacion'))
                     # ciudades, recursos y unidades vuelven a la region de origen donde estan (si salio de varias)
                     for m in x.get('madres') or []:
                         if m != x.get('madre'):
@@ -1851,6 +1943,34 @@ def scen_post(path, p):
             done = icon_defaults.fix(scenario(p['name']).dir, [tuple(x) for x in items] if items else None,
                                      writer=lambda f: image_tools.write_files(f, 'iconos-por-defecto'), log=lambda *_: None)
             return {'done': done}
+        if path == '/api/scen/bulk_units':
+            # creación masiva de unidades: 'info' (plantillas por tipo y países), 'plan' (vista previa), 'apply', 'undo'
+            import bulk_units
+            s = scenario(p['name'])
+            op = p.get('op')
+            if op == 'info':
+                kinds = {k: sorted(scenario_core.prop(t, 'strName') for t in s.all('UnitTemplate') if scenario_core.prop(t, 'eType') == et)
+                         for k, (_, et) in bulk_units.KINDS.items()}
+                landed = set(bulk_units.targets(s, {'all': True}))
+                return {'kinds': kinds, 'countries': [{'name': n, 'tier': bulk_units.tier(c)} for n, c in sorted(s.countries().items()) if n in landed]}
+            if op == 'plan':
+                return bulk_units.plan(s, p.get('sel') or {}, p.get('mode') or 'custom', p.get('units'), p.get('seed'), p.get('navy_seas'))
+            if op == 'apply':
+                return {'notes': bulk_units.apply(s, p['items']), 'dirty': _dirty_of(s)}
+            if op == 'undo':
+                return {'notes': bulk_units.undo(s), 'dirty': _dirty_of(s)}
+            raise ValueError('operación desconocida: %s' % op)
+        if path == '/api/scen/remove_condition':
+            s = scenario(p['name'])
+            return {'notes': scenario_events.remove_condition(s, p['obj']), 'dirty': _dirty_of(s)}
+        if path == '/api/scen/fix_event_region':
+            s = scenario(p['name'])
+            notes = scenario_events.fix_event_region(s, p['obj'], p['prop'], p['region'], p['action'], p.get('new'))
+            return {'notes': notes, 'dirty': _dirty_of(s)}
+        if path == '/api/scen/fix_landless':
+            s = scenario(p['name'])
+            notes = scenario_layers.fix_landless(s, p['country'], p['action'], p.get('member'), p.get('regions'))
+            return {'notes': notes, 'dirty': _dirty_of(s)}
         if path == '/api/scen/fix_capitals':
             s = scenario(p['name'])
             notes = scenario_layers.auto_capitals(s, p.get('countries'))
@@ -2409,6 +2529,8 @@ def select_pack(pack):
 
 def ai_post(path, p):
     # chat de IA (ai_chat.py): config de claves locales, llamada al proveedor, comprobación de rutas y respaldo
+    if ai_chat is None:
+        return {'error': 'el chat de IA no está incluido en esta versión'}
     try:
         if path == '/api/ai/config':
             return ai_chat.save(p)
@@ -2466,8 +2588,20 @@ def main():
             a.pack = 'World'
         if a.pack not in all_packs():
             a.pack = 'World'
+    try:
+        ver = re.search(r"VERSION = '([^']+)'", open(os.path.join(HERE, 'editor', 'i18n.js'), encoding='utf-8').read()).group(1)
+    except (OSError, AttributeError):
+        ver = '?'
+    diag_log.start(ROOT, {'version': ver, 'game': gamepaths.CURRENT[0], 'game_dir': gamepaths.path(), 'scen_root': scenario_core.SCEN_ROOT, 'data_root': ROOT,
+                          'project': a.proyecto, 'scenarios': a.escenarios, 'pack': a.pack, 'port': a.puerto})
     select_pack(a.pack)
     srv = ThreadingHTTPServer(('127.0.0.1', a.puerto), Handler)
+    try:      # para programas locales (pruebas): el token de este arranque
+        os.makedirs(os.path.join(ROOT, 'logs'), exist_ok=True)
+        with open(os.path.join(ROOT, 'logs', 'mheditor_token_%d.txt' % a.puerto), 'w', encoding='utf-8') as f:
+            f.write(API_TOKEN)
+    except OSError:
+        pass
     url = 'http://localhost:%d' % a.puerto
     print('Editor de regiones en %s  (juego: %s; proyecto: %s)' % (url, gamepaths.GAMES[gamepaths.CURRENT[0]]['short'],
                                                                  os.path.abspath(PROJECT.dir)))

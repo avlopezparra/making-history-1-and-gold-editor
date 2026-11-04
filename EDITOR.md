@@ -776,3 +776,7 @@ formato. Se escribe solo tras confirmar y nunca en la carpeta de contenido del j
 - Hueco sin región (clic en «Región vacía»): botón «Repartir entre las vecinas por cercanía» (POST /api/gap/split_proximity, `Project.split_gap_by_proximity`): cada punto pasa a la región vecina más cercana, p. ej. un río borrado.
 - Hueco seleccionado + herramienta «Recortar»: lo dibujado dentro del hueco pasa a la región elegida en «Unirlo a» (op cut con from null en editor_core).
 - Importar regiones (GeoJSON / desde otro escenario): los países históricos marcados por defecto salen solo de las regiones de las que la nueva saca ≥ 15 % de su área (opción `histLand` de askNewRegion). Antes, de todas las que tocaba.
+
+### Recorte en huecos y mallas solapadas (3.2)
+- Al pulsar «Recortar» con un hueco (zona sin región) seleccionado, el hueco ya no se deselecciona: lo dibujado dentro del hueco pasa a la región elegida en su panel (antes `resetInteraction` lo borraba y la herramienta no hacía nada).
+- Recortes y traspasos (`editor_core._save_once` → `add`): la parte que la región de destino YA tiene (mallas solapadas, p. ej. una isla dibujada encima de su mar) no se le vuelve a añadir; solo se quita al origen. Antes duplicaba triángulos y el guardado se negaba con «la malla de X quedaría rota» (recortar mar hacia Mauritius; también el aviso de un usuario al pasar parte de una región a otra).

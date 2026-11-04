@@ -22,7 +22,7 @@ from PIL import Image, ImageDraw, ImageFilter
 from shapely.geometry import shape, box
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from fix_texture import (decode, splice, inpaint, tile_name, SIZE, MIPS,  # noqa: E402
+from fix_texture import (decode, splice, inpaint, tile_name, write_mips, SIZE, MIPS,  # noqa: E402
                          ERASE_WIDTH, LINE_WIDTH, LINE_BLUR, LINE_COLOR)
 
 TILE_DEG = 15.0
@@ -189,21 +189,8 @@ def paint_tiles(ch, art, out, originals=None, log=print):
 
         new_bytes, n0 = splice(base_bytes, img, orig, SIZE)
         open(os.path.join(a.out, tile_name(c, r)), 'wb').write(new_bytes)
-        counts = [n0]
-        for k in range(1, MIPS + 1):
-            s = SIZE >> k
-            mb = open(source(tile_name(c, r, k)), 'rb').read()
-            mo = decode(mb, s)
-            dn, do = img.resize((s, s), Image.BOX), orig.resize((s, s), Image.BOX)
-            mn = mo.copy()
-            pn, po, pmn, pd = dn.load(), do.load(), mn.load(), mo.load()
-            for y in range(s):
-                for x in range(s):
-                    if pn[x, y] != po[x, y]:
-                        pmn[x, y] = tuple(max(0, min(255, pd[x, y][i] + pn[x, y][i] - po[x, y][i])) for i in range(4))
-            nb, n = splice(mb, mn, mo, s)
-            open(os.path.join(a.out, tile_name(c, r, k)), 'wb').write(nb)
-            counts.append(n)
+        # mipmaps rehechos desde el nivel 0 (antes se les sumaba la diferencia y al alejar el zoom quedaban restos de líneas borradas)
+        counts = [n0] + write_mips(c, r, img, lambda n: open(source(n), 'rb').read(), a.out)
         log('tile %02d-%02d: borrar %d, pintar %d, islas %d | bloques por nivel %s' % (c, r, len(e), len(p), len(isl), counts))
         previews.append((c, r))
     return previews

@@ -29,6 +29,8 @@ python tools/editor_server.py --no-abrir --puerto 8765
 ```
 python tools/editor_server.py --proyecto <scratch>/proyecto --respaldo <scratch>/respaldo --escenarios <scratch>/escen --no-abrir --puerto 8768
 ```
+The server only accepts localhost Host/Origin, and every POST needs the header `X-MH-Token` (the pages get it injected). For curl or scripts,
+start the server with `MH_API_TOKEN=<anything>` or read `logs/mheditor_token_<port>.txt`.
 Quick checks after editing: `python -c "import ast; ast.parse(open(F, encoding='utf-8').read())"` for Python, and extract the
 `<script>` blocks of a page into a file and run `node -e "new Function(src)"` for JavaScript.
 

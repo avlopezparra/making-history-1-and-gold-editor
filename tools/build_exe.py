@@ -49,6 +49,7 @@ def main():
     args = [os.path.join(HERE, 'mheditor_app.py'), '--name', 'MHEditor', '--onedir', '--windowed', '--noconfirm',
             '--icon', ico, '--distpath', ROOT, '--workpath', os.path.join(WORK, 'work'), '--specpath', WORK,
             '--paths', HERE, '--add-data', os.path.join(HERE, 'editor') + os.pathsep + 'editor',
+            '--add-data', os.path.join(HERE, 'data') + os.pathsep + 'data',   # nif.xml (lector de modelos 3D)
             '--exclude-module', 'ai_chat',
             '--collect-submodules', 'webview', '--collect-data', 'webview']
     for h in hidden:

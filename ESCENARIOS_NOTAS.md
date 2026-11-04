@@ -161,3 +161,9 @@ Carpeta: `C:\ProgramData\Muzzy Lane Software\Output Files\Saves\<jugador>\*.mlc`
 - ed.exe no guarda nada si hay un solo error; al cargar no valida.
 - Carpetas creadas al guardar: `game/namespace.xml` (vacío con scenarioDefs/stringTable), `ui/UICommandFile.xml`, `ui/UIPreLoopCommandFile.xml`.
 - `scenarioInfo.xml` y `treaties.xml` escriben `/>` sin espacio previo.
+
+## Alianzas y guerras: miembros sin territorio (2026-11-04)
+- Un país sin regiones de tierra cuenta como rendido. Si es miembro de una alianza (o atacante/defensor de una guerra inicial), cada guerra de esa alianza falla en el motor: `CAllianceManager::UpdateWarPairwiseState - … War has already surrendered`, `MakeValidPrincipality - no current countries found in alliance X`, `MergeActiveWarsIntoAlliance - Failed to merge…`. En pantalla se ven alianzas vacías o repetidas en «Alliances & Wars».
+- Caso real: TMWR 1022, Jordania en NATO con sus regiones en el archivo del Reino Unido. El validador lo marca como error.
+- Los nombres de alianza repetidos (`SID.Game.Country.Alliance.*` con el mismo texto) hacen que las alianzas que crea el juego se llamen igual que otras: el validador lo avisa.
+- Diagnóstico: `python tools/game_log.py` mientras se juega captura los mensajes del motor en `logs/juego_*.log`.

@@ -57,7 +57,7 @@
     'Volver': 'Back', 'Medida': 'Size', 'Margen': 'Margin', 'Ajuste': 'Fit', 'Forma': 'Shape', 'Círculo': 'Circle', 'Cuadrado': 'Square', 'Escudo': 'Shield',
   };
   const PATTERNS = [
-    [/^(\d+) de (\d+)$/, '$1 of $2'], [/^(\d+) archivo\(s\) sin guardar$/, '$1 unsaved file(s)'], [/Falta «Guardar»\.?/g, 'Remember to «Save».'],
+    [/^(\d+) de (\d+)$/, '$1 of $2'], [/^(\d+) archivo\(s\) sin guardar$/, '$1 unsaved file(s)'],
     [/^(\d+) regiones históricas de (.+)\. Clic: añadir \/ quitar\.$/, '$1 historic regions of $2. Click: add / remove.'],
     [/^(\d+) regiones con cultura (.+)\. Clic: .*$/, '$1 regions with culture $2. Click: assign it to the region.'],
     [/^(\d+) regiones con terreno (.+)\. Clic: .*$/, '$1 regions with terrain $2. Click: assign it to the region.'],
@@ -78,37 +78,76 @@
   ];
   const lang = () => { try { return localStorage.getItem('mh-lang') || 'es'; } catch (e) { return 'es'; } };
   // diccionario completo (i18n_en.json, generado con tools/i18n_extract.py): textos de la interfaz y mensajes del servidor
-  let PHRASE_RE = null, PHRASES = {};
+  let PHRASE_RE = null, PHRASES = {}, SHAPES = [];
   if (lang() === 'en') {
     try {
       const x = new XMLHttpRequest(); x.open('GET', '/i18n_en.json', false); x.send();
       if (x.status === 200) {
         const ext = JSON.parse(x.responseText);
-        for (const [k, v] of Object.entries(ext)) if (v && !(k in EN)) EN[k] = v;
+        const isShape = k => k.includes('{}');
+        for (const [k, v] of Object.entries(ext)) if (v && !isShape(k) && !(k in EN)) EN[k] = v;
         // frases (tres o más palabras) que se sustituyen también dentro de textos con datos variables;
         // con menos palabras saldrían mezclas («vuelve a the region»)
-        const keys = Object.keys(ext).filter(k => ext[k] && k.trim().split(/\s+/).length >= 3).sort((a, b) => b.length - a.length);
+        const keys = Object.keys(ext).filter(k => ext[k] && !isShape(k) && k.trim().split(/\s+/).length >= 3).sort((a, b) => b.length - a.length);
         keys.forEach(k => { PHRASES[k] = ext[k]; });
         const escRe = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
         // límite de palabra solo donde la frase empieza/termina en letra o número («(texto)» o «texto:» también encajan)
         const W = /[\p{L}\p{N}]/u;
         const bound = k => (W.test(k[0]) ? '(?<![\\p{L}\\p{N}])' : '') + escRe(k) + (W.test(k[k.length - 1]) ? '(?![\\p{L}\\p{N}])' : '');
         if (keys.length) PHRASE_RE = new RegExp(keys.map(bound).join('|'), 'gu');
+        // frases con huecos «{}» para los datos, como SHAPES de scenario_i18n.py («Ciudad {} creada en {}» -> «City {} created in {}»;
+        // en la traducción, {1} {2}… si cambia el orden). Las de más texto fijo primero, y las que empiezan y acaban en texto fijo
+        // antes que las que tienen un hueco en un extremo. [trozo fijo más largo (filtro rápido), expresión, traducción]
+        const fixed = k => k.replace(/\{\}/g, '').length, ends = k => k.startsWith('{}') + k.endsWith('{}');
+        SHAPES = Object.keys(ext).filter(k => ext[k] && isShape(k)).sort((a, b) => ends(a) - ends(b) || fixed(b) - fixed(a))
+          .map(k => [k.split('{}').reduce((a, b) => (b.length > a.length ? b : a), ''), new RegExp('^' + k.split('{}').map(escRe).join('(.*?)') + '$', 's'), ext[k],   // hueco vacío vale (`${x ? ' (…)' : ''}`)
+            ends(k) === 2 ? fixed(k) : 0]);
       }
     } catch (e) {}
   }
+  // un texto entero (espacios ya normalizados): exacto, con signo final, patrones o frase con huecos; null si no hay
+  const whole = (t, shapes = true) => {
+    if (EN[t]) return EN[t];
+    const m = t.match(/^(.+?)( [▲▼+↗]|[.:…]+)$/);   // cabeceras ordenables, campos añadibles, enlaces, punto final
+    if (m && EN[m[1]]) return EN[m[1]] + m[2];
+    const b = t.match(/^([•·→–—-] )(.+)$/);        // elementos de lista en los avisos («• Región X: …»)
+    if (b) { const q = whole(b[2], shapes); if (q != null) return b[1] + q; }
+    for (const [re, to] of PATTERNS) if (re.test(t)) return t.replace(re, to);
+    if (shapes) for (const [needle, re, to, loose] of SHAPES) {
+      if (!t.includes(needle)) continue;
+      const g = t.match(re); if (!g) continue;
+      // con huecos en los dos extremos («{} regiones {}»), cede si las frases conocidas cubren más texto («Faltan regiones del mapa: …»)
+      if (loose && (loose < t.length / 4 || (PHRASE_RE && (t.match(PHRASE_RE) || []).join('').length > loose))) continue;
+      const v = g.slice(1).map(x => tr(x)); let i = 0;       // los datos se traducen a su vez («histórica de X»)
+      return to.replace(/\{(\d*)\}/g, (_, n) => (n ? v[n - 1] : v[i++]) ?? '');
+    }
+    return null;
+  };
+  // palabras sueltas sin ambigüedad que quedan entre trozos ya traducidos («. Clic: …», «… Falta «Guardar».»)
+  const words = x => x.replace(/(?<![\p{L}])Clic(?![\p{L}])/gu, 'Click').replace(/Falta «Guardar»\.?/g, 'Remember to «Save».')
+    .replace(/\(desde ([^()]+)\)/g, '(from $1)').replace(/\(controla ([^()]+)\)/g, '(controlled by $1)');   // dentro de listas («A (desde B), C»)
+  const phrases = x => (PHRASE_RE ? x.replace(PHRASE_RE, k => PHRASES[k] || k) : x);
   const tr = s => {
     if (!s) return s;
-    let t = s.trim(); if (!t) return s;
-    if (/\s\s|\n/.test(t)) { s = s.replace(/\s+/g, ' '); t = s.trim(); }   // textos partidos en varias líneas en el HTML
-    if (EN[t]) return s.replace(t, EN[t]);
-    const m = t.match(/^(.+?)( [▲▼+↗]|[.:…]+)$/);   // cabeceras ordenables, campos añadibles, enlaces, punto final
-    if (m && EN[m[1]]) return s.replace(t, EN[m[1]] + m[2]);
-    for (const [re, to] of PATTERNS) if (re.test(t)) return s.replace(t, t.replace(re, to));
-    // palabras sueltas sin ambigüedad que quedan entre trozos ya traducidos («. Clic: …»)
-    const words = x => x.replace(/(?<![\p{L}])Clic(?![\p{L}])/gu, 'Click');
-    if (PHRASE_RE) { const r = s.replace(PHRASE_RE, k => PHRASES[k] || k); if (r !== s) return words(r); }
-    return words(s);
+    const t0 = s.trim(); if (!t0) return s;
+    const t = t0.replace(/\s+/g, ' ');            // textos partidos en varias líneas en el HTML
+    // varias frases o líneas ('…' + x + '…', avisos con listas): cada una por su lado, con sus saltos de línea; las frases con
+    // huecos se prueban antes por frase que con el texto entero (un hueco se tragaría las frases siguientes)
+    const multi = /[.?!…]\s|\n/.test(t0);
+    let r = whole(t, !multi);
+    if (r == null && multi) {
+      // las frases sin traducción propia que van seguidas se juntan antes de pasar las frases sueltas (alguna abarca dos frases)
+      let hit = false, out = '', buf = '';
+      const flush = () => { if (buf) { const a = phrases(buf), c = buf.replace(/\s+/g, ' '); out += a !== buf || !PHRASE_RE ? a : phrases(c) !== c ? phrases(c) : buf; } buf = ''; };
+      for (const p of t0.split(/(\s*\n\s*|(?<=[.?!…])\s+)/)) {
+        const q = p.trim() ? whole(p.replace(/\s+/g, ' ')) : null;
+        if (q != null) { flush(); out += q; hit = true; } else buf += p;
+      }
+      flush();
+      r = hit ? out : whole(t);
+    }
+    if (r == null) r = phrases(t);
+    return s.replace(t0, words(r));
   };
   window.mhTr = s => (lang() === 'en' ? tr(s) : s);   // para textos que se ponen sin pasar por el DOM observado
   if (lang() === 'en') {   // ventanas del navegador (confirmar / avisos / preguntar)
@@ -207,7 +246,7 @@
     else { Object.assign(sel.style, { position: 'fixed', right: '8px', bottom: '8px', zIndex: 9999 }); document.body.appendChild(sel); }
   }
   // créditos, Discord (novedades y actualizaciones) y dónde avisar de errores
-  const VERSION = '3.2';
+  const VERSION = '3.3';
   const DISCORD = 'https://discord.com/invite/gFJyCjWEnr', BUGS = 'alopezcl@protonmail.com',
     UPDATES = 'https://github.com/avlopezparra/making-history-1-and-gold-editor/releases/', HUB = 'https://gamebanana.com/games/6530';
   // botón «Join Discord» aparte, en el morado de Discord
@@ -265,8 +304,34 @@
           <p><a href="${HUB}" target="_blank" rel="noopener">${en ? 'GameBanana hub of the game' : 'Hub del juego en GameBanana'}</a> · ${en ? 'upload your regionpacks and scenarios' : 'sube tus regionpacks y escenarios'}</p>
           <p>${en ? 'Report bugs to' : 'Informa de errores a'} <a href="mailto:${BUGS}">${BUGS}</a></p>
           <p>${en ? 'Support the editor:' : 'Apoya el editor:'} <a href="https://paypal.me/alopcl" target="_blank" rel="noopener">${en ? 'Donate' : 'Donar'}</a></p>
+          <p>${en ? 'Diagnostic log (send it with your bug report):' : 'Registro de diagnóstico (envíalo con tu aviso de error):'}<br>
+            <button type="button" id="mhLogOpen">${en ? 'Open log' : 'Abrir log'}</button> <button type="button" id="mhLogDir">${en ? 'Open log folder' : 'Abrir carpeta del log'}</button> <button type="button" id="mhLogCopy">${en ? 'Copy log' : 'Copiar log'}</button>
+            <span id="mhLogNote" style="opacity:.75"></span><br>
+            <label><input type="checkbox" id="mhLogOn" checked> ${en ? 'Save diagnostic log' : 'Guardar registro de diagnóstico'}</label></p>
           <form method="dialog" style="text-align:right"><button>${en ? 'Close' : 'Cerrar'}</button></form>`;
         document.body.appendChild(d);
+        const note = t => { d.querySelector('#mhLogNote').textContent = t; };
+        d.querySelector('#mhLogOpen').onclick = async () => {
+          try { const r = await (await fetch('/api/log/open', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })).json(); note(r.path || ''); } catch (e) { note(String(e)); }
+        };
+        const chk = d.querySelector('#mhLogOn');
+        fetch('/api/log').then(r => r.json()).then(r => { chk.checked = r.enabled !== false; }).catch(() => {});
+        chk.onchange = async () => {
+          try {
+            const r = await (await fetch('/api/log/enable', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ on: chk.checked }) })).json();
+            chk.checked = !!r.enabled; note(r.enabled ? (en ? 'Log on' : 'Registro activado') : (en ? 'Log off' : 'Registro desactivado'));
+          } catch (e) { note(String(e)); }
+        };
+        d.querySelector('#mhLogDir').onclick = async () => {
+          try { const r = await (await fetch('/api/log/folder', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })).json(); note(r.path || ''); } catch (e) { note(String(e)); }
+        };
+        d.querySelector('#mhLogCopy').onclick = async () => {
+          try {
+            const r = await (await fetch('/api/log')).json();
+            await navigator.clipboard.writeText(r.text || '');
+            note((en ? 'Copied: ' : 'Copiado: ') + (r.path || ''));
+          } catch (e) { note(String(e)); }
+        };
       }
       d.showModal();
     };
@@ -282,6 +347,46 @@
       .observe(document.body, { childList: true, subtree: true, characterData: true });
   }
   window.MH_LANG = lang; window.MH_TR = tr;
+  // ---- registro de diagnóstico (MHEditor.log, POST /api/log): errores de JavaScript, console.error/warn, avisos (alert y report(…, 'err'))
+  // y los pasos del usuario (botones pulsados) para ver qué llevó al error. Se manda en lotes; nunca el contenido de los campos de texto.
+  (() => {
+    const page = (location.pathname.replace(/^\//, '') || 'map').replace(/\.html$/, '');
+    let queue = [], timer = null, last = '', sending = false;
+    const flush = () => {
+      timer = null; if (!queue.length || sending) return;
+      const entries = queue.splice(0, 50); sending = true;
+      fetch('/api/log', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ entries }) })
+        .catch(() => {}).finally(() => { sending = false; if (queue.length) timer = setTimeout(flush, 2000); });
+    };
+    const put = (level, msg, stack) => {
+      msg = String(msg ?? '').slice(0, 1500);
+      if (level !== 'info' && msg === last) return; last = msg;             // el mismo error en bucle, una vez
+      queue.push({ page, level, action: window.mhLastAction || '', msg, stack: stack ? String(stack).slice(0, 3000) : undefined, ts: new Date().toISOString() });
+      if (queue.length > 200) queue = queue.slice(-200);
+      if (!timer) timer = setTimeout(flush, level === 'error' ? 300 : 2000);
+    };
+    window.mhLog = (action, msg) => { window.mhLastAction = action; put('info', msg || action); };      // pasos con nombre desde el código
+    window.addEventListener('error', e => put('error', e.message + (e.filename ? ` @ ${e.filename.split('/').pop()}:${e.lineno}` : ''), e.error && e.error.stack));
+    window.addEventListener('unhandledrejection', e => put('error', 'unhandled promise: ' + (e.reason && e.reason.message || e.reason), e.reason && e.reason.stack));
+    for (const k of ['error', 'warn']) { const f = console[k].bind(console); console[k] = (...a) => { put(k, a.map(x => x && x.stack || (typeof x === 'object' ? JSON.stringify(x) : x)).join(' ')); f(...a); }; }
+    const al = window.alert, cf = window.confirm;
+    window.alert = m => { put('warn', 'alert: ' + m); return al(m); };
+    window.confirm = m => { const r = cf(m); put('info', `confirm (${r ? 'OK' : 'Cancel'}): ` + String(m).slice(0, 300)); return r; };
+    // pasos: cada botón o elemento de menú pulsado (texto o title), y los avisos de error de la barra de estado del editor de regiones
+    document.addEventListener('click', e => {
+      const b = e.target.closest && e.target.closest('button, [role=button], .tool, a[href="#"], summary, label.tool');
+      if (!b) return;
+      const name = (b.id ? '#' + b.id + ' ' : '') + ((b.textContent || '').trim() || b.title || '').slice(0, 60);
+      window.mhLastAction = name; put('info', 'click ' + name);
+    }, true);
+    document.addEventListener('change', e => {
+      const s = e.target; if (!s || s.tagName !== 'SELECT' || !s.id) return;       // abrir regionpack / escenario / juego…
+      window.mhLastAction = '#' + s.id; put('info', `select #${s.id} = ${String(s.value).slice(0, 80)}`);
+    }, true);
+    window.mhLogErr = m => put('error', m);          // avisos de error propios de la página (report(…, 'err') del editor de regiones)
+    window.addEventListener('load', () => put('info', 'page loaded (' + lang() + ')'));
+    window.addEventListener('pagehide', flush);
+  })();
   // dentro de MHEditor.exe: el programa necesita saber si hay cambios sin guardar para avisar al cerrar
   setInterval(() => { try { if (window.pywebview && window.pywebview.api) window.pywebview.api.set_dirty(!!(window.mhDirty && window.mhDirty())); } catch (e) {} }, 1000);
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start); else start();

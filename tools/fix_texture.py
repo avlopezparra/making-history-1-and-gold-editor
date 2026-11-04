@@ -38,6 +38,24 @@ def tile_name(c, r, mip=0):
     return 'OperationalTerrain-%02d-%02d%s.tga' % (c, r, '-%02d' % mip if mip else '')
 
 
+def write_mips(c, r, img, read, out_dir):
+    """Rehace los mipmaps -01..-04 del tile a partir de su nivel 0 ya terminado (reducción BOX, como los del juego). De lejos el
+    juego usa estos niveles: si se retocaran aparte (sumando la diferencia), quedaban restos de líneas borradas al alejar el zoom.
+    read(nombre) -> bytes actuales del mipmap. Se recomprime el nivel entero (el compresor da siempre lo mismo: repetirlo no cambia
+    nada) y solo se escribe si cambia. Devuelve los bloques 4x4 distintos por nivel."""
+    counts = []
+    for k in range(1, MIPS + 1):
+        s = SIZE >> k
+        mb = read(tile_name(c, r, k))
+        nb = encode_blocks(img.resize((s, s), Image.BOX))
+        n = sum(1 for i in range(0, len(nb), 16) if nb[i:i + 16] != mb[i:i + 16])
+        if n or not os.path.exists(os.path.join(out_dir, tile_name(c, r, k))):
+            with open(os.path.join(out_dir, tile_name(c, r, k)), 'wb') as f:
+                f.write(nb)
+        counts.append(n)
+    return counts
+
+
 def decode(data, size):
     return Image.frombytes('RGBA', (size, size), data, 'bcn', 3)
 

@@ -815,6 +815,43 @@ class Scenario:
                 issues.append(('error', 'País %s: la capital %s no existe' % (name, cap), self.s.eid(c)))
             elif cap and P(cities[cap][0], 'strOwner') != name:
                 issues.append(('aviso', 'País %s: su capital %s pertenece a %s' % (name, cap, P(cities[cap][0], 'strOwner')), self.s.eid(c)))
+        for a in self.all('Alliance'):
+            if not any(m.get('type') == 'AllianceMember' and P(m, 'strINITCountryName') in countries for m in objs(a)):
+                issues.append(('aviso', 'Alianza %s: no tiene miembros' % (P(a, 'strDisplayName') or P(a, 'strINITAllianceName')), self.s.eid(a)))
+        # a member with no land counts as surrendered: every war of its alliance fails («War has already surrendered»)
+        landed = {P(r, 'strOwner') for r in self.regions(sea=False)}
+        hist = {}
+        for h in self.all('HistoricCountry'):
+            hist.setdefault(P(h, 'strCountry'), []).extend(P(k, 'strRegion') for k in objs(h) if P(k, 'strRegion'))
+
+        def landless_fix(c, member=None):
+            owner = {P(r, 'strName'): P(r, 'strOwner') for r in self.regions(sea=False)}
+            ch = [{'action': 'regions', 'regions': [r], 'label': 'Darle la región %s, que hoy es de %s' % (r, owner[r])}
+                  for r in dict.fromkeys(hist.get(c, [])) if owner.get(r) and owner[r] != c][:8]
+            if member is not None:
+                ch.append({'action': 'leave', 'member': self.s.eid(member), 'label': 'Quitarlo de la alianza'})
+            return {'kind': 'landless', 'country': c, 'choices': ch} if ch else None
+        for a in self.all('Alliance'):
+            for m in objs(a):
+                c = P(m, 'strINITCountryName')
+                if m.get('type') == 'AllianceMember' and c in countries and c not in landed:
+                    issues.append(('error', 'Alianza %s: %s es miembro pero no tiene regiones (el juego lo da por rendido y las guerras de la alianza fallan)'
+                                   % (P(a, 'strDisplayName') or P(a, 'strINITAllianceName'), c), self.s.eid(a), landless_fix(c, m)))
+        for w in self.all('War'):
+            for k in ('strINITAttackerCountryName', 'strINITDefenderCountryName'):
+                c = P(w, k)
+                if c in countries and c not in landed:
+                    issues.append(('error', 'Guerra %s: %s no tiene regiones (el juego lo da por rendido y la guerra falla)' % (P(w, 'strDisplayName'), c), self.s.eid(w), landless_fix(c)))
+        # the game names each wartime alliance after its leader's text: a shared text shows up as repeated, empty-looking alliances
+        seen = {}
+        for c in self.all('MECountry'):
+            al = self.strings.get(P(c, 'sidAllianceName') or '')
+            if not al:
+                continue
+            if al in seen:
+                issues.append(('aviso', 'País %s: usa el mismo nombre de alianza que %s (%s)' % (P(c, 'strName'), seen[al], al), self.s.eid(c)))
+            else:
+                seen[al] = P(c, 'strName')
         import scenario_new       # cada nación con territorio: capital propia y habitantes > 2
         for m in scenario_new.check_nations(self):
             issues.append(('aviso', m, None))
@@ -925,7 +962,8 @@ class Scenario:
             for n, k in names.items():
                 if k > 1:
                     issues.append(('error', '%s repetido: %s (%d veces)' % (label, n, k), None))
-        return [{'level': l, 'msg': m, 'id': i} for l, m, i in issues] + self.load_errors()
+        import scenario_events      # regiones que los eventos nombran y el regionpack quitó o dividió
+        return [dict({'level': x[0], 'msg': x[1], 'id': x[2]}, **({'fix': x[3]} if len(x) > 3 else {})) for x in issues]             + scenario_events.event_region_issues(self) + scenario_events.event_surrender_issues(self) + self.load_errors()
 
     def load_errors(self):
         """Valores que el juego rechaza al leer el escenario y que impiden crear la partida («Error creating game»):

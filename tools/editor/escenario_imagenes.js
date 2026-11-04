@@ -171,14 +171,14 @@
       ${files['decal-64-64.tga'] ? dlLink(rawUrl(files['decal-64-64.tga'].rel), folder + ' - escarapela.png', 'Exportar escarapela') : ''}</div>`;
     host.appendChild(sec);
     sec.querySelector('[data-mh=flag]').onclick = () => openImport({
-      title: 'Importar bandera · ' + name, sub: ` → ${folder}/ (13 archivos; la escarapela no cambia)`, opts: FIT_OPTS,
+      title: `Importar bandera · ${name}`, sub: ` → ${folder}/ (13 archivos; la escarapela no cambia)`, opts: FIT_OPTS,
       previewUrl: '/api/img/flag/preview', writeUrl: '/api/img/flag/write',
       body: (img, q) => ({ flag: img, only: 'flag', fit: q('#mhFit').value, crop: q('#mhCrop').value }),
       extra: () => ({ scen: S.scen, country: folder }),
       confirm: n => confirmText(n, `ui\\art\\2D\\countries\\${folder}\\`), done: refreshAll,
     });
     sec.querySelector('[data-mh=decal]').onclick = () => openImport({
-      title: 'Importar escarapela · ' + name, sub: ` → ${folder}/ (decal, decal-64-64, -bw, -bw-over, decal-42-42, 1919DecalWShadow)`,
+      title: `Importar escarapela · ${name}`, sub: ` → ${folder}/ (decal, decal-64-64, -bw, -bw-over, decal-42-42, 1919DecalWShadow)`,
       opts: `<label>Fondo</label><label style="color:inherit"><input type="checkbox" id="mhBg" checked> quitar el fondo liso (si la imagen no tiene transparencia)</label>`,
       previewUrl: '/api/img/flag/preview', writeUrl: '/api/img/flag/write',
       body: (img, q) => ({ decal: img, only: 'decal', removebg: q('#mhBg').checked }),

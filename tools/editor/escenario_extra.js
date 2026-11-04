@@ -19,6 +19,7 @@
   // nación rendida que recibe una región sin ciudad: deja de estar rendida pero no tiene capital; preguntar en el momento
   const NOCITY = /AVISO: (.+?) no tiene ninguna ciudad en su territorio \((.+?)\)/;
   let asking = false;
+  const askedFor = new Set();      // una vez por país y región (el aviso podía volver en otras respuestas y repetir la pregunta)
   const ask = async (owner, region) => {
     if (asking) return; asking = true;
     try {
@@ -34,8 +35,14 @@
   const realFetch = window.fetch;
   window.fetch = async (...a) => {
     const res = await realFetch(...a);
-    if (String(a[0]).startsWith('/api/scen/') && (res.headers.get('content-type') || '').includes('json'))
-      res.clone().text().then(t => { const m = NOCITY.exec(t); if (m) setTimeout(() => ask(JSON.parse('"' + m[1] + '"'), JSON.parse('"' + m[2] + '"')), 300); }).catch(() => {});
+    const isPost = String((a[1] && a[1].method) || 'GET').toUpperCase() === 'POST';     // solo acciones (cambiar dueño, transferir…), no lecturas
+    if (isPost && String(a[0]).startsWith('/api/scen/') && (res.headers.get('content-type') || '').includes('json'))
+      res.clone().text().then(t => {
+        const m = NOCITY.exec(t); if (!m) return;
+        const owner = JSON.parse('"' + m[1] + '"'), region = JSON.parse('"' + m[2] + '"'), k = owner + '|' + region;
+        if (askedFor.has(k)) return; askedFor.add(k);
+        setTimeout(() => ask(owner, region), 300);
+      }).catch(() => {});
     return res;
   };
 

@@ -1,4 +1,4 @@
-# Making History 1 & Gold Editor 3.2
+# Making History 1 & Gold Editor 3.3
 
 <img width="1672" height="941" alt="297d7030-6196-423d-8a65-2a72f5bccb2a copia" src="https://github.com/user-attachments/assets/64a68a15-553d-413e-b5d8-0cd624c27aed" />
 
@@ -25,7 +25,7 @@ It is recomendable to also use this editor with a Code AI LLM such as Claude Cod
 - **Report bugs:** alopezcl@protonmail.com (or open an issue)
 - **Donations:** [Paypal](https://www.paypal.com/paypalme/alopcl)
 
-Made by Alejandro Víctor López Parra (@avlopezparra), 2026. **Version 3.2**.
+Made by Alejandro Víctor López Parra (@avlopezparra), 2026. **Version 3.3**.
 
 ## What it does
 - **Region editor**: move nodes, draw, cut, merge, create, rename and delete regions; topology-safe shape changes; installs the
@@ -38,7 +38,7 @@ Made by Alejandro Víctor López Parra (@avlopezparra), 2026. **Version 3.2**.
   For AI coding agents (Claude Code, Codex...): [AGENTS.md](AGENTS.md).
 
 ## Use the program (nothing to install)
-Download **MHEditor.zip** from [Releases](https://github.com/avlopezparra/making-history-1-and-gold-editor/releases/), unzip it and run
+Download **MHEditor.<version>.zip** (e.g. MHEditor.3.3.zip; it also contains the Claude skill `Making_History_1_and_Gold_Editing_Skill.md`) from [Releases](https://github.com/avlopezparra/making-history-1-and-gold-editor/releases/), unzip it and run
 `MHEditor.exe` (Windows 10/11 64-bit; uses WebView2, already included in Windows 11).
 
 ## Run it in the browser (from source)
@@ -80,7 +80,7 @@ Install it by copying the folder to `~/.claude/skills/` (Windows: `%USERPROFILE%
 ```
 compilar_exe.bat          (or:  pip install -r requirements.txt  &&  python tools/build_exe.py)
 ```
-The result goes to `MHEditor\` (exe + `_internal`); zip that whole folder as `MHEditor.zip`. Pushing a `v*` tag runs
+The result goes to `MHEditor\` (exe + `_internal`); zip that whole folder as `MHEditor.<version>.zip`. Pushing a `v*` tag runs
 `.github/workflows/build.yml`, which builds it and attaches it to the release.
 
 ---
@@ -91,7 +91,7 @@ no incluye archivos del juego.
 
 - **Descargas y actualizaciones:** [Releases](https://github.com/avlopezparra/making-history-1-and-gold-editor/releases/) ·
   **Discord:** https://discord.com/invite/gFJyCjWEnr · **Errores:** alopezcl@protonmail.com
-- **Sin instalar nada:** descarga `MHEditor.zip`, descomprímelo y abre `MHEditor.exe`.
+- **Sin instalar nada:** descarga `MHEditor.<versión>.zip`, descomprímelo y abre `MHEditor.exe`.
 - **Desde el código:** Python 3.12+, `pip install -r requirements.txt`, doble clic en `Region Editor.bat` y abre
   http://localhost:8765 (regiones) o http://localhost:8765/scenario (escenarios).
 - El editor **solo escribe en la carpeta del juego al Guardar o Instalar**. Haz una copia de seguridad antes de empezar.
