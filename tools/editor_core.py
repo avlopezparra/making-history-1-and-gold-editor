@@ -70,7 +70,89 @@ def f32(x):
 
 
 def polys_of(g):
-    return [p for p in getattr(g, 'geoms', [g]) if p.geom_type == 'Polygon' and p.area > MIN_AREA]
+    if g.geom_type == 'Polygon':
+        return [g] if g.area > MIN_AREA else []
+    return [polygon for part in getattr(g, 'geoms', []) for polygon in polys_of(part)]
+
+
+def geometry_audit(before, after, visual=False, gap_width=0.001):
+    """Compare actual polygon coverage, overlap and shared boundaries in degrees."""
+    ids = sorted(before)
+    from shapely.strtree import STRtree
+    footprints = [before[ident].union(after[ident]) for ident in ids]
+    tree = STRtree(footprints)
+    rows, borders = [], []
+    overlap_before = overlap_after = 0.0
+    def boundary(geom):
+        return Polygon().boundary if geom.is_empty else geom.boundary
+    def border_parts(geometry):
+        from shapely.ops import linemerge
+        if geometry.is_empty or geometry.length == 0:
+            return 0
+        if geometry.geom_type == 'LineString':
+            return 1
+        lines = [part for part in geometry.geoms if part.geom_type == 'LineString' and part.length > 0]
+        if not lines:
+            return 0
+        merged = linemerge(lines)
+        return 1 if merged.geom_type == 'LineString' else len(merged.geoms)
+    for pos, ident in enumerate(ids):
+        old, new = before[ident], after[ident]
+        rows.append({'index': ident, 'gained': new.difference(old).area, 'lost': old.difference(new).area,
+                     'empty': new.is_empty or new.area <= MIN_AREA,
+                     'parts_before': len(polys_of(old)), 'parts_after': len(polys_of(new))})
+        if visual:
+            new_parts = polys_of(new)
+            part_tree = STRtree(new_parts)
+            preserved = split = removed = 0
+            for part in polys_of(old):
+                matches = [new_parts[int(i)] for i in part_tree.query(part)
+                           if part.intersection(new_parts[int(i)]).area > MIN_AREA]
+                preserved += any(part.equals(candidate) for candidate in matches)
+                split += len(matches) > 1
+                removed += not matches
+            rows[-1].update(preserved_parts=preserved, split_parts=split, removed_parts=removed)
+        for other_pos in sorted(int(value) for value in tree.query(footprints[pos]) if int(value) > pos):
+            other = ids[other_pos]
+            old_pair, new_pair = before[other], after[other]
+            overlap_before += old.intersection(old_pair).area
+            overlap_after += new.intersection(new_pair).area
+            old_border = boundary(old).intersection(boundary(old_pair))
+            new_border = boundary(new).intersection(boundary(new_pair))
+            old_length, new_length = old_border.length, new_border.length
+            if old_length or new_length:
+                borders.append({'regions': [ident, other], 'before': old_length, 'after': new_length,
+                                'parts_before': border_parts(old_border), 'parts_after': border_parts(new_border)})
+    old_union, new_union = unary_union(list(before.values())), unary_union(list(after.values()))
+    result = {'regions': rows, 'borders': borders, 'overlap_before': overlap_before, 'overlap_after': overlap_after,
+              'coverage_gained': new_union.difference(old_union).area, 'coverage_lost': old_union.difference(new_union).area}
+    if visual:
+        import shapely
+        features = {key: [] for key in ('before', 'after', 'gained', 'lost', 'defects')}
+        for row in rows:
+            ident = row['index']
+            if row['gained'] <= MIN_AREA and row['lost'] <= MIN_AREA:
+                continue
+            for key, geom in (('before', before[ident]), ('after', after[ident]),
+                              ('gained', after[ident].difference(before[ident])), ('lost', before[ident].difference(after[ident]))):
+                if not geom.is_empty:
+                    features[key].append({'type': 'Feature', 'properties': {'index': ident}, 'geometry': mapping(geom)})
+        if hasattr(shapely, 'coverage_invalid_edges') and shapely.geos_version >= (3, 12, 0):
+            defects = shapely.coverage_invalid_edges(list(before.values()), gap_width=gap_width)
+            result['diagnostic_method'] = 'coverage'
+        else:
+            defects = []
+            for pos, ident in enumerate(ids):
+                for other_pos in tree.query(footprints[pos].buffer(gap_width)):
+                    other = ids[int(other_pos)]
+                    if int(other_pos) > pos:
+                        defects.append(boundary(before[ident]).intersection(boundary(before[other]).buffer(gap_width)))
+            result['diagnostic_method'] = 'proximity'
+        for geom in defects:
+            if not geom.is_empty:
+                features['defects'].append({'type': 'Feature', 'properties': {}, 'geometry': mapping(geom)})
+        result['layers'] = {key: {'type': 'FeatureCollection', 'features': value} for key, value in features.items()}
+    return result
 
 
 _SESSION_PROJECTS = set()     # proyectos ya abiertos en esta sesion (su historial de instantaneas es de esta sesion)
@@ -781,8 +863,37 @@ class Project:
                 r = int(k)
                 g = shape({'type': 'MultiPolygon', 'coordinates': coords})
                 if not g.is_valid:
-                    report['errors'].append('%s: poligono invalido (%s)' % (R[r].name, explain_validity(g)))
-                    continue
+                    reason = explain_validity(g)
+                    if payload.get('fix') == 'repair_invalid':
+                        raw_repair = make_valid(g)
+                        repaired = unary_union(polys_of(raw_repair))
+                        if not repaired.is_empty and repaired.is_valid and repaired.area > MIN_AREA:
+                            g = repaired
+                            report['warnings'].append('%s: contorno reparado (%s)' % (R[r].name, reason))
+                        else:
+                            report['errors'].append('%s: poligono invalido (%s)' % (R[r].name, reason))
+                            continue
+                    else:
+                        raw_repair = make_valid(g)
+                        repaired = unary_union(polys_of(raw_repair))
+                        if repaired.is_valid and not repaired.is_empty:
+                            report.setdefault('repaired_regions', {})[str(r)] = mapping(repaired if repaired.geom_type == 'MultiPolygon' else MultiPolygon([repaired]))['coordinates']
+                        neighbors = set(owners(P(r).union(repaired))) | {r}
+                        before = {i: P(i) for i in neighbors}
+                        after = dict(before); after[r] = repaired
+                        audit = geometry_audit(before, after, visual=True)
+                        def collapsed_parts(geom):
+                            if geom.geom_type in ('Point', 'LineString', 'LinearRing'):
+                                return [] if geom.is_empty else [geom]
+                            return [part for child in getattr(geom, 'geoms', []) for part in collapsed_parts(child)]
+                        collapsed = collapsed_parts(raw_repair)
+                        audit['collapsed_parts'] = len(collapsed)
+                        audit['layers']['collapsed'] = {'type': 'FeatureCollection', 'features': [
+                            {'type': 'Feature', 'properties': {}, 'geometry': mapping(part)} for part in collapsed]}
+                        report.setdefault('repair_audits', {})[str(r)] = audit
+                        report.setdefault('invalid_regions', []).append(self.rname(r))
+                        report['errors'].append('%s: poligono invalido (%s)' % (R[r].name, reason))
+                        continue
                 new_polys[r] = g
             if report['errors']:
                 return report
@@ -874,6 +985,46 @@ class Project:
                     # lo recortado de 'from' pasa a 'into' (una vecina, de tierra o mar) o queda como hueco
                     into = asg.get('into')
                     into = int(into) if into is not None else None
+                    def current_area(src):
+                        outgoing = taken.get(src, Polygon())
+                        incoming = [q for q, _, dst in transfers if dst == src]
+                        return unary_union([P(src).difference(outgoing)] + incoming)
+
+                    def cut_source(src):
+                        # Reorientar también lo ganado por un corte anterior, conservando su origen real.
+                        prior = list(transfers)
+                        transfers.clear()
+                        for q, origin, dst in prior:
+                            if dst != src:
+                                transfers.append((q, origin, dst))
+                                continue
+                            for part in polys_of(q.difference(poly)):
+                                transfers.append((part, origin, dst))
+                            for part in polys_of(q.intersection(poly)):
+                                if origin == into:
+                                    if origin in taken:
+                                        taken[origin] = taken[origin].difference(part)
+                                else:
+                                    transfers.append((part, origin, into))
+                        piece = poly.intersection(P(src)).difference(taken.get(src, Polygon()))
+                        if asg.get('keep_tiny'):
+                            for part in polys_of(piece):
+                                transfers.append((part, src, into))
+                                taken[src] = unary_union([taken.get(src, Polygon()), part])
+                        else:
+                            add(piece, src, into)
+
+                    if asg.get('cut_all'):
+                        sources = set(owners(poly, exclude={into}))
+                        sources.update(dst for q, _, dst in transfers if dst is not None and dst != into and q.intersects(poly))
+                        for src in sorted(sources):
+                            area = current_area(src)
+                            piece = poly.intersection(area)
+                            if piece.area > MIN_AREA and area.difference(piece).area <= MIN_AREA:
+                                report['errors'].append('%s: el polígono cubre toda la región' % R[src].name)
+                                continue
+                            cut_source(src)
+                        continue
                     if asg.get('from') is None:
                         # recorte sobre un hueco sin región (seleccionado en el mapa): esa parte del hueco pasa a 'into'
                         empty = poly.difference(unary_union([P(s) for s in owners(poly)] or [Polygon()]))
@@ -884,16 +1035,8 @@ class Project:
                         continue
                     src = int(asg['from'])
                     if into == src:
-                        into = None
-                    cut_pieces = polys_of(poly.intersection(P(src)))
-                    # «Limpiar trozos sueltos», o un recorte que solo toca migas (p. ej. el resto de 1e-8 grados² de Podelia dentro de
-                    # Polissia): también las migas diminutas, que son justo lo que se quiere quitar
-                    if asg.get('keep_tiny') or (cut_pieces and all(q.area < 1e-8 for q in cut_pieces)):
-                        for q in cut_pieces:
-                            transfers.append((q, src, into))
-                            taken[src] = unary_union([taken[src], q]) if src in taken else q
-                    else:
-                        add(poly.intersection(P(src)), src, into)
+                        continue
+                    cut_source(src)
                     continue
                 for s in owners(poly, exclude={r}):
                     if asg.get('land_only') and R[s].u_type == SEA:
@@ -943,6 +1086,11 @@ class Project:
             touched = sorted({x for _, s, d in transfers for x in (s, d) if x is not None})
             old_k = {r: new_region.cos_area(m, r) for r in touched}
             was_valid = {r: self._mesh_valid(m, r) for r in touched}
+            gap_only = bool(payload.get('assigns')) and not payload.get('modified') and all(a.get('repair_gap') for a in payload['assigns'])
+            gap_before = None
+            if gap_only:
+                affected = set(touched) | set(owners(unary_union([P(r) for r in touched]).buffer(self.SNAP)))
+                gap_before = {r: P(r) for r in affected}
             progress.step(35, 'Traspasando áreas entre regiones')
             if transfers:
                 erase, paint, new_pairs = apply_transfers(m, transfers, [], P, cache)
@@ -969,6 +1117,15 @@ class Project:
                 R[r].cx, R[r].cy = f32(x), f32(y)
             progress.step(55, 'Comprobando la malla')
             self._guard(m, created, was_valid, report)      # aborta (sin escribir) si el resultado no es el esperado
+            if gap_before:
+                audit = geometry_audit(gap_before, {r: new_region.mesh_polygon(m, r) for r in gap_before})
+                report['geometry_audit'] = audit
+                tolerance = max(1e-7, sum(shape(a['polygon']).area for a in payload['assigns']) * 0.01)
+                if (any(row['empty'] for row in audit['regions']) or audit['coverage_lost'] > tolerance or
+                        audit['overlap_after'] > audit['overlap_before'] + tolerance):
+                    self._drop_pending_snapshot()
+                    self.reload()
+                    raise SystemExit('Cerrar huecos crearía una región vacía, un hueco nuevo o un solapamiento. Revisa las operaciones pendientes.')
             if payload.get('_dry'):
                 raise _DryOK()
             progress.step(60, 'Escribiendo regions.bin, regions.nts y borders.brd')
@@ -1231,6 +1388,28 @@ class Project:
             if u.area > MIN_AREA:
                 out.append({'polygon': _mp(u.buffer(1e-7)), 'into': n, 'into_name': self.rname(n), 'area': round(u.area, 6)})
         return out
+
+    def preview_gap_repair(self, gaps):
+        """Plan selected gap assignments without changing meshes or files."""
+        if not gaps:
+            return None
+        with self.lock:
+            patch = unary_union([shape(gap['polygon']) for gap in gaps])
+            bounds = patch.bounds
+            ids = {int(gap['into']) for gap in gaps}
+            ids.update(i for i, b in enumerate(self.bbox) if b and not
+                       (b[2] < bounds[0] or b[0] > bounds[2] or b[3] < bounds[1] or b[1] > bounds[3]))
+            before = {i: self.region_geom(self.rname(i)) for i in ids}
+            after = dict(before)
+            for gap in gaps:
+                piece, target = shape(gap['polygon']), int(gap['into'])
+                for i in ids:
+                    if i != target and after[i].intersects(piece):
+                        after[i] = after[i].difference(piece)
+                after[target] = after[target].union(piece)
+            audit = geometry_audit(before, after, visual=True)
+            audit['names'] = {str(i): self.rname(i) for i in ids}
+            return audit
 
     def small_gaps(self, max_area=0.05, eps=0.03, pair=None, region=None, max_width=None):
         """Huecos pequeños (sin región) entre regiones: agujeros cerrados y rendijas estrechas de menos de max_area grados².

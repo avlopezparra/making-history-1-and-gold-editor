@@ -91,7 +91,7 @@ def main():
         # con cambios sin guardar se pregunta; si se acepta, la pagina no vuelve a preguntar (beforeunload)
         if not Api.dirty:
             return True
-        if ask(T['ask']):
+        if ask(TEXTS.get(lang(), TEXTS['es'])['ask']):
             Api.dirty = False
             win.evaluate_js('window.mhSkipUnload = true')
             return True

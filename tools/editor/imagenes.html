@@ -427,12 +427,19 @@ async function showFlagCards(r) {
     </div></div>`; }).join('');
   $('#fsum').textContent = `${r.files.length} archivos. 3DFlag.tga y decal.tga se muestran al derecho, pero el archivo va invertido verticalmente, como en el juego.`;
 }
+let flagPreviewBody = null;
 $('#fprev').onclick = async () => {
   if (!inputs.flag) return note('#fnote', 'Falta la imagen de la bandera.', 'err');
-  try { note('#fnote', ''); lastFlag = await api('/api/img/flag/preview', flagBody()); await showFlagCards(lastFlag); $('#fwrite').disabled = false; }
+  const body = flagBody(); flagPreviewBody = null; $('#fwrite').disabled = true;
+  try { note('#fnote', ''); const result = await api('/api/img/flag/preview', body);
+    if (JSON.stringify(body) !== JSON.stringify(flagBody())) return;
+    lastFlag = result; await showFlagCards(lastFlag);
+    if (JSON.stringify(body) !== JSON.stringify(flagBody())) return;
+    flagPreviewBody = JSON.stringify(body); $('#fwrite').disabled = false; }
   catch (e) { note('#fnote', e.message, 'err'); }
 };
 $('#fwrite').onclick = async () => {
+  if (flagPreviewBody !== JSON.stringify(flagBody())) { $('#fwrite').disabled = true; return; }
   const n = $('#fcountry').value.trim();
   if (!n) return note('#fnote', 'Escribe el nombre del país (carpeta).', 'err');
   if (!confirm(L(`¿Escribir ${lastFlag.files.length} archivos en\n${scen()}\\ui\\art\\2D\\countries\\${n}\\ ?\n\n${C.folders.includes(n) ? 'La carpeta existe: se reemplazan sus archivos.' : 'Carpeta nueva.'}`,
@@ -467,15 +474,20 @@ dropZone($('#dicon'), () => { $('#iwrite').disabled = true; });
 ['#ipad', '#iremovebg', '#iresearch', '#irsize', '#ifile'].forEach(s => $(s).onchange = () => { $('#iwrite').disabled = true; });
 const iconBody = () => ({img:inputs.icon, filebase:$('#ifile').value || kebab($('#iname').value), pad:+$('#ipad').value, removebg:$('#iremovebg').checked,
   research:$('#iresearch').checked, research_size:$('#irsize').value});
+let iconPreviewBody = null;
 $('#iprev').onclick = async () => {
   if (!inputs.icon) return note('#inote', 'Falta la imagen.', 'err');
-  try { note('#inote', ''); const r = await api('/api/img/icon/preview', iconBody());
+  const body = iconBody(); iconPreviewBody = null; $('#iwrite').disabled = true;
+  try { note('#inote', ''); const r = await api('/api/img/icon/preview', body);
+    if (JSON.stringify(body) !== JSON.stringify(iconBody())) return;
+    iconPreviewBody = JSON.stringify(body);
     $('#icards').innerHTML = r.files.map(f => { const k = Math.max(1, Math.min(4, Math.floor(200 / f.w)));
       return `<div class="card"><b>${esc(f.file)}</b><div class="muted">${f.w}×${f.h} · ${esc(f.fmt)}</div><img class="chk" src="${f.png}" style="width:${f.w * k}px;margin-top:4px"></div>`; }).join('');
     $('#iwrite').disabled = false;
   } catch (e) { note('#inote', e.message, 'err'); }
 };
 $('#iwrite').onclick = async () => {
+  if (iconPreviewBody !== JSON.stringify(iconBody())) { $('#iwrite').disabled = true; return; }
   const name = $('#iname').value.trim();
   if (!/^[A-Za-z0-9_]+$/.test(name)) return note('#inote', 'Escribe el strName (solo letras, números y _).', 'err');
   const k = ikind(), exists = (I[k].items.find(x => x.name === name) || {}).registered;

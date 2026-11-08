@@ -10,6 +10,7 @@
 - ai_summary: cómo reacciona la IA de un país (diplomacia, tratados y eventos con su probabilidad).
 """
 import json
+import math
 import os
 import re
 import shutil
@@ -61,6 +62,35 @@ def users_of(path):
 def external_dirty(s):
     st = s.s
     return [p for p in getattr(s, 'external', []) if p in st.dirty]
+
+
+def producer_template(s, producer_id):
+    producer = s.s.get(producer_id)
+    if producer.get('type') != 'Producer' or s.s.doc_of.get(producer) not in s.paths:
+        raise ValueError('el productor no pertenece a este escenario')
+    resource = prop(producer, 'strResource')
+    matches = s.all('ProducerTemplate', pred=lambda el: prop(el, 'strResource') == resource)
+    if len(matches) != 1:
+        raise ValueError('no se ha encontrado una plantilla única para el recurso %s' % resource)
+    return producer, matches[0]
+
+
+def set_producer_template(s, producer_id, values):
+    _, template = producer_template(s, producer_id)
+    try:
+        multiplier = float(values['multiplier'])
+        workers_text, maintenance_text = str(values['workers']), str(values['maintenance'])
+        if not re.fullmatch(r'\d+', workers_text) or not re.fullmatch(r'\d+', maintenance_text):
+            raise ValueError
+        workers = int(workers_text)
+        maintenance = int(maintenance_text)
+    except (KeyError, TypeError, ValueError, OverflowError):
+        raise ValueError('introduce un multiplicador y costes válidos no negativos')
+    if not math.isfinite(multiplier) or not 0 <= multiplier <= 3.4028234e38 or workers > 2147483647 or maintenance > 2147483647:
+        raise ValueError('introduce un multiplicador y costes válidos no negativos')
+    for key, value in (('fMaxMaximizedOutputMultiplier', format(multiplier, '.9g')),
+                       ('nMPUsPerBaseOutput', str(workers)), ('nMaintCostPerBaseOutput', str(maintenance))):
+        s.s.set_prop(template, key, value)
 
 
 def _rekey(st, old, new):

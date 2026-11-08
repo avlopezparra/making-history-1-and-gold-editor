@@ -274,10 +274,37 @@ def encode_map(m):
 
 
 def save_map(m, folder):
+    import tempfile
     os.makedirs(folder, exist_ok=True)
-    for name, data in encode_map(m).items():
-        with open(os.path.join(folder, name), 'wb') as f:
+    staged, originals, committed = {}, {}, []
+    def stage(data):
+        with tempfile.NamedTemporaryFile(dir=folder, delete=False) as f:
+            staged[f.name] = True
             f.write(data)
+            return f.name
+    try:
+        replacements = {}
+        for name, data in encode_map(m).items():
+            path = os.path.join(folder, name)
+            originals[path] = None
+            if os.path.exists(path):
+                with open(path, 'rb') as original:
+                    originals[path] = original.read()
+            replacements[path] = stage(data)
+        for path, temporary in replacements.items():
+            os.replace(temporary, path)
+            committed.append(path)
+    except OSError:
+        for path in reversed(committed):
+            if originals[path] is None:
+                os.remove(path)
+            else:
+                os.replace(stage(originals[path]), path)
+        raise
+    finally:
+        for temporary in staged:
+            if os.path.exists(temporary):
+                os.remove(temporary)
 
 
 def region_shapes(m, region_index):

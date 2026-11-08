@@ -287,7 +287,6 @@ const S = { scen: '', tab: null, rows: [], cols: [], sort: [0, 1], opts: {}, obj
 
 // ------------------------------------------------------------------ escenario y pestanas
 async function init() {
-  if (!new URLSearchParams(location.search).get('keep')) await api('/api/scen/discard_all', {});      // al (re)cargar la pagina se lee lo guardado en los archivos (keep=1: venimos del editor de regiones, que puede tener cambios pendientes)
   const r = await api('/api/scen/list');
   for (const n of r.scenarios) {
     const o = document.createElement('option'); o.value = n;
@@ -362,6 +361,7 @@ function remember(x) {
 }
 function recalled(name) { try { return JSON.parse(localStorage.getItem('mh-scen-pos') || '{}')[name] || null; } catch (e) { return null; } }
 async function showTab(key) {
+  const request = S.tabRequest = (S.tabRequest || 0) + 1;
   if (S.tab === 'historic' && key !== 'historic' && $('#layer').value === 'historic') {      // fuera de Países históricos: sin el verde
     $('#layer').value = 'owner'; $('#layerEdit').checked = false; if (LY.data) { fillLayerValues(); sendOverlay(); }
   }
@@ -371,6 +371,7 @@ async function showTab(key) {
   if (key === 'scale3d') return showScale3D();
   if (key === 'startunits') return showStartUnits();
   const r = await api(`/api/scen/tab?name=${encodeURIComponent(S.scen)}&tab=${key}`);
+  if (request !== S.tabRequest) return;
   S.cols = r.columns; S.rows = r.rows; S.sort = [0, 1]; renderList();
   if (S.rows.length && key === 'global') await openObj(S.rows[0].id);
 }
@@ -515,6 +516,24 @@ function renderObj(d, note) {
     const keep = $('#legend').innerHTML; await openObj(d.id); $('#legend').innerHTML = keep;
   });
   $('#apply').onclick = applyObj; $('#undoObj').onclick = () => openObj(d.id);
+  if (S.scen) {
+    const validate = document.createElement('button'); validate.className = 'btn'; validate.textContent = 'Validar ficha';
+    validate.onclick = () => $('#validate').onclick({ objectId: d.id }); $('#apply').after(validate);
+    if (d.extra.child_options && d.extra.child_options.length) {
+      const select = document.createElement('select');
+      const labels = { UnitSummary: 'Unidad y cantidad', ResourceAmountPair: 'Requisito de recurso',
+        ResearchProjectPreReq: 'Investigación requerida', ResearchFactoryOutputAvailableData: 'Producción desbloqueada',
+        ResearchFactoryOutputUnavailableData: 'Producción retirada o sustituida', ResearchUnitUpgrade: 'Mejora de unidad' };
+      select.innerHTML = d.extra.child_options.map(kind => `<option value="${esc(kind)}">${esc(labels[kind] || kind)}</option>`).join('');
+      const add = document.createElement('button'); add.className = 'btn'; add.textContent = 'Añadir contenido';
+      add.onclick = async () => {
+        const r = await api('/api/scen/add_child', { name: S.scen, id: d.id, kind: select.value });
+        if (r.error) return alert(r.error);
+        setDirty(r.dirty); await openObj(r.id);
+      };
+      validate.after(select, add);
+    }
+  }
   if ($('#dup')) $('#dup').onclick = () => dupObj(d.id);
   $('#del').onclick = () => delObj(d.id);
   $('#form').addEventListener('input', e => { const i = e.target; if (i.tagName === 'TEXTAREA') i.classList.toggle('changed', i.value !== i.dataset.orig); });
@@ -522,6 +541,7 @@ function renderObj(d, note) {
   if (S.scen && d.type === 'Scenario') regionpackSection();
   if (S.scen && d.type === 'MEPlayerData') aiSection(d);
   if (S.scen && d.type === 'City') portSection(d);
+  if (S.scen && d.type === 'Producer') producerTemplateSection(d);
   if (S.scen && d.type === 'MECountry') countrySection(d);
   if (S.scen && d.type === 'MECountry') { claimsSection(d); traitsSection(d); }
   if (S.scen && EV_TYPES.includes(d.type)) eventSection(d);
@@ -531,6 +551,39 @@ function renderObj(d, note) {
   if (S.scen && $('#bombRange').checked) sendRings();
 }
 // puerto de una ciudad: casilla para activarlo y el mar (vecino de su región o, opcionalmente, uno lejano)
+async function producerTemplateSection(d) {
+  const name = S.scen;
+  const r = await api('/api/scen/producer_template?name=' + encodeURIComponent(name) + '&id=' + d.id);
+  if (!S.obj || S.obj.id !== d.id || S.scen !== name || !$('#form')) return;
+  const box = document.createElement('div');
+  box.className = 'sec';
+  if (r.error) {
+    box.innerHTML = `<h3>Capacidad máxima del recurso</h3><div class="muted">${esc(r.error)}</div>`;
+  } else {
+    box.innerHTML = `<h3>Capacidad máxima del recurso</h3>
+      <p class="muted">Estos valores afectan a todos los productores de este recurso en el escenario. El máximo inicial se calcula como producción base × (1 + multiplicador). El mínimo de las órdenes normales es 0.</p>
+      <div class="row"><label>Multiplicador adicional <input id="producerMultiplier" type="number" min="0" step="any" value="${esc(r.multiplier)}" style="width:90px"></label>
+      <label>Trabajadores por producción base <input id="producerWorkers" type="number" min="0" max="2147483647" step="1" value="${esc(r.workers)}" style="width:90px"></label>
+      <label>Mantenimiento por producción base <input id="producerMaintenance" type="number" min="0" max="2147483647" step="1" value="${esc(r.maintenance)}" style="width:110px"></label>
+      <button type="button" id="producerMultiplierApply">Aplicar plantilla</button></div><div id="producerMultiplierNote" class="muted"></div>
+      <div class="muted">Recurso: ${esc(r.resource)} · ${esc(r.file)}</div>
+      ${r.shared ? '<div class="note">Este archivo es compartido con otros escenarios. Al guardar se elegirá cómo guardar los cambios.</div>' : ''}`;
+  }
+  const form = $('#form'); form.parentNode.insertBefore(box, form.nextSibling);
+  if (r.error) return;
+  $('#producerMultiplierApply').onclick = async () => {
+    const inputs = ['#producerMultiplier', '#producerWorkers', '#producerMaintenance'].map(selector => $(selector));
+    if (inputs.some(input => !input.value.trim() || !input.checkValidity() || !Number.isFinite(Number(input.value)))) {
+      return alert('Introduce un multiplicador y costes válidos no negativos.');
+    }
+    const result = await api('/api/scen/producer_template', { name, id: d.id, multiplier: inputs[0].value, workers: inputs[1].value, maintenance: inputs[2].value });
+    if (result.error) return alert(result.error);
+    setDirty(result.dirty);
+    if (S.scen === name && S.obj && S.obj.id === d.id && $('#producerMultiplierNote')) {
+      $('#producerMultiplierNote').textContent = 'Multiplicador aplicado. Falta guardar el escenario.';
+    }
+  };
+}
 async function portSection(d) {
   const r = await api('/api/scen/port_options', { name: S.scen, id: d.id }); if (r.error || !S.obj || S.obj.id !== d.id) return;
   const box = document.createElement('div'); box.className = 'note'; box.id = 'portBox';
@@ -726,7 +779,7 @@ function sendOverlay() {
     for (const n of selR) { colors[n] = '#2563eb'; alphas[n] = 0.75; tips[n] = (tips[n] || '') + ' · seleccionada'; }
   }
   const capture = multiOn() || ($('#layerEdit').checked && k !== 'war' && !(k === 'owner' && !v));
-  frameMsg({ cmd: 'overlay', overlay: { colors, tips, alpha, alphas, dimAlpha, dim: '#000', capture } });
+  frameMsg({ cmd: 'overlay', overlay: { colors, tips, alpha, alphas, dimAlpha, dim: '#000', capture, selectedRegions: multiOn() ? selectedRegions() : [] } });
   $('#legend').innerHTML = legend;
   if (rview === 'map') layerList();
 }
@@ -2354,6 +2407,23 @@ $('#newScen').onclick = async () => {
 };
 // si las regiones del escenario no cuadran con su regionpack, el juego no lo carga: ofrecer adecuarlo antes de guardar
 async function saveScen(body) {
+  let r;
+  try { r = await saveScenRequest(body); }
+  catch (error) { r = { error: error.message }; }
+  if (r.error && body.name) {
+    if (confirm('No se pudo guardar. Los cambios siguen en memoria. ¿Descargar los XML pendientes para conservarlos?')) {
+      const pending = await api('/api/scen/pending_export?name=' + encodeURIComponent(body.name));
+      if (pending.error) { alert(pending.error); return r; }
+      const bytes = Uint8Array.from(atob(pending.data), char => char.charCodeAt(0));
+      const url = URL.createObjectURL(new Blob([bytes], { type: 'application/zip' }));
+      const link = document.createElement('a'); link.href = url; link.download = 'scenario-pending-xml.zip'; link.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    }
+    return r;
+  }
+  return r;
+}
+async function saveScenRequest(body) {
   let r = await api('/api/scen/save', body);
   if (!r.needs_fit) return r;
   const lst = xs => xs.slice(0, 12).join(', ') + (xs.length > 12 ? '…' : '');
@@ -2419,9 +2489,15 @@ $('#revert').onclick = async () => {
   if (!confirm('¿Descartar todos los cambios sin guardar de este escenario?')) return;
   await api('/api/scen/revert', { name: S.scen }); openScenario(S.scen);
 };
-$('#validate').onclick = async () => {
+$('#validate').onclick = async event => {
   $('#vallist').innerHTML = '<p class="muted">Comprobando…</p>'; valDlg.showModal();
-  const r = await api('/api/scen/validate?name=' + encodeURIComponent(S.scen));
+  let r;
+  if (event && event.objectId) {
+    const values = {};
+    document.querySelectorAll('#form [data-name]').forEach(input => { if (input.value !== input.dataset.orig) values[input.dataset.name] = input.value; });
+    r = await api('/api/scen/validate_object', { name: S.scen, id: event.objectId, values });
+  } else r = await api('/api/scen/validate?name=' + encodeURIComponent(S.scen));
+  if (r.error) { $('#vallist').textContent = r.error; return; }
   const e = r.issues.filter(i => i.level === 'error').length;
   $('#valsum').textContent = `${e} errores, ${r.issues.length - e} avisos`;
   const fixable = r.issues.filter(i => i.fix && i.fix.kind === 'capital'), dips = r.issues.filter(i => i.fix && i.fix.kind === 'dip');

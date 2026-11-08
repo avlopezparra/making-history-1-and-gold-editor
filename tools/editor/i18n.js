@@ -57,6 +57,8 @@
     'Volver': 'Back', 'Medida': 'Size', 'Margen': 'Margin', 'Ajuste': 'Fit', 'Forma': 'Shape', 'Círculo': 'Circle', 'Cuadrado': 'Square', 'Escudo': 'Shield',
   };
   const PATTERNS = [
+    [/^¿Cambiar el nombre interno de (.+?) a (.+?) en todo el escenario\?$/, 'Change the internal name of $1 to $2 throughout the scenario?'],
+    [/^Sus archivos se renombran al guardar\.$/, 'Its files are renamed when saving.'],
     [/^(\d+) de (\d+)$/, '$1 of $2'], [/^(\d+) archivo\(s\) sin guardar$/, '$1 unsaved file(s)'],
     [/^(\d+) regiones históricas de (.+)\. Clic: añadir \/ quitar\.$/, '$1 historic regions of $2. Click: add / remove.'],
     [/^(\d+) regiones con cultura (.+)\. Clic: .*$/, '$1 regions with culture $2. Click: assign it to the region.'],
@@ -130,6 +132,13 @@
   const tr = s => {
     if (!s) return s;
     const t0 = s.trim(); if (!t0) return s;
+    // Los informes del servidor combinan un encabezado con errores que tienen su propia traducción.
+    const errorPrefix = t0.match(/^(No se guardó|Error):\s*([\s\S]+)$/);
+    if (errorPrefix) {
+      const heading = errorPrefix[1] === 'No se guardó' ? 'Not saved' : 'Error';
+      const details = errorPrefix[2].split('\n').map(line => tr(line)).join('\n');
+      return s.replace(t0, heading + ': ' + details);
+    }
     const t = t0.replace(/\s+/g, ' ');            // textos partidos en varias líneas en el HTML
     // varias frases o líneas ('…' + x + '…', avisos con listas): cada una por su lado, con sus saltos de línea; las frases con
     // huecos se prueban antes por frase que con el texto entero (un hueco se tragaría las frases siguientes)
@@ -246,7 +255,7 @@
     else { Object.assign(sel.style, { position: 'fixed', right: '8px', bottom: '8px', zIndex: 9999 }); document.body.appendChild(sel); }
   }
   // créditos, Discord (novedades y actualizaciones) y dónde avisar de errores
-  const VERSION = '3.3';
+  const VERSION = '3.4';
   const DISCORD = 'https://discord.com/invite/gFJyCjWEnr', BUGS = 'alopezcl@protonmail.com',
     UPDATES = 'https://github.com/avlopezparra/making-history-1-and-gold-editor/releases/', HUB = 'https://gamebanana.com/games/6530';
   // botón «Join Discord» aparte, en el morado de Discord

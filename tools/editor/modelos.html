@@ -158,7 +158,9 @@ function applyView() {
   if (showBones) { skel = new THREE.SkeletonHelper(model); scene3.add(skel); }
 }
 async function showGlb(buf, keepCam) {
+  const request = M.request;
   const g = await new GLTFLoader().parseAsync(buf, '');
+  if (request !== M.request) return;
   if (model) scene3.remove(model);
   model = g.scene; scene3.add(model); applyView(); if (!keepCam) frame();
   let v = 0, t = 0; model.traverse(o => { if (o.isMesh) { v += o.geometry.attributes.position.count; t += (o.geometry.index ? o.geometry.index.count : o.geometry.attributes.position.count) / 3; } });
@@ -172,8 +174,12 @@ $('#vReset').onclick = frame;
 </script>
 <script>
 async function loadList() {
+  M.request = (M.request || 0) + 1;
+  M.cur = null; M.info = null; M.tex = null; M.texImg = null;
+  ['#exGlb', '#exObj', '#imPrev', '#imSave', '#txSave', '#txDown', '#txDownTga'].forEach(s => $(s).disabled = true);
+  const request = M.request;
   store('mdl-scen', $('#scen').value);
-  try { const r = await api('/api/model/list?name=' + encodeURIComponent($('#scen').value)); M.rows = r.models; renderList(); }
+  try { const r = await api('/api/model/list?name=' + encodeURIComponent($('#scen').value)); if (request !== M.request) return; M.rows = r.models; renderList(); }
   catch (e) { msg(e.message, true); }
   loadChecks();
 }
@@ -191,14 +197,18 @@ function renderList() {
   $('#list').querySelectorAll('li').forEach(li => li.onclick = () => open(M.rows.find(x => x.id === +li.dataset.id)));
 }
 async function open(row) {
+  const request = M.request = (M.request || 0) + 1;
   M.cur = row; M.tex = null; M.texImg = null; renderList(); msg('');
+  ['#exGlb', '#exObj', '#imPrev', '#imSave', '#txSave', '#txDown', '#txDownTga'].forEach(s => $(s).disabled = true);
   if (row.model === 'missing') return msg(`Falta el .nif: ${row.nif}`, true);
   try {
     const [info, glb] = await Promise.all([api('/api/model/info?path=' + encodeURIComponent(row.nif)),
       fetch('/api/model/glb?path=' + encodeURIComponent(row.nif)).then(r => r.arrayBuffer())]);
+    if (request !== M.request) return;
     M.info = info; await window.showGlb(glb);
+    if (request !== M.request) return;
     renderInfo();
-  } catch (e) { msg(e.message, true); }
+  } catch (e) { if (request === M.request) msg(e.message, true); return; }
   ['#exGlb', '#exObj', '#imPrev', '#imSave'].forEach(s => $(s).disabled = false);
 }
 function renderInfo() {
@@ -218,10 +228,13 @@ const txExport = fmt => { const t = M.info.textures.find(x => x.block === M.tex)
 $('#txDown').onclick = () => txExport('png');
 $('#txDownTga').onclick = () => txExport('tga');
 $('#txFile').onchange = async e => {
+  const request = M.request;
   const f = e.target.files[0]; e.target.value = ''; if (!f) return;
   if (M.tex === null) return msg('Elige primero la textura que quieres cambiar.', true);
   M.texImg = await readFile(f);
-  try { const r = await api('/api/scen/model_texture', { name: $('#scen').value, path: M.cur.nif, block: M.tex, png: M.texImg }); await window.showGlbB64(r.glb);
+  if (request !== M.request) return;
+  try { const r = await api('/api/scen/model_texture', { name: $('#scen').value, path: M.cur.nif, block: M.tex, png: M.texImg }); if (request !== M.request) return; await window.showGlbB64(r.glb);
+    if (request !== M.request) return;
     $('#txSave').disabled = false; msg('Vista previa con la textura nueva. «Guardar en el escenario y vincular» para usarla en el juego.'); }
   catch (er) { msg(er.message, true); }
 };
@@ -237,8 +250,10 @@ $('#imFile').onchange = async e => { const f = e.target.files[0]; M.imData = f ?
 const imBody = extra => ({ name: $('#scen').value, template: M.cur.nif, file: M.imData.b64, ext: M.imData.ext, keep: $('#imKeep').value.split(',').map(s => s.trim()).filter(Boolean),
   fit: $('#imFit').checked, parent: $('#imParent').value.trim(), axes: $('#imAxes').value, ...extra });
 $('#imPrev').onclick = async () => {
+  const request = M.request;
   if (!M.imData) return msg('Elige un archivo para importar.', true);
-  try { const r = await api('/api/scen/model_import', imBody({})); await window.showGlbB64(r.glb);
+  try { const r = await api('/api/scen/model_import', imBody({})); if (request !== M.request) return; await window.showGlbB64(r.glb);
+    if (request !== M.request) return;
     msg(`Vista previa: ${r.result.added} malla(s) nuevas, ${r.result.removed} quitadas, escala ${r.result.scale.toFixed(4)}.\n` + r.result.placed.join('\n')); }
   catch (e) { msg(e.message, true); }
 };

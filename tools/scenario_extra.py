@@ -17,6 +17,42 @@ OPTIONAL = {
     'Flow': ['strFromCountry', 'strToCountry'],
 }
 TEMPLATE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'editor', 'plantilla_escenario')
+CHILDREN = {
+    'Army': [('UnitSummary', 'objUnits')], 'AirForce': [('UnitSummary', 'objUnits')],
+    'Fleet': [('UnitSummary', 'objUnits')],
+    'FactoryOutputUnit': [('ResourceAmountPair', 'objResourcesRequired')],
+    'FactoryOutputFactory': [('ResourceAmountPair', 'objResourcesRequired')],
+    'FactoryOutputResource': [('ResourceAmountPair', 'objResourcesRequired')],
+    'ResearchProjNoOp': [('ResearchProjectPreReq', 'objPreReqs')],
+    'ResearchProjFactoryOutput': [('ResearchProjectPreReq', 'objPreReqs'),
+        ('ResearchFactoryOutputAvailableData', 'objAvailableFactoryOutputs'),
+        ('ResearchFactoryOutputUnavailableData', 'objUnavailableFactoryOutputs')],
+    'ResearchProjUpgradeDataTemplateRef': [('ResearchProjectPreReq', 'objPreReqs')],
+    'ResearchProjUpgradeUnits': [('ResearchProjectPreReq', 'objPreReqs'), ('ResearchUnitUpgrade', 'objUpgrades')],
+}
+CHILD_PROPS = {
+    'UnitSummary': {'strName': '', 'nNumber': '1'},
+    'ResourceAmountPair': {'strResource': '', 'nAmount': '0'},
+    'ResearchProjectPreReq': {'strProjectName': ''},
+    'ResearchFactoryOutputAvailableData': {'strFactoryOutputName': '', 'bMayAlreadyBeAvailable': 'false'},
+    'ResearchFactoryOutputUnavailableData': {'strFactoryOutputName': '', 'strReplacementFactoryOutputName': '', 'bMayAlreadyBeUnavailable': 'false'},
+    'ResearchUnitUpgrade': {'strUpgradeName': ''},
+}
+
+
+def add_child(scenario, parent_id, kind):
+    st = scenario.s
+    parent = st.get(parent_id)
+    if st.doc_of.get(parent) not in scenario.paths:
+        raise ValueError('objeto fuera del escenario')
+    name = next((name for typ, name in CHILDREN.get(parent.get('type'), []) if typ == kind), None)
+    if name is None:
+        raise ValueError('tipo de contenido no permitido')
+    child = ET.Element('object', {'type': kind, 'name': name})
+    for key, value in CHILD_PROPS[kind].items():
+        ET.SubElement(child, 'property', {'name': key, 'value': value})
+    st.attach(child, parent)
+    return st.eid(child)
 # lo que ed.exe crea en cada escenario (CEdScenDirGameDefs / CEdScenDirUIDefs::InitDir)
 SCEN_FILES = [os.path.join('game', 'namespace.xml'), os.path.join('game', 'scenarioDefs.xml'),
               os.path.join('ui', 'namespace.xml'), os.path.join('ui', 'UICommandFile.xml'), os.path.join('ui', 'UIPreLoopCommandFile.xml')]

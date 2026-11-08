@@ -10,6 +10,7 @@ import os
 import re
 import shutil
 import time
+import tempfile
 import xml.etree.ElementTree as ET
 from collections import Counter, defaultdict
 
@@ -358,18 +359,33 @@ class Store:
             data = '<?xml version="1.0" encoding="UTF-8"?>\n' + data + '\n'
             if crlf:
                 data = data.replace('\r\n', '\n').replace('\n', '\r\n')
-            with open(path, 'w', encoding='utf-8', newline='') as f:
-                f.write(data)
-            self.dirty.discard(path)
-            self.restructured.discard(path)
-            written.append(rel)
-            old = getattr(self, 'renamed', {}).pop(path, None)      # archivo renombrado (p. ej. country<País>.xml al renombrar un país)
+            tmp = None
+            try:
+                with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', newline='', dir=os.path.dirname(path), delete=False) as f:
+                    tmp = f.name
+                    f.write(data)
+                os.replace(tmp, path)
+                tmp = None
+            finally:
+                if tmp and os.path.exists(tmp):
+                    os.remove(tmp)
+            old = getattr(self, 'renamed', {}).get(path)      # mantener pendiente si falla retirar el nombre anterior
             if old and os.path.normcase(old) != os.path.normcase(path) and os.path.exists(old):
                 os.remove(old)
                 written.append('(antes %s)' % os.path.basename(old))
+            getattr(self, 'renamed', {}).pop(path, None)
+            self.dirty.discard(path)
+            self.restructured.discard(path)
+            written.append(rel)
         return {'written': written, 'history': stamp if written and BACKUPS else None, 'fixed': fixed}
 
     def revert(self, paths=None):
+        removed = set(paths if paths is not None else self.dirty)
+        for el, path in list(self.doc_of.items()):
+            if path in removed:
+                ident = self.ids.pop(el, None)
+                if ident is not None:
+                    self.els.pop(ident, None)
         for path in list(paths if paths is not None else self.dirty):
             if path in self.docs:
                 del self.docs[path]
@@ -669,6 +685,7 @@ class Scenario:
         children = [{'id': s.eid(c), 'type': c.get('type'), 'name': c.get('name'), 'label': s.label(c),
                      'summary': self.child_summary(c)} for c in objs(el)]
         extra = {}
+        extra['child_options'] = [kind for kind, _ in scenario_extra.CHILDREN.get(el.get('type'), [])]
         t = el.get('type')
         if t in ('City', 'Producer'):
             extra['region'] = prop(s.parent.get(el), 'strName')
@@ -933,7 +950,9 @@ class Scenario:
             v = P(e, k)
             try:
                 return int(v) if v not in (None, '') else None
-            except ValueError:
+            except (ValueError, TypeError):
+                issues.append(('error', '%s %s: %s debe ser un número entero (valor: %s)' %
+                               (e.get('type'), P(e, 'strName') or '', k, v), self.s.eid(e)))
                 return None
         for e in self.all('Scenario') + self.all('ScenarioInfo'):
             d = num(e, 'nScenarioDuration')
@@ -942,21 +961,74 @@ class Scenario:
             for k in ('nStartYear', 'nEndYear'):
                 if (num(e, k) or 0) < 0:
                     issues.append(('error', 'Fecha del escenario no válida: %s = %s' % (k, P(e, k)), self.s.eid(e)))
+        outputs = {P(e, 'strName') for e in self.all_prefix('FactoryOutput') if P(e, 'strName')}
         for c in self.all('City'):
             if not (P(c, 'strName') or '').strip():
                 issues.append(('error', 'Ciudad sin nombre en %s' % P(self.s.parent[c], 'strName'), self.s.eid(c)))
             if (num(c, 'nInitialPercentComplete') or 0) < 0:
                 issues.append(('error', 'Ciudad %s: el porcentaje inicial de la orden no puede ser negativo' % P(c, 'strName'), self.s.eid(c)))
+            order = P(c, 'strInitialWorkOrder')
+            if order and order not in outputs:
+                issues.append(('aviso', 'Ciudad %s: no se encontró la producción inicial %s' % (P(c, 'strName'), order), self.s.eid(c)))
             for fa in objs(c):
                 if fa.get('type') == 'Factory' and (num(fa, 'nIPUs') or 0) < 0:
                     issues.append(('error', 'Ciudad %s: los IPUs no pueden ser negativos' % P(c, 'strName'), self.s.eid(c)))
+        templates = Counter(P(t, 'strResource') for t in self.all('ProducerTemplate'))
         for p in self.all('Producer'):
             v = num(p, 'nBaseOutputRate')
-            if v is not None and v < 1:
-                issues.append(('error', 'Productor %s: la producción base debe ser al menos 1' % (P(p, 'strName') or P(p, 'strResource')), self.s.eid(p)))
+            if v is not None and v < 0:
+                issues.append(('error', 'Productor %s: la producción base no puede ser negativa' % (P(p, 'strName') or P(p, 'strResource')), self.s.eid(p)))
+            elif v == 0:
+                issues.append(('aviso', 'Productor %s: la producción base inicial es 0; comprueba su funcionamiento en el juego' % (P(p, 'strName') or P(p, 'strResource')), self.s.eid(p)))
+            resource = P(p, 'strResource')
+            if not templates[resource]:
+                issues.append(('aviso', 'Productor %s: no se encontró una plantilla para el recurso %s en los archivos cargados' % (P(p, 'strName'), resource or ''), self.s.eid(p)))
+        for t in self.all('ProducerTemplate'):
+            value = num(t, 'nMPUsPerBaseOutput')
+            if value is not None and value < 0:
+                issues.append(('error', 'Plantilla %s: los trabajadores por producción base no pueden ser negativos' % P(t, 'strResource'), self.s.eid(t)))
         for r in self.regions(sea=False):
             if (num(r, 'nPopulation') or 0) < 0:
                 issues.append(('error', 'Región %s: la población no puede ser negativa' % P(r, 'strName'), self.s.eid(r)))
+        unit_rules = {'nHitPoints': (1, None), 'nSpeed': (1, None), 'nAttackPower': (0, None),
+                      'nRequiredMPUs': (0, None), 'nMaintenanceCost': (0, None), 'nSupplyArms': (0, None),
+                      'nActiveArms': (0, None), 'nCarrierAirHitPoints': (0, None),
+                      **{key: (0, 100) for key in ('nLandHitPercent', 'nSeaHitPercent', 'nAirHitPercent', 'nStructureHitPercent', 'nResistance', 'nAirSquadsResistance')}}
+        productions = [e for e in self.all_prefix('FactoryOutput') if e.get('type') in ('FactoryOutput', 'FactoryOutputUnit', 'FactoryOutputFactory', 'FactoryOutputResource')]
+        projects = [e for e in self.all_prefix('ResearchProj') if P(e, 'strName')]
+        for elements, rules in ((self.all('UnitTemplate'), unit_rules),
+                                (productions, {key: (0, None) for key in ('nTechLevel', 'nIPUsRequired', 'nBuildCost', 'nIPUsPerOutputUnit', 'nAmountPerOutputUnit')}),
+                                (projects, {key: (0, None) for key in ('nCost', 'nNeededIPUs', 'nResearchPoints')})):
+            for element in elements:
+                ident = self.s.eid(element)
+                if not (P(element, 'strName') or '').strip():
+                    issues.append(('error', '%s: falta el nombre interno' % element.get('type'), ident))
+                for key, (minimum, maximum) in rules.items():
+                    value = num(element, key)
+                    if value is not None and (value < minimum or maximum is not None and value > maximum):
+                        issues.append(('error', '%s: %s fuera de rango (%s)' % (P(element, 'strName'), key, value), ident))
+        project_names = {P(e, 'strName') for e in projects}
+        unit_names = {P(e, 'strName') for e in self.all('UnitTemplate')}
+        references = [('ResearchProjectPreReq', 'strProjectName', project_names),
+                      ('ResearchProjectInitRef', 'strProjectName', project_names),
+                      ('ResearchFactoryOutputAvailableData', 'strFactoryOutputName', outputs),
+                      ('ResearchFactoryOutputUnavailableData', 'strFactoryOutputName', outputs),
+                      ('ResearchFactoryOutputUnavailableData', 'strReplacementFactoryOutputName', outputs),
+                      ('FactoryOutputUnit', 'strUnitType', unit_names)]
+        for typ, key, known in references:
+            for element in self.all(typ):
+                value = P(element, key)
+                if (value and value not in known) or (not value and key != 'strReplacementFactoryOutputName'):
+                    issues.append(('aviso', '%s: referencia no encontrada (%s = %s)' % (typ, key, value), self.s.eid(element)))
+        for element in self.all('ResourceAmountPair'):
+            if self.s.parent.get(element) not in productions:
+                continue
+            amount = num(element, 'nAmount')
+            if amount is not None and amount < 0:
+                issues.append(('error', 'Requisito de recurso: cantidad negativa (%s)' % amount, self.s.eid(element)))
+            resource = P(element, 'strResource')
+            if not resource or resource not in resources:
+                issues.append(('aviso', 'Requisito de recurso: recurso no encontrado (%s)' % (resource or ''), self.s.eid(element)))
         for typ, label in (('MECountry', 'País'), ('UnitTemplate', 'Plantilla de unidad')):
             names = Counter(P(e, 'strName') for e in self.all(typ))
             for n, k in names.items():

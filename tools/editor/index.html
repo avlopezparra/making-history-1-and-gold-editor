@@ -252,6 +252,7 @@
 <dialog id="cutDlg" style="border:1px solid var(--line);border-radius:10px;background:var(--panel);color:var(--ink);max-width:460px">
   <form method="dialog">
     <h3 id="cutTitle" style="margin-top:0">¿Qué hacer con lo recortado?</h3>
+    <label style="display:block;margin-bottom:8px"><input type="checkbox" id="cutAll"> Todas las regiones atravesadas</label>
     <label style="display:block;margin-bottom:8px">Recortar de <select id="cutFrom" style="max-width:300px"></select></label>
     <label style="display:block"><input type="radio" name="cutMode" value="land" checked> Unirlo a una región vecina de tierra:</label>
     <select id="cutLand" style="margin:2px 0 8px 24px;max-width:300px"></select>
@@ -710,7 +711,7 @@ function opColor(op) { return op.kind === 'delete_region' ? '#64748b' : op.kind 
 function addOp(op) {
   const nm = i => (S.regions.get(i) || { props: S.meta.find(m => m.index === i) || { name: '#' + i } }).props.name;   // aunque no esté cargada
   pushUndo([]); op.name = op.kind === 'delete_region' ? `eliminar ${nm(op.region)}` : op.kind === 'new_region' ? `«${op.newName}»${op.from != null ? ' de ' + nm(op.from) : ' (' + (op.owner || 'sin país') + ')'}`
-    : op.kind === 'cut' ? `recorte de ${nm(op.from)} → ${op.into != null ? nm(op.into) : 'hueco'}`
+    : op.kind === 'cut' ? `recorte de ${op.cut_all ? 'todas las regiones atravesadas' : nm(op.from)} → ${op.into != null ? nm(op.into) : 'hueco'}`
     : op.region != null ? nm(op.region) : (op.from != null ? nm(op.from) : '');
   S.ops.push(op); redrawOps(); updatePending();
 }
@@ -1462,6 +1463,7 @@ async function askCutTarget(polygon, from, under) {
   if (!under.length) return status('El recorte no toca ninguna región');
   $('#cutFrom').innerHTML = under.map(u => `<option value="${u.index}">${u.name}${u.sea ? ' (mar)' : ''}</option>`).join('');
   $('#cutFrom').value = String(under.some(u => u.index === from) ? from : under[0].index);
+  $('#cutAll').checked = false;
   // punto donde terminó el recorte (último vértice dibujado): las vecinas más cercanas a él salen primero
   const ringC = polygon && polygon.coordinates && polygon.coordinates[0] || [], endPt = ringC.length > 1 ? ringC[ringC.length - 2] : ringC[0];
   const cutDist = m => { if (!endPt || !m.bbox) return Infinity; if (m.bbox[2] - m.bbox[0] > 90) return 1e3; /* islas que cruzan la línea de fecha: su caja no sirve para medir */ const dx = Math.max(m.bbox[0] - endPt[0], 0, endPt[0] - m.bbox[2]), dy = Math.max(m.bbox[1] - endPt[1], 0, endPt[1] - m.bbox[3]);
@@ -1473,19 +1475,20 @@ async function askCutTarget(polygon, from, under) {
     const land = nb.filter(m => !m.sea).map(m => [cutDist(m), m]).sort((a, b) => a[0] - b[0]).map(x => x[1]), sea = nb.filter(m => m.sea);
     const own = n => (S.scen && S.scen.regions[n] && S.scen.regions[n].owner) || '';
     const lab = m => `${m.name}${own(m.name) ? ' — ' + own(m.name) : ''}`;
-    $('#cutTitle').textContent = `¿Qué hacer con lo recortado de «${u.name}»?`;
+    $('#cutTitle').textContent = $('#cutAll').checked ? '¿Qué hacer con lo recortado?' : `¿Qué hacer con lo recortado de «${u.name}»?`;
     $('#cutLand').innerHTML = land.map(m => `<option value="${m.index}">${lab(m)}</option>`).join('') || '<option value="">(no tiene vecinas de tierra)</option>';
     // «Anexar a otro territorio»: cualquier región de tierra, las más cercanas al punto donde terminó el recorte primero
-    $('#cutOther').innerHTML = S.meta.filter(m => !m.sea && m.index !== u.index).map(m => [cutDist(m), m]).sort((a, b) => a[0] - b[0] || a[1].name.localeCompare(b[1].name))
+    $('#cutOther').innerHTML = S.meta.filter(m => !m.sea && ($('#cutAll').checked || m.index !== u.index)).map(m => [cutDist(m), m]).sort((a, b) => a[0] - b[0] || a[1].name.localeCompare(b[1].name))
       .slice(0, 400).map(x => `<option value="${x[1].index}">${lab(x[1])}</option>`).join('');
     document.querySelector('input[name=cutMode][value=other]').disabled = false;      // también desde un mar (p. ej. a una isla que no toca)
     $('#cutSea').innerHTML = sea.map(m => `<option value="${m.index}">${m.name}</option>`).join('') || '<option value="">(no tiene mar vecino)</option>';
     document.querySelector('input[name=cutMode][value=land]').disabled = !land.length;
     document.querySelector('input[name=cutMode][value=sea]').disabled = !sea.length;
-    document.querySelector('input[name=cutMode][value=new]').disabled = false;      // también de un mar: tierra (una isla) o mar
+    document.querySelector('input[name=cutMode][value=new]').disabled = $('#cutAll').checked;
+    document.querySelector('input[name=cutMode][value=newsea]').disabled = $('#cutAll').checked;
     document.querySelector(`input[name=cutMode][value=${land.length && !u.sea ? 'land' : sea.length ? 'sea' : !u.sea ? 'other' : 'none'}]`).checked = true;
   };
-  $('#cutFrom').onchange = fill; fill();
+  $('#cutFrom').onchange = fill; $('#cutAll').onchange = fill; fill();
   const dlg = $('#cutDlg');
   const ok = await waitDialog(dlg);
   if (!ok) return status('Recorte cancelado');
@@ -1499,7 +1502,7 @@ async function askCutTarget(polygon, from, under) {
   if (mode === 'newsea') return askNewRegion(polygon, null, { nueva: true, cut: false, land: [], sea: [], forceSea: true, takeFrom: [from] });   // mar nuevo recortado de ella
   const into = mode === 'land' ? +$('#cutLand').value : mode === 'other' ? +$('#cutOther').value : mode === 'sea' ? +$('#cutSea').value : null;
   if (mode !== 'none' && (into == null || isNaN(into))) return status('Elige la región a la que pasa');
-  addOp({ kind: 'cut', polygon, from, into });
+  addOp({ kind: 'cut', polygon, from, into, cut_all: $('#cutAll').checked });
   const nm = i => (S.meta.find(m => m.index === i) || {}).name;
   status(`Recorte de «${nm(from)}» → ${into != null ? '«' + nm(into) + '»' : 'vacío'}; se aplica al «Guardar»`);
 }
@@ -1817,10 +1820,81 @@ function updatePending() {
   $('#pending').textContent = parts.join('\n') || 'ninguno';
   $('#save').disabled = $('#discard').disabled = !parts.length;
 }
+function mapDraft() {
+  return { format: 'mh-map-draft-1', pack: S.editPack || $('#pack').value,
+    regions: S.meta.map(region => [region.index, region.name, region.bbox]),
+    modified: [...S.regions].filter(([, region]) => region.modified).map(([id, region]) => [id, region.polys]),
+    ops: S.ops, centers: S.centers, scenario: S.scenName, newScenario: S.newScen };
+}
+function downloadMapDraft() {
+  const url = URL.createObjectURL(new Blob([JSON.stringify(mapDraft(), null, 2)], { type: 'application/json' }));
+  const link = document.createElement('a'); link.href = url; link.download = 'map-pending-changes.json'; link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+function saveRecovery() {
+  const box = document.createElement('div'); box.className = 'note';
+  const heading = document.createElement('p'); heading.textContent = 'Los cambios siguen pendientes. Puedes corregirlos, reintentar o descargar un borrador recuperable.'; box.appendChild(heading);
+  const button = (text, action) => { const b = document.createElement('button'); b.type = 'button'; b.textContent = text; b.onclick = action; box.appendChild(b); };
+  button('Reintentar guardar', () => save());
+  button('Descargar cambios pendientes', downloadMapDraft);
+  button('Recuperar borrador', () => {
+    const file = document.createElement('input'); file.type = 'file'; file.accept = '.json';
+    file.onchange = async () => {
+      if (!file.files[0]) return;
+      try {
+        const draft = JSON.parse(await file.files[0].text());
+        if (draft.format !== 'mh-map-draft-1' || (draft.scenario || '') !== (S.scenName || '') || draft.pack !== (S.editPack || $('#pack').value) ||
+            JSON.stringify(draft.regions) !== JSON.stringify(S.meta.map(region => [region.index, region.name, region.bbox])) ||
+            !Array.isArray(draft.modified) || !Array.isArray(draft.ops) || !draft.centers ||
+            draft.modified.some(([id]) => !S.meta.some(region => region.index === id))) throw Error('El borrador no corresponde a este mapa.');
+        if (!confirm('¿Recuperar el borrador? Sustituirá los cambios pendientes. Descárgalos primero si quieres conservarlos.')) return;
+        const ids = draft.modified.map(([id]) => id);
+        for (const id of ids) {
+          if (!S.regions.has(id)) {
+            const meta = S.meta.find(region => region.index === id);
+            const fc = await (await fetch('/api/regions?bbox=' + meta.bbox.join(','))).json();
+            for (const feature of fc.features) if (!S.regions.has(feature.properties.index)) {
+              const region = { props: feature.properties, polys: feature.geometry.coordinates.map(poly => poly.map(openRing)) };
+              S.regions.set(region.props.index, region);
+            }
+          }
+        }
+        if (ids.some(id => !S.regions.has(id))) throw Error('No se pudieron cargar las regiones del borrador.');
+        const originals = await Promise.all([...S.regions].filter(([, region]) => region.modified).map(async ([id, region]) => {
+          const fc = await (await fetch('/api/regions?bbox=' + S.meta.find(meta => meta.index === id).bbox.join(','))).json();
+          const feature = fc.features.find(feature => feature.properties.index === id);
+          if (!feature) throw Error('No se pudieron cargar las regiones del borrador.');
+          return [region, feature.geometry.coordinates.map(poly => poly.map(openRing))];
+        }));
+        clearEdits();
+        for (const [region, polys] of originals) { region.polys = polys; drawRegion(region); }
+        for (const [id, polys] of draft.modified) { const region = S.regions.get(id); region.polys = polys; region.modified = true; drawRegion(region); }
+        S.ops = draft.ops; S.centers = draft.centers; S.newScen = draft.newScenario;
+        redrawOps(); updatePending();
+      } catch (error) { alert(error.message); }
+    }; file.click();
+  });
+  for (const op of S.ops.filter(op => op.kind === 'new_region')) {
+    const input = document.createElement('input'); input.value = op.newName || op.name || '';
+    input.onchange = () => { pushUndo([]); op.newName = input.value.trim(); op.name = op.newName; updatePending(); };
+    box.appendChild(document.createElement('br')); box.appendChild(input);
+  }
+  for (const op of S.ops) {
+    const row = document.createElement('div'); const label = document.createElement('span');
+    label.textContent = op.name || op.kind; row.appendChild(label);
+    const remove = document.createElement('button'); remove.textContent = 'Apartar operación y descargar borrador';
+    remove.onclick = () => {
+      downloadMapDraft(); pushUndo([]); S.ops = S.ops.filter(item => item !== op);
+      redrawOps(); updatePending(); saveRecovery();
+    };
+    row.appendChild(remove); box.appendChild(row);
+  }
+  document.getElementById('saveRecovery')?.remove(); box.id = 'saveRecovery'; $('#report').after(box);
+}
 async function save() {
   const modified = {};
   for (const [i, R] of S.regions) if (R.modified) modified[i] = R.polys.map(poly => poly.map(r => r.concat([r[0]])));
-  const body = { modified, assigns: S.ops.map(({ name, ...op }) => op.kind === 'new_region' ? Object.assign(op, { name: op.newName }) : op),
+  const body = { pack: S.editPack || $('#pack').value, modified, assigns: S.ops.map(({ name, ...op }) => op.kind === 'new_region' ? Object.assign(op, { name: op.newName }) : op),
     centers: S.centers, topo: S.topo, paint: $('#paint').checked, register: $('#register').checked, scenario: S.scenName || null, new_scenario: S.newScen || null, fix: S.saveFix || null };
   S.saveFix = null;
   // World es el regionpack del juego sin modificar: no se cambia sin confirmarlo (lo normal es «Guardar como…» otro regionpack)
@@ -1841,27 +1915,40 @@ async function save() {
   } catch (e) {
     r = { errors: ['no se pudo hablar con el servidor del editor (¿está cerrado?): ' + e.message], warnings: [], transfers: [] };
   }
+  if (!r || r.error) r = { errors: [r && r.error || 'Respuesta de guardado no válida'], warnings: [], transfers: [] };
   showReport(r);
+  if (r.repair_audits) showGeometryPreview(Object.values(r.repair_audits));
   if (r.errors && r.errors.length) {
     $('#save').disabled = false;
     // regiones nuevas que impiden guardar: se ofrece quitarlas de los cambios y guardar el resto (antes no quedaba otra que descartarlo todo)
     const nm = op => op.newName || op.name || '';
     const bad = new Set(r.errors.map(e => (e.match(/^la region nueva (.+?) quedo sin area/) || e.match(/^([^:]+): /) || [])[1]).filter(Boolean));
     const drop = S.ops.filter(op => op.kind === 'new_region' && bad.has(nm(op)));
-    if (drop.length && confirm('No se guardó:\n' + r.errors.join('\n') + '\n\n¿Quitar de los cambios ' + drop.length + ' región(es) nueva(s) con problemas (' + [...new Set(drop.map(nm))].join(', ') + ') y guardar el resto?')) {
+    if (r.invalid_regions && r.invalid_regions.length && Object.keys(r.repaired_regions || {}).length === r.invalid_regions.length && r.errors.length === r.invalid_regions.length &&
+        await reviewGeometry(Object.values(r.repair_audits || {}))) {
+      pushUndo(Object.keys(r.repaired_regions || {}).map(Number));
+      for (const [id, coords] of Object.entries(r.repaired_regions || {})) {
+        const region = S.regions.get(Number(id));
+        if (region) { region.polys = coords.map(poly => poly.map(openRing)); region.modified = true; drawRegion(region); }
+      }
+      S.nodeIndex = null; refreshHandles(); updatePending();
+      report(window.MH_LANG && MH_LANG() === 'en' ? 'Repaired outlines are ready for review. Inspect the map, then save. Undo restores the previous outlines.' : 'Los contornos reparados están listos para revisar. Comprueba el mapa y guarda. Deshacer recupera los contornos anteriores.', 'ok');
+      return;
+    }
+    else if (drop.length && confirm('No se guardó:\n' + r.errors.join('\n') + '\n\n¿Quitar de los cambios ' + drop.length + ' región(es) nueva(s) con problemas (' + [...new Set(drop.map(nm))].join(', ') + ') y guardar el resto?')) {
       S.ops = S.ops.filter(op => !drop.includes(op)); refreshRedoSave(); $('#save').click(); return;
     }
     // forma editada que rompe la malla: el servidor propone guardar sin las partes que la rompen (dice cuáles quita y dónde)
     else if (r.errors.some(e => e.includes('Solución: guardar sin las partes')) && confirm('No se guardó:\n' + r.errors.join('\n') + '\n\n¿Guardar sin las partes del cambio que rompen la malla? El informe dirá cuáles se quitan y dónde.')) {
       S.saveFix = 'drop_bad'; $('#save').click(); return;
     }
-    else if (!drop.length) alert('No se guardó: ' + r.errors.join(String.fromCharCode(10)));   // que el fallo nunca pase desapercibido
+    else if (!drop.length) saveRecovery();
   }
   if (r.new_scenario && (!r.errors || !r.errors.length)) {       // escenario creado desde cero: queda abierto en «Ver»
     const sel = $('#scenario'); if (![...sel.options].some(o => o.value === r.new_scenario)) { const o = document.createElement('option'); o.value = o.textContent = r.new_scenario; sel.appendChild(o); }
     (S.packUsers = S.packUsers || []).push(r.new_scenario); sel.value = r.new_scenario; await sel.onchange({ target: sel });
   }
-  if (!r.errors || !r.errors.length) { resetInteraction(); clearEdits(); S.version++; if ((r.new_regions && r.new_regions.length) || (r.deleted && r.deleted.length)) await reloadMeta(); await reloadAll(); loadChangelog(); } else updatePending();
+  if (!r.errors || !r.errors.length) { document.getElementById('saveRecovery')?.remove(); resetInteraction(); clearEdits(); S.version++; if ((r.new_regions && r.new_regions.length) || (r.deleted && r.deleted.length)) await reloadMeta(); await reloadAll(); loadChangelog(); } else updatePending();
   if (r.conflicts && r.conflicts.length) showUnitConflicts(r.conflicts);
   if (r.new_regions && r.new_regions.length && (!r.errors || !r.errors.length)) goToRegion(r.new_regions[0].name);   // que se vea la región creada
   checkScenSync();
@@ -1890,10 +1977,78 @@ async function save() {
     }
   }
 }
+let geometryPreview = null;
+function clearGeometryPreview() {
+  if (!geometryPreview) return;
+  if (geometryPreview.resolve) geometryPreview.resolve(false);
+  for (const layer of geometryPreview.layers) map.removeLayer(layer);
+  geometryPreview.panel.remove(); geometryPreview = null;
+}
+function reviewGeometry(audits) {
+  showGeometryPreview(audits);
+  return new Promise(resolve => {
+    geometryPreview.resolve = resolve;
+    const note = document.createElement('p'); note.textContent = 'Revisa las capas antes de aceptar. La reparación quedará pendiente hasta guardar.';
+    const accept = document.createElement('button'); accept.textContent = 'Aceptar reparación';
+    accept.onclick = () => { geometryPreview.resolve = null; accept.disabled = true; resolve(true); };
+    geometryPreview.panel.append(note, accept);
+  });
+}
+function showGeometryPreview(audits) {
+  clearGeometryPreview();
+  audits = Array.isArray(audits) ? audits : [audits];
+  const panel = document.createElement('div'); panel.className = 'note';
+  const title = document.createElement('b'); title.textContent = 'Revisión geométrica'; panel.appendChild(title);
+  const layers = [], issueLayers = [];
+  const definitions = [['before', 'Antes', '#64748b', false], ['after', 'Después', '#3b82f6', false],
+    ['gained', 'Superficie añadida', '#22c55e', true], ['lost', 'Superficie retirada', '#ef4444', true],
+    ['defects', 'Bordes problemáticos', '#f59e0b', true], ['collapsed', 'Partes colapsadas', '#d946ef', true]];
+  for (const [key, text, color, visible] of definitions) {
+    const features = audits.flatMap(audit => audit.layers?.[key]?.features || []);
+    if (!features.length) continue;
+    const layer = L.geoJSON({ type: 'FeatureCollection', features }, {
+      style: { color, weight: key === 'defects' ? 4 : 2, fillColor: color, fillOpacity: .22, interactive: false },
+      pointToLayer: (_, latlng) => L.circleMarker(latlng, { color, radius: 6, interactive: false }) });
+    layers.push(layer); if (visible) { layer.addTo(map); issueLayers.push(layer); }
+    const label = document.createElement('label'); label.style.display = 'block';
+    const checkbox = document.createElement('input'); checkbox.type = 'checkbox'; checkbox.checked = visible;
+    checkbox.onchange = () => checkbox.checked ? layer.addTo(map) : map.removeLayer(layer);
+    label.append(checkbox, document.createTextNode(text)); panel.appendChild(label);
+  }
+  const info = document.createElement('pre'); info.style.whiteSpace = 'pre-wrap';
+  info.textContent = audits.map(geometryAuditText).join('\n\n'); panel.appendChild(info);
+  if (audits.some(audit => audit.diagnostic_method === 'proximity')) {
+    const note = document.createElement('p'); note.textContent = 'Diagnóstico por proximidad: los bordes resaltados requieren revisión visual.'; panel.appendChild(note);
+  }
+  const zoom = document.createElement('button'); zoom.textContent = 'Acercar a los problemas';
+  zoom.onclick = () => { const group = L.featureGroup(issueLayers); const bounds = group.getBounds(); if (bounds.isValid()) map.fitBounds(bounds, { padding: [30, 30], maxZoom: 12 }); };
+  const close = document.createElement('button'); close.textContent = 'Cerrar comparación'; close.onclick = clearGeometryPreview;
+  panel.append(zoom, close); $('#report').after(panel); geometryPreview = { panel, layers };
+}
+function geometryAuditText(audit) {
+  if (!audit) return '';
+  const en = window.MH_LANG && MH_LANG() === 'en';
+  const name = id => audit.names?.[id] || S.meta.find(region => region.index === Number(id))?.name || String(id);
+  const rows = audit.regions.filter(row => row.gained > 1e-10 || row.lost > 1e-10 || row.empty);
+  const lines = [en ? 'Geometry comparison (area in degrees², border length in degrees)' : 'Comparación geométrica (área en grados², longitud de borde en grados)',
+    ...rows.slice(0, 40).map(row => `${name(row.index)}: +${row.gained.toExponential(3)} / −${row.lost.toExponential(3)} · ${en ? 'polygon parts' : 'partes poligonales'}: ${row.parts_before} → ${row.parts_after}${row.empty ? (en ? ' · EMPTY' : ' · VACÍA') : ''}`),
+    `${en ? 'Newly uncovered area' : 'Superficie que quedaría descubierta'}: ${audit.coverage_lost.toExponential(3)}`,
+    `${en ? 'Overlap' : 'Solapamiento'}: ${audit.overlap_before.toExponential(3)} → ${audit.overlap_after.toExponential(3)}`];
+  for (const border of audit.borders.filter(border => Math.abs(border.after - border.before) > 1e-8 || border.parts_before !== border.parts_after).slice(0, 40)) {
+    lines.push(`${name(border.regions[0])} ↔ ${name(border.regions[1])}: ${border.before.toFixed(6)} → ${border.after.toFixed(6)} · ${en ? 'connected parts' : 'tramos conectados'}: ${border.parts_before} → ${border.parts_after}`);
+  }
+  if (rows.length > 40) lines.push(en ? 'Only the first 40 changed regions are listed.' : 'Se muestran las primeras 40 regiones modificadas.');
+  for (const row of rows.filter(row => row.preserved_parts !== undefined).slice(0, 40)) {
+    lines.push(`${name(row.index)} · ${en ? 'unchanged / split / removed parts' : 'partes intactas / divididas / retiradas'}: ${row.preserved_parts} / ${row.split_parts} / ${row.removed_parts}`);
+  }
+  if (audit.collapsed_parts) lines.push(`${en ? 'Collapsed parts (lines or points)' : 'Partes colapsadas (líneas o puntos)'}: ${audit.collapsed_parts}`);
+  return lines.join('\n');
+}
 function showReport(r) {
   const out = [];
   if (r.errors && r.errors.length) out.push('ERRORES:\n  ' + r.errors.join('\n  '));
   if (r.warnings && r.warnings.length) out.push('Avisos:\n  ' + r.warnings.join('\n  '));
+  if (r.geometry_audit) out.push(geometryAuditText(r.geometry_audit));
   if (r.transfers && r.transfers.length) {
     const agg = {}; for (const t of r.transfers) { const k = `${t.from} → ${t.to}`; agg[k] = (agg[k] || 0) + t.area; }
     out.push('Traspasos:\n  ' + Object.entries(agg).map(([k, a]) => `${k}: ${a.toExponential(2)} grados²`).join('\n  '));
@@ -1911,7 +2066,7 @@ function showReport(r) {
 const scenarioNotes = sc => 'Escenarios:\n' + (Object.entries(sc).map(([n, notes]) => `  ${n}:\n    ` + (notes.join('\n    ') || 'sin cambios')).join('\n') || '  ninguno usa este regionpack');
 const report = (t, cls) => { const el = $('#report'); el.textContent = t; el.className = cls || 'muted'; if (cls === 'err' && window.mhLogErr) window.mhLogErr('report: ' + t); };
 const status = t => { $('#status').textContent = t; };
-function clearEdits() { S.newScen = null; S.ops = []; S.centers = {}; S.undo = []; S.redo = []; redrawOps(); for (const R of S.regions.values()) R.modified = false; updatePending(); updateHistoryButtons(); }
+function clearEdits() { clearGeometryPreview(); S.newScen = null; S.ops = []; S.centers = {}; S.undo = []; S.redo = []; redrawOps(); for (const R of S.regions.values()) R.modified = false; updatePending(); updateHistoryButtons(); }
 async function reloadAll() {
   // la barra de carga sigue hasta que las regiones cambiadas se ven en el mapa
   updateTiles();      // texturas con la versión nueva (repintadas al guardar, restaurar fondo, deshacer…)
@@ -2040,13 +2195,43 @@ async function closeGaps(pair, region) {
   const r = await (await fetch('/api/gaps/small', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ max_area: max, eps: 0.1, pair: pair || null, region: region == null ? null : region }) })).json().catch(e => ({ error: e.message }));
   if (r.error) return report('Error: ' + r.error, 'err');
   const g = r.gaps || [];
+  if (r.audit) {
+    showGeometryPreview(r.audit);
+    if (S.ops.length || [...S.regions.values()].some(region => region.modified)) {
+      if (!confirm(window.MH_LANG && MH_LANG() === 'en' ? 'The preview uses the saved map. Other pending edits can change the final result. Continue?' : 'La vista previa usa el mapa guardado. Otros cambios pendientes pueden cambiar el resultado final. ¿Continuar?')) return;
+    }
+    report(geometryAuditText(r.audit), 'ok');
+    if (r.audit.regions.some(row => row.empty) || r.audit.coverage_lost > 1e-7 || r.audit.overlap_after > r.audit.overlap_before + 1e-7) {
+      return report(geometryAuditText(r.audit) + '\n' + (window.MH_LANG && MH_LANG() === 'en' ? 'The proposed repair is unsafe. No pending operations were added.' : 'La reparación propuesta no es segura. No se añadieron operaciones pendientes.'), 'err');
+    }
+  }
   if (!g.length) return report('No hay huecos pequeños' + (pair ? ' entre esas dos regiones.' : '.'), 'ok');
   const by = {}; for (const x of g) by[x.into_name] = (by[x.into_name] || 0) + 1;
   if (!confirm(`${g.length} hueco(s) pequeño(s) (${g.reduce((a, x) => a + x.area, 0).toExponential(2)} grados²). Se suman a la región vecina con más borde (${Object.entries(by).slice(0, 8).map(([k, v]) => k + ' ' + v).join(', ')}). Se aplica al «Guardar».`)) return;
-  for (const x of g) addOp({ kind: 'assign', polygon: x.polygon, region: x.into, fill: true, land_only: false });
+  if (r.audit && !await reviewGeometry(r.audit)) return;
+  for (const x of g) addOp({ kind: 'assign', polygon: x.polygon, region: x.into, fill: true, land_only: false, repair_gap: true });
   report(`${g.length} hueco(s) se cerrarán al guardar.`, 'ok');
 }
-$('#gapsBtn').onclick = () => closeGaps(null);
+$('#gapsBtn').onclick = () => {
+  const selected = S.multiOpen ? (S.overlay?.selectedRegions || []) : [];
+  if (selected.length > 2) {
+    alert(window.MH_LANG && MH_LANG() === 'en' ? 'Select one or two regions to close gaps.' : 'Selecciona una o dos regiones para cerrar huecos.');
+    return;
+  }
+  if (selected.length) {
+    const regions = selected.map(name => S.byName[String(name).toLowerCase()]);
+    if (regions.some(region => !region)) {
+      alert(window.MH_LANG && MH_LANG() === 'en' ? 'A selected region was not found in this regionpack.' : 'No se encontró una región seleccionada en este regionpack.');
+      return;
+    }
+    return regions.length === 2 ? closeGaps(regions.map(region => region.index)) : closeGaps(null, regions[0].index);
+  }
+  if (S.multiOpen) {
+    alert(window.MH_LANG && MH_LANG() === 'en' ? 'Select one or two regions to close gaps.' : 'Selecciona una o dos regiones para cerrar huecos.');
+    return;
+  }
+  return closeGaps(null, S.selected);
+};
 $('#bgRestore').onclick = async () => {
   // regionpack hecho desde cero (sin relación con World): primero se pregunta de dónde sacar el fondo limpio
   const pinfo = await (await fetch('/api/pack/info')).json().catch(() => ({}));
@@ -2084,6 +2269,8 @@ $('#bgRedraw').onclick = async () => {
 window.addEventListener('unhandledrejection', e => { try { report('Error del editor: ' + ((e.reason && e.reason.message) || e.reason), 'err'); } catch (x) {} });
 window.addEventListener('error', e => { try { if (e.message) report('Error del editor: ' + e.message, 'err'); } catch (x) {} });
 $('#save').onclick = save;
+const draftButton = document.createElement('button'); draftButton.className = 'tool'; draftButton.textContent = 'Borrador';
+draftButton.onclick = saveRecovery; $('#save').after(draftButton);
 $('#discard').onclick = async () => { if (confirm('¿Descartar los cambios sin guardar?')) { resetInteraction(); clearEdits(); await reloadAll(); report('Cambios descartados'); } };
 refreshRedoSave();
 $('#undoSave').onclick = async () => { if (!confirm('¿Volver al estado anterior al último guardado?')) return; const r = await (await fetch('/api/undo', { method: 'POST' })).json(); report(r.msg + (r.scenarios ? '\n\n' + scenarioNotes(r.scenarios) : ''), r.ok ? 'ok' : 'err'); S.version++; clearEdits(); if ((r.removed_regions && r.removed_regions.length) || (r.restored_regions && r.restored_regions.length)) await reloadMeta(); await reloadAll(); loadChangelog(); refreshRedoSave(); offerInstall(r); };
@@ -2212,7 +2399,11 @@ async function loadPacks() {
 }
 $('#pack').onchange = async e => {
   if (!$('#save').disabled && !confirm('Hay cambios sin guardar que se perderán. ¿Cambiar de regionpack?')) { loadPacks(); return; }
-  await fetch('/api/pack/select', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pack: e.target.value }) });
+  try {
+    const response = await fetch('/api/pack/select', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pack: e.target.value }) });
+    const result = await response.json();
+    if (!response.ok || result.error || !result.ok) { alert(result.error || 'Error'); await loadPacks(); return; }
+  } catch (error) { alert(error.message); await loadPacks(); return; }
   S.packUsers = ((await (await fetch('/api/pack/info')).json()).users || {})[e.target.value] || []; S.baseScen = null;
   clearEdits(); S.version++; S.selected = null; NEW.gen++; NEW.layer.clearLayers(); NEW.names = new Set();       // las regiones nuevas (naranja) son del regionpack anterior
   await reloadMeta();      // regiones, nombres y vecinas del regionpack nuevo (antes quedaban las del anterior: «626 regiones sin nación», recortes sin vecinas)
@@ -2304,7 +2495,7 @@ document.addEventListener('keydown', e => {
 map.on('moveend', scheduleLoad);
 
 async function reloadMeta() {
-  const meta = await (await fetch('/api/meta')).json(); S.meta = meta.regions; S.byName = {};
+  const meta = await (await fetch('/api/meta')).json(); S.editPack = meta.pack; S.meta = meta.regions; S.byName = {};
   const dl = $('#names'); dl.innerHTML = '';
   for (const m of S.meta) { S.byName[m.name.toLowerCase()] = m; const o = document.createElement('option'); o.value = m.name; dl.appendChild(o); }
   return meta;
@@ -2403,7 +2594,6 @@ $('#nrName').onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); $('
 (async () => {
   // al (re)cargar la pagina se lee lo guardado (lo no guardado de los escenarios se descarta); dentro del editor de
   // escenarios (iframe) no, porque los cambios son de esa pagina
-  if (parent === window) await fetch('/api/scen/discard_all', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
   const meta = await reloadMeta();
   loadChangelog();
   const sc = await (await fetch('/api/scenarios')).json(), sel = $('#scenario');
