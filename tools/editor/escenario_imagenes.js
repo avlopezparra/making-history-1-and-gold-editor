@@ -179,9 +179,10 @@
     });
     sec.querySelector('[data-mh=decal]').onclick = () => openImport({
       title: `Importar escarapela · ${name}`, sub: ` → ${folder}/ (decal, decal-64-64, -bw, -bw-over, decal-42-42, 1919DecalWShadow)`,
-      opts: `<label>Fondo</label><label style="color:inherit"><input type="checkbox" id="mhBg" checked> quitar el fondo liso (si la imagen no tiene transparencia)</label>`,
+      opts: `<label>Fondo</label><label style="color:inherit"><input type="checkbox" id="mhBg" checked> quitar el fondo liso (si la imagen no tiene transparencia)</label>
+        <label>Encaje</label><select id="mhDCrop"><option value="">la imagen entera</option><option value="circulo">recortar al centro: círculo</option><option value="escudo">recortar al centro: escudo</option><option value="cuadrado">recortar al centro: cuadrado</option></select>`,
       previewUrl: '/api/img/flag/preview', writeUrl: '/api/img/flag/write',
-      body: (img, q) => ({ decal: img, only: 'decal', removebg: q('#mhBg').checked }),
+      body: (img, q) => ({ decal: img, only: 'decal', removebg: q('#mhBg').checked, decal_crop: q('#mhDCrop').value }),
       extra: () => ({ scen: S.scen, country: folder }),
       confirm: n => confirmText(n, `ui\\art\\2D\\countries\\${folder}\\`), done: refreshAll,
     });

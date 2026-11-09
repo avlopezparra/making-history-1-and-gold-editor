@@ -214,9 +214,11 @@
   <div class="body"><p class="muted">Crea ejércitos, fuerzas aéreas y flotas para muchos países. Cada ejército se reparte en varias regiones del país, lejos de ciudades y de otras unidades; las flotas van a un mar junto a su costa (sin costa, sin flota). Solo plantillas que el país puede tener. Nada se escribe hasta «Guardar».</p>
   <div class="row"><b>Países:</b> <label><input type="checkbox" class="buTier" value="playable"> jugables</label> <label><input type="checkbox" class="buTier" value="major"> principales</label> <label><input type="checkbox" class="buTier" value="minor"> menores</label>
     <label><input type="checkbox" id="buAll"> todos</label> · y además: <input id="buNames" placeholder="País1, País2…" style="width:220px"></div>
+  <div class="row"><label title="Dar fuerzas a los países que no tienen: el ejército solo a los que no tienen unidades de tierra, la flota a los que no tienen flota y la aviación a los que no tienen fuerza aérea"><input type="checkbox" id="buLack" checked> solo a los que no tienen esa rama (tierra, mar, aire)</label></div>
   <div class="row"><b>Qué crear:</b> <label><input type="radio" name="buMode" value="custom" checked> lo que elijo abajo</label> <label><input type="radio" name="buMode" value="base"> ejército base</label> <label><input type="radio" name="buMode" value="random"> ejército base aleatorio</label></div>
   <div id="buCustom"></div>
   <div class="row"><button class="btn" id="buPlan">Vista previa</button> <button class="btn primary" id="buApply" disabled>Crear</button> <button class="btn" id="buUndo" disabled>Deshacer la última creación</button></div>
+  <div class="row"><b>Tecnologías según las tropas:</b> <button class="btn" id="buTech" title="Para los países elegidos: las investigaciones (y sus requisitos) de las unidades que ya tienen sin su tecnología">Vista previa</button> <button class="btn primary" id="buTechGo" disabled>Añadir tecnologías</button> <button class="btn" id="buTechUndo" disabled>Deshacer</button></div>
   <div id="buOut"></div></div></dialog>
 <dialog id="warDlg"><header><b>Nueva guerra por fecha</b><button class="btn small" style="margin-left:auto" onclick="warDlg.close()">Cerrar</button></header>
   <div class="body"><p class="muted">Crea un evento en sharedDataEvents.xml: el país atacante declara la guerra a partir de la fecha, con esa probabilidad en cada turno, si ambos existen y no están ya en guerra.</p>
@@ -2508,6 +2510,7 @@ $('#validate').onclick = async event => {
       ${i.fix && i.fix.kind === 'range' ? `<br><button class="btn small" data-fixrange='${esc(JSON.stringify({ id: i.fix.id, prop: i.fix.prop, value: i.fix.value }))}'>${esc(i.fix.label)}</button>` : ''}
       ${i.fix && i.fix.kind === 'dupe' ? '<br>' + i.fix.choices.map(c => `<button class="btn small" data-fixdupe='${esc(JSON.stringify(c))}'>${esc(c.label)}</button>`).join(' ') : ''}
       ${i.fix && i.fix.kind === 'nation' ? '<br>' + i.fix.choices.map(c => `<button class="btn small" data-fixnat='${esc(JSON.stringify({ items: i.fix.items, ...c }))}'>${esc(c.label)}</button>`).join(' ') : ''}
+      ${i.fix && i.fix.kind === 'techunits' ? `<br><button class="btn small" data-fixtech="${esc(i.fix.country)}">${esc(i.fix.label)}</button>` : ''}
       ${i.fix && i.fix.kind === 'evcond' ? '<br>' + i.fix.choices.map(c => `<button class="btn small" data-fixevcond="${c.obj}">${esc(c.label)}</button>`).join(' ') : ''}
       ${i.fix && i.fix.kind === 'evreg' ? '<br>' + i.fix.choices.map(c => `<button class="btn small" data-fixevreg='${esc(JSON.stringify(c))}'>${esc(c.label)}</button>`).join(' ') : ''}
       ${i.fix && i.fix.kind === 'landless' ? '<br>' + i.fix.choices.map(c => `<button class="btn small" data-fixland='${esc(JSON.stringify({ country: i.fix.country, ...c }))}'>${esc(c.label)}</button>`).join(' ') : ''}
@@ -2530,6 +2533,11 @@ $('#validate').onclick = async event => {
     if (f.error) return alert(f.error);
     if (f.detail) setDirty(f.detail.dirty);
     $('#validate').click(); note('Relación ajustada a ' + x.value + '. Falta «Guardar».');
+  });
+  $('#vallist').querySelectorAll('[data-fixtech]').forEach(b => b.onclick = async () => {
+    const f = await api('/api/scen/bulk_units', { name: S.scen, op: 'tech_apply', countries: [b.dataset.fixtech] });
+    if (f.error) return alert(f.error);
+    setDirty(f.dirty); $('#validate').click(); note(f.notes.join('; ') + '. Falta «Guardar».');
   });
   $('#vallist').querySelectorAll('[data-fixevcond]').forEach(b => b.onclick = async () => {
     const f = await api('/api/scen/remove_condition', { name: S.scen, obj: +b.dataset.fixevcond });
@@ -2630,11 +2638,11 @@ const buReq = () => {
 };
 $('#buPlan').onclick = async () => {
   const q = buReq();
-  if (!q.sel.all && !q.sel.tiers.length && !q.sel.countries.length) return alert('Elige qué países');
+  if (!q.sel.all && !q.sel.tiers.length && !q.sel.countries.length) { if (!$('#buLack').checked) return alert('Elige qué países'); q.sel.all = true; }
   if (q.mode === 'custom' && !q.units.land.length && !q.units.air.length && !q.units.navy.length) return alert('Elige al menos un tipo de unidad y cuántas');
   const navy = {}; document.querySelectorAll('.buSea').forEach(x => { navy[x.dataset.c] = x.value; });
   $('#buOut').innerHTML = '<div class="note">Calculando…</div>';
-  const r = await api('/api/scen/bulk_units', { name: S.scen, op: 'plan', sel: q.sel, mode: q.mode, units: q.units, seed: Date.now() % 100000, navy_seas: navy });
+  const r = await api('/api/scen/bulk_units', { name: S.scen, op: 'plan', sel: q.sel, mode: q.mode, units: q.units, seed: Date.now() % 100000, navy_seas: navy, lacking: $('#buLack').checked });
   if (r.error) { $('#buOut').innerHTML = ''; return alert(r.error); }
   BU.plan = r; $('#buApply').disabled = !r.items.length;
   const kind = { land: 'Ejército', air: 'Fuerza aérea', navy: 'Flota' }, by = {};
@@ -2653,6 +2661,30 @@ $('#buApply').onclick = async () => {
   if (f.error) return alert(f.error);
   setDirty(f.dirty); $('#buApply').disabled = true; $('#buUndo').disabled = false; BU.plan = null;
   note(f.notes.join('; ') + '. Falta «Guardar».');
+  if (f.tech && f.tech.length) buTechShow(f.tech, f.tech.map(x => x.country));
+};
+const buTechShow = (items, countries) => {
+  BU.techCountries = countries; $('#buTechGo').disabled = !items.length;
+  $('#buOut').innerHTML = `<div class="note">${items.length ? items.length + ' países con unidades sin su tecnología:' : 'Todos los países elegidos tienen la tecnología de sus unidades.'}</div>` +
+    (items.length ? '<table class="grid"><tr><th>País</th><th>Unidades</th><th>Tecnologías a añadir</th></tr>' +
+      items.map(x => `<tr><td>${esc(x.country)}</td><td>${esc(x.units.join(', '))}</td><td>${esc(x.techs.join(', '))}</td></tr>`).join('') + '</table>' : '');
+};
+$('#buTech').onclick = async () => {
+  const q = buReq();
+  if (!q.sel.all && !q.sel.tiers.length && !q.sel.countries.length) return alert('Elige qué países');
+  const r = await api('/api/scen/bulk_units', { name: S.scen, op: 'tech_plan', sel: q.sel });
+  if (r.error) return alert(r.error);
+  buTechShow(r.items, r.items.map(x => x.country));
+};
+$('#buTechGo').onclick = async () => {
+  const f = await api('/api/scen/bulk_units', { name: S.scen, op: 'tech_apply', countries: BU.techCountries });
+  if (f.error) return alert(f.error);
+  setDirty(f.dirty); $('#buTechGo').disabled = true; $('#buTechUndo').disabled = false; note(f.notes.join('; ') + '. Falta «Guardar».');
+};
+$('#buTechUndo').onclick = async () => {
+  const f = await api('/api/scen/bulk_units', { name: S.scen, op: 'tech_undo' });
+  if (f.error) return alert(f.error);
+  setDirty(f.dirty); $('#buTechUndo').disabled = true; note(f.notes.join('; ') + '.');
 };
 $('#buUndo').onclick = async () => {
   const f = await api('/api/scen/bulk_units', { name: S.scen, op: 'undo' });

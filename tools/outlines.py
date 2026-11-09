@@ -109,11 +109,15 @@ def region_polygons(m, r):
     per = [_polygons(shape_rings(sh)) for sh in shapes]
     main, detail = [], []
     if len(per) > 1:
-        geo = [unary_union([Polygon(p[0], p[1:]) for p in ps]) if ps else None for ps in per]
-        cov = [g.buffer(1e-7) if g is not None else None for g in geo]
+        geo = [[Polygon(p[0], p[1:]) for p in ps] for ps in per]
+        cov = [[g.buffer(1e-7) for g in gs] for gs in geo]
         for i, ps in enumerate(per):
-            for p in ps:      # por polígono: un shape con la isla bajo su halo y otra isla aparte (Mauritius + una isla importada)
-                covered = any(j != i and cov[j] is not None and cov[j].covers(Polygon(p[0], p[1:])) for j in range(len(per)))
+            for k, p in enumerate(ps):      # por polígono: un shape con la isla bajo su halo y otra isla aparte (Mauritius + una isla importada)
+                g = geo[i][k]
+                # detalle = tapado por un polígono MAYOR de otro shape; si son iguales (malla duplicada) se queda como principal el del
+                # primer shape (antes los dos pasaban a detalle y el contorno editable quedaba reducido a una miga)
+                covered = any(j != i and (q.area > g.area * (1 + 1e-6) or j < i) and c.covers(g)
+                              for j in range(len(per)) for q, c in zip(geo[j], cov[j]))
                 (detail if covered else main).append(p)
     else:
         main = per[0] if per else []

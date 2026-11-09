@@ -17,7 +17,7 @@ import shutil
 import struct
 import time
 
-from PIL import Image, ImageDraw, ImageFilter
+from PIL import Image, ImageDraw, ImageFilter, ImageChops
 
 import scenario_core
 
@@ -383,7 +383,7 @@ def fit_flag(img, mode='centro', aspect=2.0):
     return out
 
 
-def flag_set(flag, decal=None, shape='escudo', removebg=True, leader=None, crop='centro', only=None, fit_mode='centro'):
+def flag_set(flag, decal=None, shape='escudo', removebg=True, leader=None, crop='centro', only=None, fit_mode='centro', decal_crop=None):
     """Genera {archivo: imagen} con todos los archivos de la carpeta de un pais.
 
     crop: como entra la bandera en los huecos casi cuadrados (diplomatic, flag-16/19, 48h-64w, multichat):
@@ -425,7 +425,7 @@ def flag_set(flag, decal=None, shape='escudo', removebg=True, leader=None, crop=
         return {k: out[k] for k in FLAG_ORDER if k in out}
     # escarapela / emblema 60x60 dentro de 64x64
     if decal is not None:
-        out.update(decal_set(decal, removebg))
+        out.update(decal_set(decal, removebg, decal_crop))
     else:
         d60 = rs(60, 60).convert('RGBA')
         d60.putalpha(shape_mask(shape, 60))
@@ -435,7 +435,14 @@ def flag_set(flag, decal=None, shape='escudo', removebg=True, leader=None, crop=
     return {k: out[k] for k in FLAG_ORDER if k in out}
 
 
-def decal_set(decal, removebg=True):
+def decal_set(decal, removebg=True, crop=None):
+    """crop: None = la imagen entera; 'circulo' / 'escudo' / 'cuadrado' = recorte cuadrado del centro con esa forma (p. ej. una bandera)."""
+    if crop:
+        d = decal.convert('RGBA')
+        c = min(d.size)
+        d = d.crop(((d.width - c) // 2, (d.height - c) // 2, (d.width - c) // 2 + c, (d.height - c) // 2 + c)).resize((60, 60), Image.LANCZOS)
+        d.putalpha(ImageChops.multiply(d.getchannel('A'), shape_mask(crop, 60)))
+        return decal_files(d)
     d = remove_background(decal) if removebg else decal.convert('RGBA')
     return decal_files(fit(d, 60))
 
@@ -585,7 +592,7 @@ def flag_inputs(p):
     if flag is None and p.get('only') != 'decal':
         raise ValueError('falta la imagen de la bandera')
     return flag_set(flag, from_data_url(p.get('decal')), p.get('shape', 'escudo'), bool(p.get('removebg', True)),
-                    from_data_url(p.get('leader')), p.get('crop', 'centro'), p.get('only'), p.get('fit', 'centro'))
+                    from_data_url(p.get('leader')), p.get('crop', 'centro'), p.get('only'), p.get('fit', 'centro'), p.get('decal_crop') or None)
 
 
 def flag_preview(p):

@@ -137,7 +137,8 @@
     if (errorPrefix) {
       const heading = errorPrefix[1] === 'No se guardó' ? 'Not saved' : 'Error';
       const details = errorPrefix[2].split('\n').map(line => tr(line)).join('\n');
-      return s.replace(t0, heading + ': ' + details);
+      // si el detalle no tiene traducción propia, sigue el camino normal: hay entradas del diccionario con el encabezado incluido
+      if (details !== errorPrefix[2]) return s.replace(t0, () => heading + ': ' + details);
     }
     const t = t0.replace(/\s+/g, ' ');            // textos partidos en varias líneas en el HTML
     // varias frases o líneas ('…' + x + '…', avisos con listas): cada una por su lado, con sus saltos de línea; las frases con
@@ -255,7 +256,7 @@
     else { Object.assign(sel.style, { position: 'fixed', right: '8px', bottom: '8px', zIndex: 9999 }); document.body.appendChild(sel); }
   }
   // créditos, Discord (novedades y actualizaciones) y dónde avisar de errores
-  const VERSION = '3.4';
+  const VERSION = '3.5';
   const DISCORD = 'https://discord.com/invite/gFJyCjWEnr', BUGS = 'alopezcl@protonmail.com',
     UPDATES = 'https://github.com/avlopezparra/making-history-1-and-gold-editor/releases/', HUB = 'https://gamebanana.com/games/6530';
   // botón «Join Discord» aparte, en el morado de Discord

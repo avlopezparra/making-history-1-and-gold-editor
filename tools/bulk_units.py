@@ -156,10 +156,13 @@ def _spot(geom, taken, rnd):
     return best
 
 
-def plan(s, sel, mode='custom', units=None, seed=None, navy_seas=None):
+def plan(s, sel, mode='custom', units=None, seed=None, navy_seas=None, lacking=False):
     """Lo que se crearía. mode 'custom': units={'land': [{'type', 'n'}], 'air': [...], 'navy': [...]} para cada país;
     'base': BASE según el tipo de país; 'random': mezcla aleatoria escalada por población (topes CAP).
-    navy_seas: {país: región de mar} para elegir dónde va su flota. Devuelve {'items': [...], 'skipped': [...]}."""
+    navy_seas: {país: región de mar} para elegir dónde va su flota. lacking: cada rama (tierra, aire, mar) solo para los
+    países que no tienen ninguna unidad de esa rama («dar fuerzas a los que no tienen»).
+    Devuelve {'items': [...], 'skipped': [...]}."""
+    has = {k: {prop(g, 'strOwner') for g in s.all(t)} for k, (t, _) in KINDS.items()} if lacking else {}
     import scenario_layers as sl
     rnd = random.Random(seed)
     pm = sl.PackMap(sc.pack_of(s))
@@ -195,6 +198,11 @@ def plan(s, sel, mode='custom', units=None, seed=None, navy_seas=None):
                     want[k] = [{'type': ts[0], 'n': a}] + ([{'type': ts[1], 'n': n - a}] if n - a > 0 else [])
                 else:
                     want[k] = [{'type': ts[0], 'n': n - n // 3}] + ([{'type': ts[1], 'n': n // 3}] if len(ts) > 1 and n // 3 else [])
+        for k in has:
+            if c in has[k]:
+                want[k] = []                # ya tiene esa rama
+        if lacking and not any(want.values()):
+            continue
         mine = sorted((r for r in land.values() if prop(r, 'strOwner') == c),
                       key=lambda r: -int(prop(r, 'nPopulation')) if (prop(r, 'nPopulation') or '').isdigit() else 0)
         names = [prop(r, 'strName') for r in mine if pm.geom(prop(r, 'strName')) is not None]

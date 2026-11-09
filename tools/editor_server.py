@@ -384,7 +384,7 @@ class Handler(BaseHTTPRequestHandler):
             if u.path == '/api/save':
                 project = PROJECT
                 if payload.get('pack') and payload['pack'] != project.pack:
-                    return self.send(200, {'errors': ['El regionpack cambió en otra ventana. Recarga esta ventana antes de guardar.'], 'warnings': [], 'transfers': []})
+                    return self.send(200, {'errors': ['El regionpack cambió en otra ventana. Descarga los cambios pendientes con «Borrador» y recarga esta ventana antes de guardar.'], 'warnings': [], 'transfers': []})
                 try:     # escenario nuevo y naciones nuevas: se comprueba todo antes de tocar el mapa
                     ns = payload.get('new_scenario')
                     if ns:
@@ -585,9 +585,11 @@ class Handler(BaseHTTPRequestHandler):
                 pr = payload.get('pair')
                 rg = payload.get('region')
                 project = PROJECT
-                gaps = project.small_gaps(float(payload.get('max_area') or 0.05), float(payload.get('eps') or 0.03),
-                                                                   tuple(int(x) for x in pr) if pr else None,
-                                                                   int(rg) if rg is not None else None)
+                if payload.get('regions'):                   # los que dejó el último guardado alrededor de esas regiones
+                    gaps = project.gaps_around([int(x) for x in payload['regions']])
+                else:
+                    gaps = project.small_gaps(float(payload.get('max_area') or 0.05), float(payload.get('eps') or 0.03),
+                                              tuple(int(x) for x in pr) if pr else None, int(rg) if rg is not None else None)
                 return self.send(200, {'gaps': gaps, 'audit': project.preview_gap_repair(gaps)})
             if u.path == '/api/validate':                     # todo lo que bloquearía el guardado, de una vez
                 iss = PROJECT.validate()
@@ -724,6 +726,15 @@ class Handler(BaseHTTPRequestHandler):
                     return self.send(200, {'error': str(e)})
                 log('canal %s: %s' % (payload['region'], 'cerrada (zona %s)' % info['zone'] if info['state'] == 'cerrada' else 'libre'))
                 return self.send(200, {'ok': True, 'canal': info})
+            if u.path == '/api/region/links':       # vecindades forzadas de map.xml (ConnectedRegions / DisconnectedRegions)
+                return self.send(200, {'links': PROJECT.region_links(payload.get('region'))})
+            if u.path == '/api/region/link':
+                try:
+                    out = PROJECT.set_region_link(payload['a'], payload['b'], payload.get('kind') or 'ConnectedRegions', bool(payload.get('on', True)))
+                except (ValueError, KeyError, OSError) as e:
+                    return self.send(200, {'error': str(e)})
+                PROJECT_VERSION[0] += 1
+                return self.send(200, out)
             if u.path == '/api/region/rename':
                 # nombre de una región: map.xml del proyecto (se instala con «Instalar») y los escenarios que usan el regionpack
                 old, new, text = payload['region'], payload['new_name'].strip(), (payload.get('text') or '').strip() or None
@@ -797,14 +808,21 @@ class Handler(BaseHTTPRequestHandler):
                     TILE_CACHE.clear()
                 PROJECT_VERSION[0] += 1
                 if payload.get('load_installed') and state != 'same' and not PROJECT.virtual:
-                    PROJECT.load_installed()
+                    stale = PROJECT.load_installed()
                     with TILE_LOCK:
                         TILE_CACHE.clear()
                     PROJECT_VERSION[0] += 1
                     threading.Thread(target=PROJECT.precompute, daemon=True).start()
                     log('regionpack %s recargado desde el juego' % PROJECT.pack)
-                    return self.send(200, {'state': 'same', 'loaded': True})
-                return self.send(200, {'state': state, 'pack': PROJECT.pack})
+                    return self.send(200, {'state': 'same', 'loaded': True, 'stale_tiles': stale})
+                # mapa igual que el del juego pero con tiles de fondo viejos en el proyecto (regionpack actualizado desde fuera)
+                drop = bool(payload.get('drop_tiles'))
+                n = PROJECT.drop_stale_tiles(dry=not drop) if state == 'same' else 0
+                if n and drop:
+                    with TILE_LOCK:
+                        TILE_CACHE.clear()
+                    PROJECT_VERSION[0] += 1
+                return self.send(200, {'state': state, 'pack': PROJECT.pack, 'stale_tiles' if drop else 'tiles_differ': n})
             if u.path == '/api/game/license_permanent':   # permiso de escritura en HKLM (pide admin): sin VirtualStore no vuelve a pasar
                 import licencia_juego
                 return self.send(200, licencia_juego.permanente())
@@ -2017,9 +2035,23 @@ def scen_post(path, p):
                 landed = set(bulk_units.targets(s, {'all': True}))
                 return {'kinds': kinds, 'countries': [{'name': n, 'tier': bulk_units.tier(c)} for n, c in sorted(s.countries().items()) if n in landed]}
             if op == 'plan':
-                return bulk_units.plan(s, p.get('sel') or {}, p.get('mode') or 'custom', p.get('units'), p.get('seed'), p.get('navy_seas'))
+                return bulk_units.plan(s, p.get('sel') or {}, p.get('mode') or 'custom', p.get('units'), p.get('seed'), p.get('navy_seas'),
+                                       bool(p.get('lacking')))
             if op == 'apply':
-                return {'notes': bulk_units.apply(s, p['items']), 'dirty': _dirty_of(s)}
+                import tech_units
+                notes = bulk_units.apply(s, p['items'])
+                # unidades por encima de la tecnología del país (p. ej. la plantilla más barata): se ofrece añadirla después
+                tech = tech_units.plan(s, sorted({it['country'] for it in p['items']}))
+                return {'notes': notes, 'dirty': _dirty_of(s), 'tech': tech}
+            if op in ('tech_plan', 'tech_apply', 'tech_undo'):
+                import tech_units
+                if op == 'tech_undo':
+                    return {'notes': tech_units.undo(s), 'dirty': _dirty_of(s)}
+                cs = p.get('countries') or bulk_units.targets(s, p.get('sel') or {})
+                items = tech_units.plan(s, cs)
+                if op == 'tech_plan':
+                    return {'items': items}
+                return {'notes': tech_units.apply(s, items), 'dirty': _dirty_of(s)}
             if op == 'undo':
                 return {'notes': bulk_units.undo(s), 'dirty': _dirty_of(s)}
             raise ValueError('operación desconocida: %s' % op)

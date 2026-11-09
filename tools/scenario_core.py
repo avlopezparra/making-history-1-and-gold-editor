@@ -62,7 +62,8 @@ def _i18n():
 
 
 def parse(path):
-    return ET.parse(path, ET.XMLParser(target=ET.TreeBuilder(insert_comments=True)))
+    import xml_tolerant          # tolera lo que el juego tolera (bytes ANSI, «&» sueltos…) y, si no, dice qué archivo y línea
+    return xml_tolerant.parse(path, comments=True)
 
 
 def objs(el):
@@ -1035,7 +1036,7 @@ class Scenario:
                 if k > 1:
                     issues.append(('error', '%s repetido: %s (%d veces)' % (label, n, k), None))
         import scenario_events      # regiones que los eventos nombran y el regionpack quitó o dividió
-        return [dict({'level': x[0], 'msg': x[1], 'id': x[2]}, **({'fix': x[3]} if len(x) > 3 else {})) for x in issues]             + scenario_events.event_region_issues(self) + scenario_events.event_surrender_issues(self) + self.load_errors()
+        return [dict({'level': x[0], 'msg': x[1], 'id': x[2]}, **({'fix': x[3]} if len(x) > 3 else {})) for x in issues]             + scenario_events.event_region_issues(self) + scenario_events.event_surrender_issues(self) + __import__('tech_units').issues(self) + self.load_errors()
 
     def load_errors(self):
         """Valores que el juego rechaza al leer el escenario y que impiden crear la partida («Error creating game»):
