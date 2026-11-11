@@ -136,6 +136,7 @@
       <button class="tool primary" id="save" disabled title="Aplicar los cambios al proyecto"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 3h11l3 3v15H5z"/><path d="M8 3v5h7V3M8 21v-7h8v7"/></svg>Guardar</button>
       <button class="tool" id="discard" disabled title="Descartar lo no guardado"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg>Descartar</button>
       <button class="tool" id="undoSave" title="Volver al estado anterior al último guardado"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 109-9 9 9 0 00-6.4 2.6L3 8"/><path d="M3 3v5h5"/></svg>Volver</button>
+      <label class="tool" title="Guarda una copia del mapa en cada «Guardar» para poder «Volver». Desmarcado no ocupa disco y se borra el historial; «Deshacer» (Ctrl+Z) sigue funcionando"><input type="checkbox" id="saveHist" checked> Historial</label>
       <button class="tool" id="redoSave" disabled title="Rehacer el guardado deshecho con «Volver»"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 11-9-9 9 9 0 016.4 2.6L21 8"/><path d="M21 3v5h-5"/></svg>Rehacer</button>
       <button class="tool" id="validateBtn" title="Lista de todo lo que impediría guardar o daría problemas (mallas rotas, nombres repetidos, mares mal marcados, escenarios sin cuadrar), para copiarla de una vez"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3 8-8"/><path d="M20 12v7a2 2 0 01-2 2H6a2 2 0 01-2-2V5a2 2 0 012-2h9"/></svg>Validar</button>
       <button class="tool" id="bgRestore" title="Restaurar el fondo del mapa desde el World original donde no hay una frontera dibujada (quita las huellas de líneas borradas); se puede deshacer con «Volver»"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 15l5-5 4 4 3-3 6 6"/><circle cx="16" cy="9" r="1.5"/></svg>Restaurar fondo</button>
@@ -1582,8 +1583,9 @@ async function askRenameRegion(R) {
 // importar un GeoJSON como regiones nuevas: cada contorno (Polygon / MultiPolygon) pasa por el mismo diálogo que una región dibujada
 function geojsonShapes(j) {
   const feats = j.type === 'FeatureCollection' ? j.features || [] : j.type === 'Feature' ? [j] : [{ type: 'Feature', properties: {}, geometry: j }];
-  return feats.filter(f => f.geometry && /Polygon$/.test(f.geometry.type)).map(f => ({ geometry: f.geometry, props: f.properties || {} }));
+  return feats.filter(f => f.geometry && GJ_AREA.test(f.geometry.type)).map(f => ({ geometry: f.geometry, props: f.properties || {} }));
 }
+const GJ_AREA = /Polygon$|^GeometryCollection$/;       // un GeometryCollection (Google Earth) es una sola forma: lo une gjNormalize
 $('#nuevaImport').onclick = () => gjOpen('import');
 // contornos de un GeoJSON -> regiones nuevas. o: {popMode: 'area'|'geojson', ownerMode: 'province'|'geojson', auto}
 async function importShapes(shapes, o = {}) {
@@ -1708,6 +1710,7 @@ function advPanel(R) {
   const areaOp = mode => async e => {
     const f = e.target.files[0]; if (!f) return; e.target.value = '';
     let shapes; try { shapes = geojsonShapes(JSON.parse(await f.text())); } catch (err) { return status('GeoJSON no válido: ' + err.message); }
+    await gjNormalize(shapes); shapes = shapes.filter(s => s.geometry);
     if (!shapes.length) return status('El GeoJSON no tiene contornos (Polygon o MultiPolygon)');
     if (S.view !== 'shape') { setView('shape'); if (S.view !== 'shape') return status('Para sumar o restar área hay que activar «Editar forma»'); }
     if (!R.props.editable) return status(`«${R.props.name}» no se puede editar: ${R.props.invalid}`);
@@ -2218,7 +2221,16 @@ function showUnitConflicts(list) {
   };
   ucDlg.showModal();
 }
-async function refreshRedoSave() { const m = await (await fetch('/api/meta')).json().catch(() => ({})); $('#redoSave').disabled = !(m && m.can_redo); }
+async function refreshRedoSave() {
+  const m = await (await fetch('/api/meta')).json().catch(() => ({})); $('#redoSave').disabled = !(m && m.can_redo);
+  if (m && 'save_history' in m) { $('#saveHist').checked = m.save_history; $('#undoSave').disabled = !m.save_history; }
+}
+// «Historial»: cada «Guardar» copia el mapa para poder «Volver»; apagado no ocupa disco (Deshacer / Ctrl+Z sigue funcionando)
+$('#saveHist').onchange = async e => {
+  if (!e.target.checked && !confirm('¿Desactivar el historial de guardados?\n\n«Volver» deja de estar disponible y se borra el historial de esta sesión. «Deshacer» (Ctrl+Z) sigue funcionando con lo que aún no está guardado.')) { e.target.checked = true; return; }
+  await fetch('/api/options', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ save_history: e.target.checked }) }).catch(() => {});
+  refreshRedoSave();
+};
 $('#validateBtn').onclick = async () => {
   report('Validando el regionpack…');
   const r = await (await fetch('/api/validate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })).json().catch(e => ({ error: e.message }));
@@ -2936,7 +2948,7 @@ $('#openPackDir').onclick = async () => {
 const PT = { layer: null, pts: [], show: {}, renderer: null, sel: new Set() };
 const PT_COL = { city: '#f8fafc', producer: '#facc15', army: '#ef4444', air: '#38bdf8', fleet: '#1d4ed8' };
 function drawPoints() {
-  if (!PT.renderer) { map.createPane('pts').style.zIndex = 650; PT.renderer = L.canvas({ pane: 'pts' }); }
+  if (!PT.renderer) { map.createPane('pts').style.zIndex = 650; PT.renderer = L.canvas({ pane: 'pts' }); map.createPane('ptsDrag').style.zIndex = 660; }      // los arrastrables van por encima del lienzo de 'pts', que si no les quita el ratón
   if (PT.layer) map.removeLayer(PT.layer);
   PT.layer = L.layerGroup();
   for (const p of PT.pts) {
@@ -2947,7 +2959,7 @@ function drawPoints() {
       PT.layer.addLayer(L.polyline([[p.y, p.x], [p.y + r * Math.cos(a), p.x + r * Math.sin(a) / cl]], { color: PT.last === p.id ? '#f97316' : '#111', weight: 2, interactive: false }));
     }
     const m = draggable
-      ? L.marker([p.y, p.x], { draggable: true, icon: L.divIcon({ className: '', iconSize: [14, 14], iconAnchor: [7, 7],
+      ? L.marker([p.y, p.x], { draggable: true, pane: 'ptsDrag', icon: L.divIcon({ className: '', iconSize: [14, 14], iconAnchor: [7, 7],
           html: `<div style="width:14px;height:14px;border-radius:50%;border:2px solid #f97316;background:${PT_COL[p.kind]};cursor:move"></div>` }) })
       : L.circleMarker([p.y, p.x], { renderer: PT.renderer, pane: 'pts', radius: (p.kind === 'city' ? 4 : p.kind === 'producer' ? 3.5 : 5.5) + (PT.sel.has(p.id) ? 3 : 0),
       color: PT.sel.has(p.id) ? '#2563eb' : '#111', weight: PT.sel.has(p.id) ? 3.5 : 1, fillColor: PT_COL[p.kind] || '#fff', fillOpacity: 0.95 });
@@ -2994,7 +3006,7 @@ window.addEventListener('message', async e => {
   if (d.cmd === 'goto') { map.setView([d.y, d.x], Math.max(map.getZoom(), d.zoom || 8)); }
   if (d.cmd === 'selPoints') { PT.sel = new Set(d.ids || []); drawPoints(); }
   if (d.cmd === 'dragPoints') { PT.drag = !!d.on; drawPoints(); try { PT.drag ? map.dragging.disable() : map.dragging.enable(); } catch (e) {} }   // mover y rotar elementos: el mapa queda quieto
-  if (d.cmd === 'points') { if (d.points) PT.pts = d.points; if (d.show) PT.show = d.show; drawPoints(); }
+  if (d.cmd === 'points') { if (d.points) PT.pts = d.points; if (d.show) PT.show = d.show; if ('drag' in d) { PT.drag = !!d.drag; try { PT.drag ? map.dragging.disable() : map.dragging.enable(); } catch (e) {} } drawPoints(); }
   if (d.cmd === 'rings') drawRings(d.rings || []);
   if (d.cmd === 'fit') {   // encuadrar unas regiones (p. ej. las históricas de un país)
     for (let i = 0; i < 160 && !Object.keys(S.byName || {}).length; i++) await new Promise(r => setTimeout(r, 250));   // el índice de nombres tarda en un mapa grande
@@ -3054,12 +3066,16 @@ if (parent !== window) {
     <div style="margin-top:10px;display:flex;gap:8px;align-items:center"><button type="button" class="primary" id="gjDoExport">Exportar .zip</button><span class="muted" id="gjExpMsg"></span></div>
   </div>
   <div id="gjImp" style="display:none">
-    <button type="button" id="gjPick">Elegir archivos…</button> <span class="muted" id="gjFound">Elige uno o varios .geojson (regiones de tierra y de mar, ciudades, unidades, minerales…).</span>
-    <input type="file" id="gjFiles" accept=".geojson,.json" multiple hidden>
+    <button type="button" id="gjPick">Elegir archivos…</button> <span class="muted" id="gjFound">Elige o arrastra aquí uno o varios .geojson, .kml o .kmz (regiones de tierra y de mar, ciudades, unidades, minerales…).</span>
+    <input type="file" id="gjFiles" accept=".geojson,.json,.kml,.kmz" multiple hidden>
+    <div style="margin-top:8px;font-size:13px"><label>O una relación de OpenStreetMap: <input id="gjOsmId" placeholder="51477, r62422…" style="width:210px" onkeydown="if (event.key === 'Enter') gjOsmGo.click()"></label>
+      <button type="button" id="gjOsmGo">Descargar su contorno</button> <span id="gjOsmMsg" class="muted"></span>
+      <div class="muted">Vale el número de la relación, r12345, relation/12345 o su dirección de openstreetmap.org; varias separadas por comas o espacios. Los límites de país de OpenStreetMap incluyen las aguas territoriales: desmarca «Puede quitar área de regiones del tipo contrario» para que no le quiten área al mar.</div></div>
     <fieldset id="gjRegOpts" style="margin-top:10px;font-size:13px;display:none"><legend>Regiones (contornos)</legend>
       <div style="margin-bottom:6px"><label><input type="radio" name="gjMode" value="regions" checked> Importar las formas como regiones nuevas</label>
         <label style="margin-left:12px"><input type="radio" name="gjMode" value="nations"> Solo importar las naciones y asignarlas a las regiones existentes</label></div>
       <label><input type="checkbox" id="gjLand" checked> Importar las de tierra</label> <label style="margin-left:12px"><input type="checkbox" id="gjSea" checked> Importar las de mar</label>
+      <div style="margin-top:6px"><label title="Quita vértices que no cambian la forma más que esa distancia. Un contorno de OpenStreetMap trae miles de vértices: con 0,005 grados (unos 500 m) queda en torno al 1 %">Simplificar los contornos: tolerancia de <input id="gjTol" type="number" value="0" min="0" max="1" step="0.005" style="width:70px"> grados</label> <span class="muted">(0 = sin simplificar)</span> <b id="gjVerts"></b></div>
       <div style="margin-top:6px" id="gjPopBox"><b>Población de las regiones nuevas</b>
         <label style="display:block"><input type="radio" name="gjPop" value="area" checked> Calcularla por el % del área que toman de las regiones de origen (World y escenario abierto)</label>
         <label style="display:block"><input type="radio" name="gjPop" value="geojson"> Importar la población del GeoJSON <span class="muted">(si un contorno no la trae, se inventa una según su área, nunca 0; se puede cambiar en cada región)</span></label></div>
@@ -3338,14 +3354,48 @@ async function gjNoOwner() {
 $('#gjNoOwn').onclick = gjNoOwner;
 $('#gjRepl').onchange = () => { $('#gjReplOpts').style.display = $('#gjRepl').checked ? '' : 'none'; };
 $('#gjPick').onclick = () => $('#gjFiles').click();
+// paso común de todo contorno que se importa (GeoJSON, KML, OpenStreetMap; también sumar/restar área): un MultiPolygon válido por
+// feature (un GeometryCollection o varias partes combinadas son una sola forma), sin altitud y, con tolerancia, con menos vértices
+async function gjNormalize(shapes, tol = 0) {
+  let r = {};
+  try { r = await (await fetch('/api/geojson/normalize', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ geoms: shapes.map(s => s.geometry0 || s.geometry), tol }) })).json(); } catch (err) { }
+  shapes.forEach((s, i) => { s.geometry0 = s.geometry0 || s.geometry; s.geometry = r.geoms ? r.geoms[i] : (/Polygon$/.test(s.geometry0.type) ? s.geometry0 : null); });
+  return r;
+}
+const gjVerts = r => { $('#gjVerts').textContent = r.before == null ? '' : +$('#gjTol').value > 0 ? `Vértices: ${r.before} → ${r.after}` : `Vértices: ${r.before}`; };
+$('#gjTol').onchange = async () => { if (G.shapes.length) gjVerts(await gjNormalize(G.shapes, +$('#gjTol').value || 0)); };
+async function gjKml(f) {
+  const data = await new Promise(res => { const r = new FileReader(); r.onload = () => res(r.result); r.readAsDataURL(f); });
+  const r = await (await fetch('/api/geojson/kml', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ data }) })).json();
+  if (r.error) report(`${f.name}: ${r.error}`, 'err');
+  else if (r.skipped) report(`${f.name}: ${r.skipped} punto(s) o línea(s) del KML no se importan (solo los polígonos).`, 'ok');
+  return r;
+}
+$('#gjOsmGo').onclick = async () => {
+  const msg = $('#gjOsmMsg'); msg.style.color = ''; msg.textContent = 'Descargando de OpenStreetMap…'; $('#gjOsmGo').disabled = true;
+  let r; try { r = await (await fetch('/api/geojson/osm', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids: $('#gjOsmId').value, lang: window.MH_LANG ? MH_LANG() : 'es' }) })).json(); }
+  catch (err) { r = { error: 'el editor no responde' }; }
+  $('#gjOsmGo').disabled = false;
+  const errs = r.error ? [r.error] : r.errors || [], n = (r.features || []).length;
+  msg.textContent = errs.join(' · ') || `Descargado: ${n} contorno(s).`; if (errs.length) msg.style.color = '#dc2626';
+  if (!n) return;
+  // miles de vértices: simplificado por defecto (se puede poner 0). Hasta 0,005° (unos 500 m), y menos si alguno es pequeño:
+  // 1/400 de su tamaño, para que una isla no quede en un triángulo
+  // sin Math.max(...xs): con cientos de miles de vértices (Canadá, Rusia) el navegador no admite tantos argumentos
+  const size = f => { let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity; JSON.stringify(f.geometry.coordinates, (k, v) => { if (Array.isArray(v) && typeof v[0] === 'number') { x0 = Math.min(x0, v[0]); x1 = Math.max(x1, v[0]); y0 = Math.min(y0, v[1]); y1 = Math.max(y1, v[1]); } return v; }); return Math.hypot(x1 - x0, y1 - y0); };
+  $('#gjTol').value = Math.min(0.005, +(Math.min(...r.features.map(size)) / 400).toPrecision(1));
+  await $('#gjFiles').onchange({ target: { files: [{ name: 'OpenStreetMap', fc: r }], value: '' } });
+};
+gjDlg.ondragover = e => e.preventDefault();
+gjDlg.ondrop = e => { e.preventDefault(); if ($('#gjImp').style.display !== 'none' && e.dataTransfer.files.length) $('#gjFiles').onchange({ target: { files: [...e.dataTransfer.files], value: '' } }); };
 $('#gjFiles').onchange = async e => {
   G.shapes = []; G.points = []; G.all = [];
   for (const f of e.target.files) {
-    let j; try { j = JSON.parse(await f.text()); } catch (err) { $('#gjFound').textContent = f.name + ': no es un JSON válido'; continue; }
+    let j; try { j = f.fc || (/\.km[lz]$/i.test(f.name) ? await gjKml(f) : JSON.parse(await f.text())); } catch (err) { $('#gjFound').textContent = f.name + ': no es un JSON válido'; continue; }
     const feats = j.type === 'FeatureCollection' ? j.features || [] : j.type === 'Feature' ? [j] : j.type ? [{ type: 'Feature', properties: {}, geometry: j }] : [];
     G.all.push(...feats.filter(x => x.geometry));
     const pts = feats.filter(x => x.geometry && x.geometry.type === 'Point');
-    const polys = feats.filter(x => x.geometry && /Polygon$/.test(x.geometry.type)), base = f.name.replace(/\.(geo)?json$/i, '');
+    const polys = feats.filter(x => x.geometry && GJ_AREA.test(x.geometry.type)), base = f.name.replace(/\.((geo)?json|km[lz])$/i, '');
     let k = 0;
     for (const x of polys) {
       let pr = x.properties || {};
@@ -3357,6 +3407,9 @@ $('#gjFiles').onchange = async e => {
     if (pts.length) G.points.push({ name: f.name, fc: { type: 'FeatureCollection', features: pts } });
   }
   e.target.value = '';
+  const shapes = G.shapes;        // si entretanto se carga otra cosa (otro archivo, otra relación), esta carga se abandona
+  if (shapes.length) { const n = await gjNormalize(shapes, +$('#gjTol').value || 0); if (G.shapes !== shapes) return; gjVerts(n); }
+  G.shapes = G.shapes.filter(s => s.geometry);
   const np = G.points.reduce((n, p) => n + p.fc.features.length, 0);
   gjCounts();
   $('#gjRegOpts').style.display = G.shapes.length ? '' : 'none';
@@ -3367,7 +3420,8 @@ $('#gjFiles').onchange = async e => {
   if (G.shapes.length) {
     $('#gjTable').innerHTML = '<tr><td class="muted">Analizando…</td></tr>';
     try {
-      const an = await (await fetch('/api/geojson/analyze', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ shapes: G.shapes.map(s => ({ geometry: s.geometry, props: s.props })) }) })).json();
+      const cur = G.shapes, an = await (await fetch('/api/geojson/analyze', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ shapes: G.shapes.map(s => ({ geometry: s.geometry, props: s.props })) }) })).json();
+      if (G.shapes !== cur) return;      // otra carga llegó antes que este análisis: es de los contornos anteriores
       G.shapes.forEach((s, i) => { s.an = an.shapes[i]; });
     } catch (err) { G.shapes.forEach(s => { s.an = null; }); }
     await gjFillTable(); gjCounts();

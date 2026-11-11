@@ -1267,9 +1267,10 @@ $('#dragPts').onchange = () => {
 };
 async function sendPoints() {
   const show = {}; document.querySelectorAll('[data-pt]').forEach(x => show[x.dataset.pt] = x.checked);
-  if (!Object.values(show).some(Boolean)) return frameMsg({ cmd: 'points', show });
+  const drag = $('#dragPts').checked;      // va con cada envío: el mapa (iframe) puede haberse recargado y perder el estado
+  if (!Object.values(show).some(Boolean)) return frameMsg({ cmd: 'points', show, drag });
   if (!LY.points) LY.points = (await api('/api/scen/points?name=' + encodeURIComponent(S.scen))).points || [];
-  frameMsg({ cmd: 'points', points: LY.points, show });
+  frameMsg({ cmd: 'points', points: LY.points, show, drag });
 }
 // elegir un punto en el mapa (ciudad / recurso nuevos, o mover uno existente); devuelve {x, y} o null si se cancela
 let PICK = null;

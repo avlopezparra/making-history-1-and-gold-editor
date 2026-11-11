@@ -84,6 +84,11 @@ def main():
             time.sleep(0.25)
     base = 'http://localhost:%d' % PORT
     webview.settings['ALLOW_DOWNLOADS'] = True        # exportar GeoJSON, imágenes de fondo, PNG…
+    try:        # identidad propia en la barra de tareas: sin esto Windows puede mostrar un icono genérico en caché
+        import ctypes
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID('avlopezparra.MHEditor')
+    except Exception:
+        pass
     win = webview.create_window(TITLE, base + '/', width=1500, height=950, min_size=(900, 600), text_select=True, js_api=Api())
     T = TEXTS[lang()]
 
@@ -118,6 +123,8 @@ def main():
             MenuAction(T['data'], lambda: os.startfile(os.environ['MH_ROOT'])),
         ]),
     ]
+    # caché de la ventana (WebView2) con tope de 64 MB: sin él crecía a cientos de MB con los tiles del mapa
+    os.environ.setdefault('WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS', '--disk-cache-size=67108864')
     webview.start(gui='edgechromium', menu=menu, private_mode=False,
                   storage_path=os.path.join(os.environ['MH_ROOT'], '_ventana_perfil'))
 

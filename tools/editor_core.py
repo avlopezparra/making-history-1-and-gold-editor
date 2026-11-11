@@ -34,6 +34,7 @@ MAPS = os.path.join(GAME, r"Modern Europe\system\DisplayLibraries\Maps")
 MAP_DIR = os.path.join(MAPS, "World")   # compatibilidad; cada proyecto usa self.map_dir
 SCEN_DIR = os.path.join(GAME, r"Modern Europe\system\scenarios")
 XML_FILES = ('regions.bin', 'borders.brd', 'regions.nts')
+SAVE_HISTORY = True     # «Historial»: copia de cada guardado en history/ para «Volver»; la fija el servidor (opciones.json)
 MIN_AREA = 1e-10
 SLIVER = 1e-3        # grados2: un trozo tan pequeno, junto a otros mucho mayores, es un roce del borde, no un recorte
 
@@ -2065,8 +2066,21 @@ class Project:
         os.makedirs(os.path.join(d, 'tiles'))
         for f in XML_FILES:
             shutil.copy2(os.path.join(self.xml, f), os.path.join(d, 'xml', f))
+        # el fondo pesa cientos de MB y casi nunca cambia entre dos guardados: un tile igual al de la instantánea anterior se enlaza
+        # a esa (las instantáneas nunca se modifican; el tile vivo sí, en el sitio, así que a él nunca se enlaza). Sin esto, cada
+        # «Guardar» copiaba el fondo entero y una sesión larga llenaba el disco (20 GB en el equipo de un probador)
+        snaps = sorted(x for x in os.listdir(self.history) if x.isdigit() and os.path.join(self.history, x) != d)
+        prev = os.path.join(self.history, snaps[-1], 'tiles') if snaps else None
         for f in os.listdir(self.tiles):
-            shutil.copy2(os.path.join(self.tiles, f), os.path.join(d, 'tiles', f))
+            src, dst = os.path.join(self.tiles, f), os.path.join(d, 'tiles', f)
+            try:
+                a, b = os.stat(src), os.stat(os.path.join(prev, f))
+                if (a.st_size, a.st_mtime_ns) == (b.st_size, b.st_mtime_ns):    # copy2 conserva la fecha: igual = sin tocar
+                    os.link(os.path.join(prev, f), dst)
+                    continue
+            except (OSError, TypeError):      # sin instantánea anterior, tile nuevo o disco sin enlaces (FAT): se copia
+                pass
+            shutil.copy2(src, dst)
         if os.path.exists(self.changelog_path()):
             shutil.copy2(self.changelog_path(), os.path.join(d, 'changelog.json'))
 
@@ -2083,8 +2097,16 @@ class Project:
     def _redo_dir(self):
         return os.path.join(self.history, 'rehacer')
 
+    def clear_history(self):
+        for d in os.listdir(self.history):
+            if d.isdigit() or d == 'rehacer':
+                shutil.rmtree(os.path.join(self.history, d), ignore_errors=True)
+
     def snapshot(self, log=print, keep_redo=False):
-        n = len([d for d in os.listdir(self.history) if d.isdigit()]) + 1
+        if not SAVE_HISTORY:          # opción apagada: «Volver» no está disponible y no se copia nada (ni queda lo de antes)
+            self.clear_history()
+            return
+        n =len([d for d in os.listdir(self.history) if d.isdigit()]) + 1
         d = os.path.join(self.history, '%03d' % n)
         self._copy_state(d)
         if not keep_redo and os.path.isdir(self._redo_dir()):

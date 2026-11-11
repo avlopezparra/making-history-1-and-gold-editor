@@ -1,4 +1,4 @@
-"""Instala el regionpack WorldMH2 (mh2/WorldMH2) en el juego: copia World -> WorldMH2 y encima pone el mapa nuevo.
+r"""Instala el regionpack WorldMH2 (mh2/WorldMH2) en el juego: copia World -> WorldMH2 y encima pone el mapa nuevo.
 
     python mh2_install.py            # solo si el juego esta cerrado; no toca World ni ningun escenario
 Despues, en el editor de escenarios: Global Data › Regionpack (o «Adecuar» en el de regiones) con WorldMH2, y elige como repartir

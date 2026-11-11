@@ -35,6 +35,18 @@ except ImportError:
 import changelog_keys  # noqa: E402
 import diag_log  # noqa: E402   (MHEditor.log)
 
+
+def _options():
+    """Opciones del editor que se recuerdan entre sesiones (opciones.json junto al editor)."""
+    try:
+        with open(os.path.join(ROOT, 'opciones.json'), encoding='utf-8') as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return {}
+
+
+editor_core.SAVE_HISTORY = _options().get('save_history') is not False
+
 PROJECT = None
 # seguridad: el servidor solo escucha en 127.0.0.1, pero cualquier web abierta en el navegador podía mandarle un POST (CSRF) o leerlo
 # con DNS rebinding. Se exige Host local, Origin local (si lo hay) y, en los POST, este token, que el servidor mete en sus páginas.
@@ -105,7 +117,7 @@ class Handler(BaseHTTPRequestHandler):
             if u.path == '/api/meta':
                 return self.send(200, {'pack': PROJECT.pack, 'regions': PROJECT.meta(), 'project': os.path.abspath(PROJECT.dir),
                                        'history': len([d for d in os.listdir(PROJECT.history) if d.isdigit()]),
-                                       'can_redo': PROJECT.can_redo()})
+                                       'can_redo': PROJECT.can_redo(), 'save_history': editor_core.SAVE_HISTORY})
             if u.path == '/api/region_at':
                 # región bajo un punto (para que un clic seleccione aunque esa región no esté cargada en el mapa del navegador)
                 from shapely.geometry import Point, shape
@@ -848,8 +860,23 @@ class Handler(BaseHTTPRequestHandler):
                 # contornos que se van a importar como regiones: ¿existen ya? ¿de qué regiones sale su área?
                 import geojson_compare
                 return self.send(200, {'shapes': geojson_compare.analyze_shapes(PROJECT, payload.get('shapes') or [])})
+            if u.path in ('/api/geojson/osm', '/api/geojson/kml', '/api/geojson/normalize'):
+                # contornos desde una relación de OpenStreetMap o un KML/KMZ, y el paso común (válido, partes unidas, simplificar)
+                try:
+                    return self.send(200, __import__('geo_sources').api(u.path, payload))
+                except ValueError as e:
+                    return self.send(200, {'error': str(e)})
+            if u.path == '/api/options':      # «Historial» de guardados para «Volver» (apagado: no copia nada y borra el que hay)
+                opts = _options()
+                opts['save_history'] = editor_core.SAVE_HISTORY = payload.get('save_history') is not False
+                with open(os.path.join(ROOT, 'opciones.json'), 'w', encoding='utf-8') as f:
+                    json.dump(opts, f)
+                if not editor_core.SAVE_HISTORY and PROJECT is not None:
+                    with PROJECT.lock:
+                        PROJECT.clear_history()
+                return self.send(200, {'save_history': editor_core.SAVE_HISTORY})
             if u.path == '/api/lang':
-                lang = 'en' if payload.get('lang') == 'en' else 'es'
+                lang ='en' if payload.get('lang') == 'en' else 'es'
                 json.dump({'lang': lang}, open(os.path.join(ROOT, 'idioma.json'), 'w'))
                 return self.send(200, {'lang': lang})
             if u.path == '/api/minimap/import':
@@ -2670,6 +2697,14 @@ def main():
             if not a.no_abrir:
                 webbrowser.open(url)
             return
+    # el historial de «Volver» solo vale dentro de una sesión: al arrancar se borra el que quedó en TODOS los proyectos
+    # (antes solo en el que se abría, y cada guardado copiaba el fondo entero: GB en regionpacks que no se volvían a abrir).
+    # Aquí, y no antes: si ya hay otro editor abierto (arriba) su sesión sigue usando el suyo
+    import glob
+    for h in glob.glob(glob.escape(os.path.abspath(a.proyecto)) + '*' + os.sep + 'history'):
+        for d in os.listdir(h):
+            if d.isdigit() or d == 'rehacer':
+                shutil.rmtree(os.path.join(h, d), ignore_errors=True)
     ThreadingHTTPServer.allow_reuse_address = False
     gamepaths.select(a.juego or gamepaths.load_choice(), remember=bool(a.juego))
     if a.escenarios:

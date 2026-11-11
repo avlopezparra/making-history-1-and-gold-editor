@@ -15,7 +15,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 OUT = os.path.abspath(sys.argv[1]) if len(sys.argv) > 1 else os.path.join(os.path.dirname(ROOT), 'making-history-github')
 
-DOCS = ['AGENTS.md', 'EDITOR.md', 'MAPA_FORMATO.md', 'REVERSING_NOTAS.md', 'ESCENARIOS_NOTAS.md', 'GOLD_NOTAS.md', 'CHANGELOG_3.0.md', 'CHANGELOG_3.1.md', 'CHANGELOG_3.3.md', 'CHANGELOG_3.4.md', 'CHANGELOG_3.5.md', 'tools/MH2_NST_FORMATO.md']
+DOCS = ['AGENTS.md', 'EDITOR.md', 'MAPA_FORMATO.md', 'REVERSING_NOTAS.md', 'ESCENARIOS_NOTAS.md', 'GOLD_NOTAS.md', 'CHANGELOG_3.0.md', 'CHANGELOG_3.1.md', 'CHANGELOG_3.3.md', 'CHANGELOG_3.4.md', 'CHANGELOG_3.5.md', 'CHANGELOG_3.6.md', 'tools/MH2_NST_FORMATO.md']
 LAUNCHERS = ['Region Editor.bat', 'Scenario Editor.bat', 'Editor (window).bat', 'Scenario Editor (window).bat', 'Game Log.bat']
 SKIP_PY = {'probe2.py', 'probe_regions.py', 'ai_chat.py', 'release_jp.py'}  # pruebas y herramientas locales de publicación
 
@@ -92,7 +92,7 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/')
         with:
           files: MHEditor.*.zip
-          body_path: CHANGELOG_3.5.md
+          body_path: CHANGELOG_3.6.md
 """
 
 
