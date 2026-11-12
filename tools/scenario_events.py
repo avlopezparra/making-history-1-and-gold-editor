@@ -1,19 +1,19 @@
-"""Eventos, decisiones e IA de un escenario explicados en palabras y plantillas para crearlos.
+"""A scenario's events, decisions and AI explained in words, and templates to create them.
 
-- describe(s, el): un ScriptedEventDef / PlayerDecisionDef / PlayerDecisionTrigPlayEvent / DecisionPointDef en palabras:
-  quién lo recibe, cuándo se dispara, condiciones, ventana (título, texto, elecciones) y efectos; enlaces a la cadena
-  evento → disparador → decisión.
-- short(s, el): resumen de una línea para la lista de la pestaña Eventos.
-- create_template(s, kind, p): eventos nuevos (guerra, embargo, ideología, recursos, unidades, cultura, decisión con
-  elecciones, estado aliado de la misma ideología). Los efectos de una sola vez van en una decisión (como los mods: el
-  evento se repite hasta que se responde; la IA elige sola y el jugador ve la ventana).
-- set_when / remove_chain: cambiar la fecha o el turno de un evento; quitar un evento con su disparador y su decisión.
-- ai_rules / ai_rule_*: lo que hace la IA de un país (player<País>.xml) en palabras: a quién ayuda si le atacan,
-  a quién quiere conquistar, planes de guerra con su condición «si A y B están en guerra», presión diplomática y
-  los embargos y reacciones por evento.
-- terrains / terrain_create / terrain_delete: tipos de terreno (TerrainType de sharedData + texto del stringTable).
+- describe(s, el): a ScriptedEventDef / PlayerDecisionDef / PlayerDecisionTrigPlayEvent / DecisionPointDef in words:
+  who receives it, when it fires, conditions, window (title, text, choices) and effects; links to the chain
+  event → trigger → decision.
+- short(s, el): one-line summary for the Events tab list.
+- create_template(s, kind, p): new events (war, embargo, ideology, resources, units, culture, decision with
+  choices, allied state of the same ideology). One-time effects go in a decision (like mods: the
+  event repeats until answered; the AI chooses by itself and the player sees the window).
+- set_when / remove_chain: change the date or turn of an event; remove an event with its trigger and its decision.
+- ai_rules / ai_rule_*: what a country's AI (player<País>.xml) does, in words: whom it helps if attacked,
+  whom it wants to conquer, war plans with their condition «if A and B are at war», diplomatic pressure and
+  embargoes and reactions by event.
+- terrains / terrain_create / terrain_delete: terrain types (TerrainType of sharedData + stringTable text).
 
-Formato analizado en ESCENARIOS_NOTAS.md («Eventos, decisiones e IA»).
+Format analysed in ESCENARIOS_NOTAS.md («Eventos, decisiones e IA»).
 """
 import copy
 import os
@@ -35,7 +35,7 @@ PLAYER = 'el país que recibe el evento'
 
 # ---------------------------------------------------------------------------------------- variables (accesores)
 def _ctx(el):
-    """Qué es cada variable scratch.X del evento: país, región, guerra entre dos, fecha… (de sus accesores)."""
+    """What each scratch.X variable of the event is: country, region, war between two, date… (from its accessors)."""
     ctx = {}
     for a in el.iter('object'):
         t = a.get('type') or ''
@@ -79,7 +79,7 @@ def _ctx(el):
 
 
 def _ref(pair, ctx):
-    """Valor legible de una propiedad: el valor escrito o, si se hereda de una variable, lo que esa variable es."""
+    """Readable value of a property: the written value or, if inherited from a variable, what that variable is."""
     val, inh = pair if isinstance(pair, tuple) else (pair, None)
     if val is not None:
         return val
@@ -287,7 +287,7 @@ def _conditions(holder, ctx):
 
 
 def _merge_exists(rules):
-    """«X existe» + «X está rendido» = «X no existe (rendido)»; «X existe» + «X no está rendido» = «X existe»."""
+    """«X exists» + «X is surrendered» = «X does not exist (surrendered)»; «X exists» + «X is not surrendered» = «X exists»."""
     out = []
     for r in rules:
         m = re.fullmatch(r'(.+?) (no )?está rendido \(sin territorio\)', r)
@@ -309,7 +309,7 @@ def _who(el):
 
 
 def _texts(s, holder):
-    """Título, descripción y efecto mostrados (ArgumentList «Display Data»): texto, id del elemento y si se puede editar."""
+    """Title, description and effect shown (ArgumentList «Display Data»): text, element id and whether it can be edited."""
     out = {}
     for al in objs(holder):
         if al.get('type') != 'ArgumentList' or prop(al, 'strName') != 'Display Data':
@@ -377,7 +377,7 @@ def _index(s):
 
 
 def _fires_on(el):
-    """Etiqueta del evento que dispara un PlayerDecisionTrigPlayEvent (condición strTypeLabel == '...')."""
+    """Label of the event a PlayerDecisionTrigPlayEvent fires (condition strTypeLabel == '...')."""
     for r in el.iter('object'):
         if r.get('type') == 'RuleDefExpression':
             m = re.search(r"objScriptEvent\.strTypeLabel == '([^']*)'", prop(r, 'expRession') or '')
@@ -450,7 +450,7 @@ def describe(s, el):
 
 
 def _outcome(s, dec):
-    """Lo que pasa al responder la ventana de un evento: [«botón»: efectos (IA)]."""
+    """What happens when answering an event's window: [«button»: effects (AI)]."""
     ctx = _ctx(dec)
     ai = prop(dec, 'strDefaultChoice')
     out = []
@@ -463,7 +463,7 @@ def _outcome(s, dec):
 
 
 def short(s, el):
-    """Una línea para la lista: qué hace (los efectos o, si no tiene, el título de su ventana)."""
+    """One line for the list: what it does (the effects or, if none, its window's title)."""
     t = el.get('type')
     ctx = None
     acts = []
@@ -479,7 +479,7 @@ def short(s, el):
             return '«%s»%s' % (tx['text'][:60], (': ' + acts[0]) if acts else '')
     if t == 'PlayerDecisionTrigPlayEvent':
         return '→ %s' % prop(el, 'strTypeToTrigger')
-    if not acts and t == 'ScriptedEventDef':       # sus efectos están en la ventana que abre
+    if not acts and t == 'ScriptedEventDef':       # its effects are in the window it opens
         te = next((x for x in objs(el) if x.get('name') == 'objTriggerEval'), None)
         dec = _decisions(s).get(prop(te, 'strDecisionType')) if te is not None else None
         if dec is not None:
@@ -488,7 +488,7 @@ def short(s, el):
 
 
 def _decisions(s):
-    """Decisiones por etiqueta (se recalcula como mucho cada 3 s: la lista de la pestaña pide una por fila)."""
+    """Decisions by label (recomputed at most every 3 s: the tab's list asks for one per row)."""
     import time
     c = getattr(s, '_dec_cache', None)
     if c is None or time.time() - c[0] > 3:
@@ -498,7 +498,7 @@ def _decisions(s):
 
 
 # ---------------------------------------------------------------------------------------- clase de evento
-# (patrón de la etiqueta, clase, explicación) — los GENERIC_/Generic_/SCRIPTEDEVENT_ vienen del juego (ScenarioDefaults)
+# (label pattern, class, explanation) — the GENERIC_/Generic_/SCRIPTEDEVENT_ ones come from the game (ScenarioDefaults)
 EVENT_CLASSES = [
     (r'Lost_Homeland_Crisis', 'Crisis por perder la patria', 'el país pierde regiones de su patria: ventana de crisis (rendirse, seguir luchando…)'),
     (r'Restore_Original_Capital', 'Recuperar la capital original', 'el país reconquista su capital original: decide si la vuelve a hacer capital'),
@@ -531,7 +531,7 @@ def is_generic(label):
 
 
 def event_class(s, el):
-    """(clase, explicación, genérico): qué tipo de evento es, por su etiqueta o, si no se reconoce, por lo que hace."""
+    """(class, explanation, generic): what kind of event it is, by its label or, if not recognized, by what it does."""
     lab = prop(el, 'strTypeLabel') or ''
     gen = is_generic(lab)
     for pat, name, expl in EVENT_CLASSES:
@@ -568,8 +568,8 @@ def when(el):
 
 
 def set_when(s, i, date=None, turn=None):
-    """Cambia la fecha (MM/DD/AAAA) o el turno de un evento (y de los de su cadena); convierte un embargo de turno en
-    uno de fecha futura y al revés."""
+    """Changes the date (MM/DD/AAAA) or turn of an event (and of those of its chain); turns a turn embargo into
+    a future-date one and vice versa."""
     st = s.s
     el = st.get(i)
     if date and not re.fullmatch(r'\d\d/\d\d/\d{4}', date):
@@ -600,7 +600,7 @@ def set_when(s, i, date=None, turn=None):
                     n += 1
         te = next((t for t in objs(e) if t.get('type') == 'TriggerEvalUntilTurn'), None)
         if te is not None:
-            if date:          # «hasta el turno N» con una fecha no tiene sentido: pasa a repetirse cada turno (con su condición)
+            if date:          # «until turn N» with a date makes no sense: it becomes repeated every turn (with its condition)
                 te.set('type', 'TriggerEvalRandomChance')
                 for p in [p for p in te if p.tag == 'property' and p.get('name') == 'nTurn']:
                     te.remove(p)
@@ -614,7 +614,7 @@ def set_when(s, i, date=None, turn=None):
 
 
 def remove_chain(s, i):
-    """Quita un evento y su cadena (disparador y decisión) si no los usa otro evento."""
+    """Removes an event and its chain (trigger and decision) if no other event uses them."""
     st = s.s
     el = st.get(i)
     d = describe(s, el)
@@ -637,7 +637,7 @@ def _w(x):
 
 
 def _country_set(label, names):
-    """Condición «estos países existen y no están rendidos» (y deja sus variables para los efectos)."""
+    """Condition «these countries exist and are not surrendered» (and leaves their variables for the effects)."""
     acc, rules = [], []
     for n in names:
         v = 'objCountry' + _w(n)
@@ -689,7 +689,7 @@ def _not_at_war_set(a, b):
 
 
 def _get_alliance(b):
-    """Variable con la alianza del país b (si no tiene, la regla exists() falla)."""
+    """Variable with country b's alliance (if it has none, the exists() rule fails)."""
     vb = 'objCountry' + _w(b)
     return ('<object type="AccessorGetCountry" name="objAccessors"><property name="pathOutput" value="{Object:Single:Country}scratch.%s"/><property name="strCountry" value="%s"/></object>'
             '<object type="AccessorGetAlliance" name="objAccessors"><property name="pathOutput" value="{Object:Single:Alliance}scratch.objAlliance%s"/>'
@@ -699,7 +699,7 @@ def _get_alliance(b):
 
 
 def _in_alliance_set(b):
-    """El país del evento (su jugador) está en la alianza de b."""
+    """The event's country (its player) is in b's alliance."""
     return _set('Player is in the alliance of %s' % b, _get_alliance(b) +
                 '<object type="AccessorIsInAlliance" name="objAccessors"><property name="pathOutput" value="{bool:Single}scratch.bInAlliance%s"/>'
                 '<property name="nAllianceID" inheritFrom="{Object:Single:Alliance}scratch.objAlliance%s.nAllianceID"/></object>'
@@ -718,7 +718,7 @@ def _war_alliance_set(a, b):
 
 
 def _random_pick(kind, out, inp, where):
-    """Elige al azar un objeto de una lista filtrada (AccessorSelectObjects + AccessorSelectRandomObject, como en vanilla)."""
+    """Randomly picks an object from a filtered list (AccessorSelectObjects + AccessorSelectRandomObject, as in vanilla)."""
     lst = '{Object:Variable:%s}scratch.%sList' % (kind, out.split('.')[-1])
     return ('<object type="AccessorSelectObjects" name="objAccessors"><property name="pathOutput" value="%s"/>'
             '<property name="pathInput" value="%s"/><property name="expWhere" value="%s"/></object>'
@@ -733,7 +733,7 @@ def _country_acc(c):
 
 
 def _action(spec, owner):
-    """(xml de la acción, países que deben existir, regiones que necesita, condiciones extra)."""
+    """(action xml, countries that must exist, regions it needs, extra conditions)."""
     k = spec.get('type')
     g = lambda n, d=None: (spec.get(n) if spec.get(n) not in (None, '') else d)
     if k == 'war':
@@ -795,7 +795,7 @@ def _action(spec, owner):
         to, frm, r = g('to', owner), g('from'), g('region')
         if r:
             reg, regs, extra = '{Object:Single:Region}scratch.objRegion%s' % _w(r), [r], []
-        elif frm:                                         # una región al azar que frm posee y controla
+        elif frm:                                         # a random region that frm owns and controls
             reg, regs = '{Object:Single:Region}scratch.objRegionRandom%s' % _w(frm), []
             cf = '{Object:Single:Country}scratch.objCountry%s' % _w(frm)
             extra = [_set('Random region of %s' % frm, _country_acc(frm) +
@@ -888,25 +888,25 @@ def _action(spec, owner):
 
 
 def event_add(s, i, what, spec, choice=None):
-    """Añade a un evento existente un efecto (al evento o a una de sus elecciones) o una condición.
-    what: 'effect' | 'condition'. spec (efecto): como en las plantillas ({'type': 'war', 'to': …}).
-    spec (condición): {'type': 'exists', 'countries': [...]} | {'type': 'when', 'date'|'turn'} | {'type': 'chance', 'pct'}
-    | {'type': 'notwar', 'a', 'b'}. Devuelve notas."""
+    """Adds to an existing event an effect (to the event or to one of its choices) or a condition.
+    what: 'effect' | 'condition'. spec (effect): as in the templates ({'type': 'war', 'to': …}).
+    spec (condition): {'type': 'exists', 'countries': [...]} | {'type': 'when', 'date'|'turn'} | {'type': 'chance', 'pct'}
+    | {'type': 'notwar', 'a', 'b'}. Returns notes."""
     st = s.s
     el = st.get(i)
     if el is None:
         raise ValueError('ese evento ya no existe')
     if what == 'condition' and el.get('type') == 'PlayerDecisionDef':
-        # una condición («desde una fecha», «probabilidad»…) decide cuándo salta el evento: va al ScriptedEventDef de la cadena,
-        # no a la decisión (allí no limitaba nada)
+        # a condition («from a date», «probability»…) decides when the event fires: goes to the chain's ScriptedEventDef,
+        # not to the decision (there it didn't limit anything)
         ev = next((e for e in (st.get(x['id']) for x in describe(s, el).get('links') or []) if e is not None and e.get('type') == 'ScriptedEventDef'), None)
         if ev is not None:
             el = ev
     _t, te = _trigger(el, _ctx(el))
-    cond_holder = te if te is not None else el            # donde están sus condiciones (y las variables de los países)
+    cond_holder = te if te is not None else el            # where its conditions are (and the countries' variables)
     have = {prop(a, 'pathOutput') for a in cond_holder.iter('object') if a.get('type') == 'AccessorGetCountry'}
     owner = (_who(el) or '').split(',')[0].strip() or None
-    if owner not in s.countries():                        # «todos los países» u otro texto: sin país propio
+    if owner not in s.countries():                        # «all countries» or other text: no own country
         owner = None
     xmls, notes = [], []
     if what == 'effect':
@@ -914,7 +914,7 @@ def event_add(s, i, what, spec, choice=None):
         if not xml:
             raise ValueError('ese efecto no hace nada')
         need = [c for c in dict.fromkeys(x for x in must if x) if '{Object:Single:Country}scratch.objCountry' + _w(c) not in have]
-        if need:                                          # los efectos usan las variables de los países: se leen en las condiciones
+        if need:                                          # effects use the countries' variables: they are read in the conditions
             xmls.append(_country_set('%s exist' % ', '.join(need), need))
         if regs:
             xmls.append(_region_set(regs))
@@ -972,7 +972,7 @@ def event_add(s, i, what, spec, choice=None):
     else:
         raise ValueError('¿efecto o condición?')
     kids = list(cond_holder)
-    for x in xmls:                                        # las condiciones van junto a las demás (antes de los efectos)
+    for x in xmls:                                        # conditions go next to the others (before the effects)
         rs = ET.fromstring(x)
         last = [n for n, c in enumerate(kids) if c.tag == 'object' and c.get('name') == 'objConditions']
         st.attach(rs, cond_holder, index=(last[-1] + 1) if last else None)
@@ -1027,8 +1027,8 @@ def _arg_list(title, desc, effect=None):
 
 
 def create_decision(s, owner, title, text, choices, when=None, pct=100, ai_choice=0, ai_pct=100, label=None, extra_conditions=None):
-    """Evento con ventana (como los mods): ScriptedEventDef (se repite hasta que se responda) + disparador + decisión.
-    choices: [{'title', 'desc', 'effects': [spec, …]}]; la IA elige 'ai_choice' con 'ai_pct' %."""
+    """Event with window (like mods): ScriptedEventDef (repeats until answered) + trigger + decision.
+    choices: [{'title', 'desc', 'effects': [spec, …]}]; the AI chooses 'ai_choice' with 'ai_pct' %."""
     countries = s.countries()
     if owner not in countries:
         raise ValueError('no existe el país «%s»' % owner)
@@ -1105,7 +1105,7 @@ TEMPLATE_KINDS = ('war', 'embargo', 'gov', 'resource', 'units', 'culture', 'inde
 
 
 def create_template(s, kind, p):
-    """Plantillas de la pestaña Eventos; p = datos del formulario. Devuelve (id, notas)."""
+    """Templates of the Events tab; p = form data. Returns (id, notes)."""
     owner = p.get('owner')
     w = {'date': p.get('date') or None, 'turn': int(p['turn']) if str(p.get('turn') or '').strip() else None}
     pct = int(p.get('pct') or 100)
@@ -1120,7 +1120,7 @@ def create_template(s, kind, p):
         spec.setdefault('country', owner)
     xml, _m, _r, _e, eff = _action(_cede(s, spec, owner), owner)
     title = p.get('title') or eff
-    if p.get('ask'):        # el jugador humano de ese país elige en una ventana; la IA hace el efecto con ai_pct %
+    if p.get('ask'):        # that country's human player chooses in a window; the AI applies the effect with ai_pct %
         yes = p.get('yes') or {'war': 'Declare war', 'embargo': 'Declare the embargo'}.get(kind, 'Accept')
         no = p.get('no') or {'war': 'Not now', 'embargo': 'Keep trading'}.get(kind, 'Refuse')
         return create_decision(s, owner, title, p.get('text') or '', [{'title': yes, 'desc': '', 'effects': [spec]}, {'title': no, 'desc': '', 'effects': []}],
@@ -1151,8 +1151,8 @@ def cede_conquered(dec):
 
 
 def create_liberate(s, gov):
-    """«Crear un estado aliado de la misma ideología» al conquistar la capital histórica de un país liberable, para una
-    ideología que no lo tiene: copia la decisión GENERIC_Democratic… del escenario (los textos sirven, usan @GovType@)."""
+    """«Create an allied state of the same ideology» when conquering the historic capital of a liberable country, for an
+    ideology that lacks it: copies the scenario's GENERIC_Democratic… decision (the texts work, they use @GovType@)."""
     if not gov:
         raise ValueError('elige la ideología')
     if gov not in _govs(s):
@@ -1164,7 +1164,7 @@ def create_liberate(s, gov):
     src = 'GENERIC_DemocraticLiberateCountryDecision'
     src_d = idx.get(('PlayerDecisionDef', src))
     src_t = next((e for (k, l), e in idx.items() if k == 'PlayerDecisionTrigPlayEvent' and prop(e, 'strTypeToTrigger') == src), None)
-    if src_d is None or src_t is None:      # algunos mods la quitan: se copia de ScenarioDefaults (solo se lee)
+    if src_d is None or src_t is None:      # some mods remove it: copied from ScenarioDefaults (read only)
         for f in (os.path.join(os.path.dirname(sc.SCEN_ROOT), 'ScenarioDefaults', 'sharedData.xml'),
                   os.path.join(sc.GAME, 'Modern Europe', 'system', 'ScenarioDefaults', 'sharedData.xml')):
             if os.path.exists(f):
@@ -1198,7 +1198,7 @@ def create_liberate(s, gov):
     return ids[1], notes
 
 
-# ---------------------------------------------------------------------------------------- IA (player<País>.xml)
+# ---------------------------------------------------------------------------------------- AI (player<País>.xml)
 GOAL_ES = {
     'HGoalHelpCountryWinWar': 'Si {B} ataca a {A}, {me} ayuda a {A} (dinero, armas y, si puede, entra en la guerra)',
     'HGoalConquerCountry': '{A} quiere conquistar {B}',
@@ -1323,7 +1323,7 @@ def ai_rules(s, country):
                     prop(wp, 'nMinTreatyCount'), prop(wp, 'nMaxTreatyCount'), prop(wp, 'nMinTreatyInterval'), prop(wp, 'nMaxTreatyInterval'),
                     ('; %s %% de declararles la guerra si no' % prop(wp, 'nDeclareWarPct')) if prop(wp, 'nDeclareWarPct') not in (None, '0') else '')
                 out['allegiance'].append({'id': st.eid(wp), 'text': txt})
-    # eventos de este país con embargo, guerra o intervención
+    # this country's events with embargo, war or intervention
     for ev in s.all('ScriptedEventDef'):
         if country not in _who(ev).split(', '):
             continue
@@ -1358,7 +1358,7 @@ def _insert_after_last(st, pd, el, pred):
 
 
 def ai_goal_set(s, country, gtype, a, b, gid=None):
-    """Añade (o cambia) una meta de la IA con dos países (p. ej. HGoalHelpCountryWinWar: si B ataca a A, ayuda a A)."""
+    """Adds (or changes) an AI goal with two countries (e.g. HGoalHelpCountryWinWar: if B attacks A, help A)."""
     st = s.s
     countries = s.countries()
     for c in (a, b):
@@ -1395,7 +1395,7 @@ def ai_goal_set(s, country, gtype, a, b, gid=None):
 
 
 def ai_operation_set(s, country, data, oid=None):
-    """Plan de guerra de la IA: atacar a unos países (o una lista de regiones) desde una fecha, o cuando A y B estén en guerra."""
+    """AI war plan: attack some countries (or a list of regions) from a date, or when A and B are at war."""
     st = s.s
     countries = s.countries()
     targets = [x for x in data.get('targets') or [] if x]
@@ -1438,7 +1438,7 @@ def ai_operation_set(s, country, data, oid=None):
     if not prop(op, 'strTargetRegionList'):
         for p in [p for p in op if p.tag == 'property' and p.get('name') == 'strTargetRegionList']:
             op.remove(p)
-    # orden habitual del archivo: nombre, objetivos, lista, requisitos, disparadores, fechas
+    # usual file order: name, goals, list, requirements, triggers, dates
     order = ['strName', 'strTargetCountries', 'strTargetRegionList', 'strPrereqOperations', 'strWarTriggerCountriesA', 'strWarTriggerCountriesB',
              'dateTrigger', 'dateExpires', 'bSuppressesAggression']
     ps = [p for p in op if p.tag == 'property']
@@ -1484,10 +1484,10 @@ def ai_rule_delete(s, i):
     return notes
 
 
-# ---------------------------------------------------------------------------------------- reacciones por país (country<País>.xml)
-# TriggerCountry de MECountry: si el país 'strName' es invadido (COUNTRY_TRIGGER_INVASION, opcionalmente en las regiones de
-# strRegionList) o entra en guerra (COUNTRY_TRIGGER_WAR), este país declara la guerra o un embargo al agresor según su
-# sensibilidad (0–100: cuanto más alta, más probable). Es lo que usan los escenarios del juego y los mods para «intervenir».
+# ---------------------------------------------------------------------------------------- reactions by country (country<País>.xml)
+# MECountry's TriggerCountry: if country 'strName' is invaded (COUNTRY_TRIGGER_INVASION, optionally in the regions of
+# strRegionList) or enters a war (COUNTRY_TRIGGER_WAR), this country declares war or an embargo on the aggressor according to its
+# sensitivity (0–100: the higher, the more likely). It's what the game's scenarios and mods use to «intervene».
 def triggers(s, country):
     c = s.countries().get(country)
     if c is None:
@@ -1527,7 +1527,7 @@ def trigger_set(s, country, data, tid=None):
     st.set_prop(t, 'nWarSensitivity', vals['war'])
     st.set_prop(t, 'nEmbargoSensitivity', vals['embargo'])
     if 'region_list' not in data:
-        pass                                     # se conserva la lista de regiones que tuviera
+        pass                                     # any existing region list is kept
     elif data.get('region_list'):
         st.set_prop(t, 'strRegionList', data['region_list'])
     else:
@@ -1586,7 +1586,7 @@ def culture_delete(s, cid, to=None):
     for r in regs:
         st.set_prop(r, 'strCulture', to)
     n = 0
-    for c in s.countries().values():           # también en el conjunto de culturas de cada nación
+    for c in s.countries().values():           # also in each nation's culture set
         for cs in objs(c):
             if cs.get('type') == 'CultureSet':
                 for k in objs(cs):
@@ -1626,7 +1626,7 @@ def terrains(s):
 
 
 def terrain_save(s, data, tid=None):
-    """Crea un tipo de terreno (copia de 'base') o cambia uno: penalizaciones por estación, nombre visible."""
+    """Creates a terrain type (copy of 'base') or changes one: penalties per season, visible name."""
     st = s.s
     name = re.sub(r'\s', '', data.get('terrain') or '')
     if not tid and not re.fullmatch(r'[A-Za-z][A-Za-z0-9_]*', name):
@@ -1687,8 +1687,8 @@ def terrain_delete(s, tid, to=None):
     return ['terreno %s quitado' % name] + (['%d regiones pasan a %s' % (len(regs), to)] if regs else [])
 
 
-# color de cada terreno en el modo de mapa «Terreno»: MapOverlayColorMapping de DisplayLibraries/MapViews/UnifiedMapViews.xml.
-# Es un archivo de todo el juego (no del escenario). En Gold ese modo de mapa está activo; en MH1 viene comentado.
+# colour of each terrain in the «Terreno» map mode: MapOverlayColorMapping of DisplayLibraries/MapViews/UnifiedMapViews.xml.
+# It's a game-wide file (not the scenario's). In Gold that map mode is active; in MH1 it is commented out.
 def _mapviews_path():
     return os.path.abspath(os.path.join(sc.GAME, 'Modern Europe', 'system', 'DisplayLibraries', 'MapViews', 'UnifiedMapViews.xml'))
 
@@ -1715,7 +1715,7 @@ def terrain_colors(s):
 
 
 def terrain_color_set(s, terrain, color):
-    """Cambia (o añade) el color de un terreno en UnifiedMapViews.xml y lo guarda en el juego (botón explícito)."""
+    """Changes (or adds) a terrain's colour in UnifiedMapViews.xml and saves it in the game (explicit button)."""
     st = s.s
     if not re.fullmatch(r'#[0-9A-Fa-f]{8}', color or ''):
         raise ValueError('color no válido: #RRGGBBAA')
@@ -1734,10 +1734,10 @@ def terrain_color_set(s, terrain, color):
     return ['color de %s = %s guardado en %s (todo el juego)' % (terrain, color.upper(), ', '.join(r['written']) or 'sin cambios')]
 
 
-# ---------------------------------------------------------------------------------------- unidades en el mapa
-# Army / AirForce / Fleet: strRegion (región donde empiezan), vecPosition opcional ([lon, lat, 0]; sin ella el juego las pone
-# en su región) y nDirection (VisibleGO: grados, 0 = norte, 90 = este; por defecto 225). Una flota en puerto tiene strRegion =
-# la región de tierra y strCity = la ciudad con puerto (strPortForRegion) de su dueño.
+# ---------------------------------------------------------------------------------------- units on the map
+# Army / AirForce / Fleet: strRegion (region where they start), optional vecPosition ([lon, lat, 0]; without it the game places them
+# in their region) and nDirection (VisibleGO: degrees, 0 = north, 90 = east; default 225). A fleet in port has strRegion =
+# the land region and strCity = its owner's port city (strPortForRegion).
 UNIT_TYPES = ('Army', 'AirForce', 'Fleet')
 
 
@@ -1757,7 +1757,7 @@ def fleet_ports(s, i):
 
 
 def move_unit(s, i, x=None, y=None, port=None):
-    """Mueve un ejército, fuerza aérea o flota a un punto (cambia su región si cae en otra) o mete una flota en un puerto."""
+    """Moves an army, air force or fleet to a point (changes its region if it falls in another) or puts a fleet in a port."""
     import scenario_layers as sl
     st = s.s
     el = st.get(i)
@@ -1793,7 +1793,7 @@ def move_unit(s, i, x=None, y=None, port=None):
             sea = None
     notes = []
     if t == 'Fleet':
-        if land:                     # en tierra: solo en un puerto de su dueño en esa región (el más cercano al punto)
+        if land:                     # on land: only in a port of its owner in that region (the nearest to the point)
             ports = [p for p in _port_cities(s, owner) if p['region'] == land]
             if not ports:
                 raise ValueError('%s no tiene puerto en %s: una flota en tierra debe estar en una ciudad con puerto de su dueño' % (owner, land))
@@ -1818,7 +1818,7 @@ def move_unit(s, i, x=None, y=None, port=None):
 
 
 def set_direction(s, i, deg):
-    """Orientación (nDirection, grados: 0 norte, 90 este, 180 sur, 270 oeste) de una ciudad o unidad."""
+    """Orientation (nDirection, degrees: 0 north, 90 east, 180 south, 270 west) of a city or unit."""
     st = s.s
     el = st.get(i)
     if el.get('type') not in UNIT_TYPES + ('City',):
@@ -1828,9 +1828,9 @@ def set_direction(s, i, deg):
     return ['%s: orientación %d°' % (prop(el, 'strName') or el.get('type'), d)]
 
 
-# ---------------------------------------------------------------------------------------- alcance aéreo
+# ---------------------------------------------------------------------------------------- air range
 def air_ranges(s):
-    """Fuerzas aéreas con unidades que bombardean (bombarderos o con % de impacto a estructuras/tierra) y su alcance (millas)."""
+    """Air forces with units that bomb (bombers or with % impact on structures/land) and their range (miles)."""
     tpl = {}
     for u in s.all('UnitTemplate'):
         if prop(u, 'eType') == 'UNIT_TYPE_AIR_FORCE':
@@ -1849,12 +1849,12 @@ def air_ranges(s):
     return out
 
 
-# ---------------------------------------------------------------------------------------- regiones de los eventos y el regionpack
+# ---------------------------------------------------------------------------------------- event regions and the regionpack
 REGION_PROPS = ('strRegion', 'strRegionName', 'strCapitalRegion', 'strRegions')
 
 
 def _region_history(s):
-    """Del changelog del regionpack del escenario: ({región quitada: la que la absorbió}, {región: [regiones que salieron de ella]})."""
+    """From the scenario's regionpack changelog: ({removed region: the one that absorbed it}, {region: [regions that came out of it]})."""
     import json
     import editor_core
     absorbed, children = {}, {}
@@ -1876,7 +1876,7 @@ def _region_history(s):
 
 
 def _event_region_refs(s):
-    """[(evento, objeto, propiedad, región)] de las regiones que nombran los eventos."""
+    """[(event, object, property, region)] of the regions named by the events."""
     out = []
     for ev in s.all_types(EVENT_TYPES):
         for o in ev.iter('object'):
@@ -1888,7 +1888,7 @@ def _event_region_refs(s):
 
 
 def event_region_issues(s):
-    """Eventos que nombran una región que el regionpack quitó (error) o dividió (aviso), con opciones para adaptarlos."""
+    """Events naming a region the regionpack removed (error) or split (warning), with options to adapt them."""
     from scenario_i18n import L
 
     have = {prop(r, 'strName') for r in s.regions()}
@@ -1921,8 +1921,8 @@ def event_region_issues(s):
 
 
 def fix_event_region(s, obj, name, region, action, new=None):
-    """Adapta la región 'region' de la propiedad 'name' del objeto 'obj' de un evento: 'replace' por 'new' (también en las
-    variables scratch.objRegion<Región> del mismo evento) o 'remove' (se quita la condición o la acción que la usa)."""
+    """Adapts the region 'region' of property 'name' of object 'obj' of an event: 'replace' with 'new' (also in the
+    event's scratch.objRegion<Región> variables) or 'remove' (the condition or action using it is removed)."""
     st = s.s
     o = st.get(obj)
     if o is None:
@@ -1968,9 +1968,9 @@ def fix_event_region(s, obj, name, region, action, new=None):
 
 
 def event_surrender_issues(s):
-    """Eventos que solo saltan si un país que existe al empezar se rinde por completo (condición «X.bSurrendered»).
-    En escenarios donde otros eventos reparten su territorio (liberaciones) ese país casi nunca se rinde y el evento no salta
-    nunca: es lo que un modder corrigió en TMWR 1022 (Novorossiya Unification exigía que Ucrania estuviera rendida)."""
+    """Events that only fire if a country existing at start surrenders completely (condition «X.bSurrendered»).
+    In scenarios where other events split its territory (liberations) that country almost never surrenders and the event never
+    fires: this is what a modder fixed in TMWR 1022 (Novorossiya Unification required Ukraine to be surrendered)."""
     landed = {prop(r, 'strOwner') for r in s.regions(sea=False)}
     out = []
     # the country an event creates may rightly have to be «gone» first: only third countries are flagged

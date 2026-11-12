@@ -1,8 +1,8 @@
-r"""Instala el regionpack WorldMH2 (mh2/WorldMH2) en el juego: copia World -> WorldMH2 y encima pone el mapa nuevo.
+r"""Installs the WorldMH2 regionpack (mh2/WorldMH2) in the game: copies World -> WorldMH2 and puts the new map on top.
 
-    python mh2_install.py            # solo si el juego esta cerrado; no toca World ni ningun escenario
-Despues, en el editor de escenarios: Global Data › Regionpack (o «Adecuar» en el de regiones) con WorldMH2, y elige como repartir
-la poblacion. Para quitarlo: borrar la carpeta Maps\WorldMH2.
+    python mh2_install.py            # only if the game is closed; does not touch World or any scenario
+Then, in the scenario editor: Global Data › Regionpack (or «Adecuar» in the region editor) with WorldMH2, and choose how to distribute
+the population. To remove it: delete the Maps\WorldMH2 folder.
 """
 import os, shutil, sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))

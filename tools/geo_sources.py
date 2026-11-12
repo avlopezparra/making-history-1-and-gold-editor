@@ -1,10 +1,10 @@
-"""Otras fuentes de contornos para «Importar GeoJSON»: relaciones de OpenStreetMap (por id) y archivos KML / KMZ.
+"""Other outline sources for «Importar GeoJSON»: OpenStreetMap relations (by id) and KML / KMZ files.
 
-Todo sale como FeatureCollection de MultiPolygon (válidos, partes unidas, sin altitud), igual que un .geojson elegido a mano.
-Nada se escribe en disco: la página recibe los contornos y sigue el camino de siempre.
+Everything comes out as a FeatureCollection of MultiPolygon (valid, parts merged, no altitude), just like a hand-picked .geojson.
+Nothing is written to disk: the page receives the outlines and follows the usual path.
 
-    python geo_sources.py        -> autocomprobación (ids, KML, KMZ en memoria); sin red
-    python geo_sources.py 51477  -> descarga esa relación y dice de qué fuente salió
+    python geo_sources.py        -> self-test (ids, KML, in-memory KMZ); no network
+    python geo_sources.py 51477  -> downloads that relation and says which source it came from
 """
 import base64
 import binascii
@@ -25,10 +25,10 @@ from shapely import force_2d, get_num_coordinates, make_valid
 from shapely.geometry import LineString, mapping, shape
 from shapely.ops import polygonize, unary_union
 
-UA = 'MHEditor/3.6 (Making History editor)'      # genérico: nunca el correo del usuario ni claves
+UA = 'MHEditor/3.6 (Making History editor)'      # generic: never the user's email or keys
 HOSTS = ('polygons.openstreetmap.fr', 'nominatim.openstreetmap.org', 'overpass-api.de')
-MAX_NET = 80 << 20       # respuesta más grande que se acepta (el contorno de un país enorme son decenas de MB)
-MAX_KML = 60 << 20       # KML, o el .kml de dentro de un KMZ ya descomprimido
+MAX_NET = 80 << 20       # largest response accepted (the outline of a huge country is tens of MB)
+MAX_KML = 60 << 20       # KML, or the .kml inside an already decompressed KMZ
 TIMEOUT = 30
 
 
@@ -37,15 +37,15 @@ class Limited(Exception):
 
 
 def _parts(g):
-    """Polígonos sueltos de cualquier geometría (colecciones anidadas incluidas; puntos y líneas fuera)."""
+    """Loose polygons from any geometry (nested collections included; points and lines dropped)."""
     if hasattr(g, 'geoms'):
         return [q for p in g.geoms for q in _parts(p)]
     return [g] if g.geom_type == 'Polygon' and not g.is_empty else []
 
 
 def _norm(g):
-    """Geometría shapely -> MultiPolygon GeoJSON válido, sin altitud y con las partes unidas (None si no queda área)."""
-    # parte a parte: make_valid sobre un MultiPolygon entero deja un hueco donde dos partes se solapan (formas unidas en Google Earth)
+    """Shapely geometry -> valid GeoJSON MultiPolygon, without altitude and with parts merged (None if no area remains)."""
+    # part by part: make_valid on a whole MultiPolygon leaves a hole where two parts overlap (shapes merged in Google Earth)
     polys = [q for p in _parts(force_2d(g)) for q in _parts(make_valid(p))]
     polys = _parts(unary_union(polys)) if polys else []
     return {'type': 'MultiPolygon', 'coordinates': [mapping(p)['coordinates'] for p in polys]} if polys else None
@@ -56,9 +56,9 @@ def _verts(geom):
 
 
 def normalize(geoms, tol=0):
-    """Paso común de todo contorno que se importa (GeoJSON, KML, OSM): un MultiPolygon válido por geometría (Polygon, MultiPolygon
-    o GeometryCollection: lo combinado es una sola forma), sin altitud, partes unidas y, con tol > 0 (grados), menos vértices
-    conservando la topología. Devuelve (geometrías, vértices antes, vértices después); None donde no hay ningún polígono."""
+    """Common step for every imported outline (GeoJSON, KML, OSM): one valid MultiPolygon per geometry (Polygon, MultiPolygon
+    or GeometryCollection: the combination is a single shape), without altitude, parts merged and, with tol > 0 (degrees), fewer vertices
+    preserving topology. Returns (geometries, vertices before, vertices after); None where there is no polygon."""
     out, before = [], 0
     for g in geoms:
         try:
@@ -73,7 +73,7 @@ def normalize(geoms, tol=0):
 
 # ------------------------------------------------------------------ OpenStreetMap
 def osm_ids(text):
-    """'51477', 'r51477', 'relation/51477' o la dirección de openstreetmap.org (varios con comas o espacios) -> [51477, ...]."""
+    """'51477', 'r51477', 'relation/51477' or the openstreetmap.org URL (several with commas or spaces) -> [51477, ...]."""
     ids = []
     for tok in re.split(r'[\s,;]+', str(text or '').strip()):
         if not tok:
@@ -99,7 +99,7 @@ class _OnlyOurHosts(urllib.request.HTTPRedirectHandler):
 
 
 def _get(url, data=None):
-    """Texto de la respuesta, o None si el sitio dice que no lo tiene (400/404). Lanza Limited (429/509) u OSError (sin red)."""
+    """Response text, or None if the site says it does not have it (400/404). Raises Limited (429/509) or OSError (no network)."""
     assert urlparse(url).scheme == 'https' and urlparse(url).hostname in HOSTS, url
     req = urllib.request.Request(url, data, {'User-Agent': UA, 'Accept': 'application/json'})
     try:
@@ -139,11 +139,11 @@ def _nominatim(rid, polygon):
     j = _json(_get('https://nominatim.openstreetmap.org/lookup?osm_ids=R%d&format=geojson&namedetails=1&polygon_geojson=%d' % (rid, polygon)))
     if not isinstance(j, dict):
         raise OSError('respuesta no válida')
-    return (j.get('features') or [{}])[0]             # {} = Nominatim contesta que no la tiene
+    return (j.get('features') or [{}])[0]             # {} = Nominatim answers it does not have it
 
 
 def _from_overpass(rid):
-    """(geometría | None, etiquetas | None): etiquetas None = la relación no existe."""
+    """(geometry | None, tags | None): tags None = the relation does not exist."""
     q = '[out:json][timeout:25];relation(%d);out geom;' % rid
     j = _json(_get('https://%s/api/interpreter' % HOSTS[2], ('data=' + urllib.request.quote(q)).encode()))
     if j is None:
@@ -152,7 +152,7 @@ def _from_overpass(rid):
     if not els:
         return None, None
     tags = els[0].get('tags') or {}
-    if tags.get('type') not in ('multipolygon', 'boundary'):       # una ruta que cierra un bucle no es un área
+    if tags.get('type') not in ('multipolygon', 'boundary'):       # a route closing a loop is not an area
         return None, tags
     lines = {True: [], False: []}
     for m in els[0].get('members') or []:
@@ -167,12 +167,12 @@ def _from_overpass(rid):
 
 
 def fetch_osm(text, lang='es'):
-    """Contornos de las relaciones pedidas: {'features', 'errors' (una frase por relación que falló), 'sources' {id: sitio}}."""
+    """Outlines of the requested relations: {'features', 'errors' (one sentence per failed relation), 'sources' {id: site}}."""
     lang = 'en' if lang == 'en' else 'es'
     feats, errors, sources = [], [], {}
     for k, rid in enumerate(osm_ids(text)):
         if k:
-            time.sleep(1)                 # Nominatim pide no pasar de una consulta por segundo
+            time.sleep(1)                 # Nominatim asks for no more than one query per second
         st = {}                           # 'limited', 'net' (motivo), 'found', 'line', 'missing', 'empty'
 
         def attempt(fn):
@@ -185,7 +185,7 @@ def fetch_osm(text, lang='es'):
             return None
         name, src = '', 'polygons.openstreetmap.fr'
         geom = attempt(lambda: _from_polygons(rid))
-        f = attempt(lambda: _nominatim(rid, 0 if geom else 1))          # con el contorno ya en mano, solo para el nombre
+        f = attempt(lambda: _nominatim(rid, 0 if geom else 1))          # with the outline already at hand, only for the name
         st['empty'] = f == {}
         if f:
             st['found'] = True
@@ -225,11 +225,11 @@ def fetch_osm(text, lang='es'):
 
 # ------------------------------------------------------------------ KML / KMZ
 def _tag(e):
-    return e.tag.rsplit('}', 1)[-1] if isinstance(e.tag, str) else ''      # sin espacio de nombres: vale para KML 2.0-2.2 y gx:
+    return e.tag.rsplit('}', 1)[-1] if isinstance(e.tag, str) else ''      # without namespace: works for KML 2.0-2.2 and gx:
 
 
 def _ring(e):
-    """<LinearRing> (o lo que lleve <coordinates>) -> [[lon, lat], ...] cerrado, sin altitud; None si no llega a triángulo."""
+    """<LinearRing> (or whatever carries <coordinates>) -> [[lon, lat], ...] closed, without altitude; None if it is less than a triangle."""
     c = next((x for x in e.iter() if _tag(x) == 'coordinates'), None)
     pts = [[float(a), float(b)] for a, b in re.findall(r'(-?\d[\d.eE+-]*)\s*,\s*(-?\d[\d.eE+-]*)(?:,-?[\d.eE+-]*)?', (c.text if c is not None else '') or '')]
     if pts and pts[0] != pts[-1]:
@@ -237,9 +237,14 @@ def _ring(e):
     return pts if len(pts) >= 4 else None
 
 
-def _kml_polys(e, polys, skipped):
+def _kml_polys(e, polys, skipped, pts=None):
     for c in e:
         t = _tag(c)
+        if t == 'Point' and pts is not None:       # pin (city, unit…): only if points are requested
+            m = re.search(r'(-?\d[\d.eE+-]*)\s*,\s*(-?\d[\d.eE+-]*)', next((x.text or '' for x in c.iter() if _tag(x) == 'coordinates'), ''))
+            if m:
+                pts.append([float(m.group(1)), float(m.group(2))])
+                continue
         if t == 'Polygon':
             outer = next((_ring(x) for x in c if _tag(x) == 'outerBoundaryIs'), None)
             if outer:
@@ -251,11 +256,12 @@ def _kml_polys(e, polys, skipped):
         elif t in ('Point', 'LineString', 'Track', 'MultiTrack', 'Model'):
             skipped[0] += 1
         elif t == 'MultiGeometry':
-            _kml_polys(c, polys, skipped)
+            _kml_polys(c, polys, skipped, pts)
 
 
-def kml_fc(data):
-    """KML o KMZ (bytes) -> FeatureCollection con un MultiPolygon por Placemark; 'skipped' = puntos y líneas que no se importan."""
+def kml_fc(data, points=False):
+    """KML or KMZ (bytes) -> FeatureCollection with one MultiPolygon per Placemark; 'skipped' = points and lines not imported.
+    points=True: pins too, as Point with the Placemark name (cities, units… in the importers that use them)."""
     if data[:2] == b'PK':
         try:
             with zipfile.ZipFile(io.BytesIO(data)) as z:
@@ -263,14 +269,14 @@ def kml_fc(data):
                 pick = next((i for i in kmls if i.filename.lower() == 'doc.kml'), kmls[0] if kmls else None)
                 if pick is None:
                     raise ValueError('el KMZ no lleva ningún archivo .kml dentro')
-                with z.open(pick) as f:        # solo ese archivo, en memoria y con tope: el tamaño que declara el zip puede mentir
+                with z.open(pick) as f:        # only that file, in memory and capped: the size the zip declares may lie
                     data = f.read(MAX_KML + 1)
-        except (zipfile.BadZipFile, RuntimeError, NotImplementedError, OSError, EOFError, zlib.error) as e:     # también datos rotos o cortados
+        except (zipfile.BadZipFile, RuntimeError, NotImplementedError, OSError, EOFError, zlib.error) as e:     # also broken or truncated data
             raise ValueError('KMZ no válido: %s' % e)
     if len(data) > MAX_KML:
         raise ValueError('el KML es demasiado grande (más de %d MB)' % (MAX_KML >> 20))
     root_at = re.search(rb'<[A-Za-z_]', data)
-    # un KML no lleva DTD (fuera las bombas de entidades); solo antes de la raíz: una descripción HTML puede llevar <!DOCTYPE html>
+    # a KML carries no DTD (no entity bombs); only before the root: an HTML description may carry <!DOCTYPE html>
     if b'<!DOCTYPE' in data[:root_at.start() if root_at else len(data)]:
         raise ValueError('KML no válido: lleva una declaración DOCTYPE')
     try:
@@ -281,15 +287,17 @@ def kml_fc(data):
     for pm in root.iter():
         if _tag(pm) != 'Placemark':
             continue
-        polys = []
-        _kml_polys(pm, polys, skipped)
+        polys, pts = [], ([] if points else None)
+        _kml_polys(pm, polys, skipped, pts)
         try:
             geom = _norm(shape({'type': 'MultiPolygon', 'coordinates': polys})) if polys else None
         except Exception:
             geom = None
+        name = (next((x.text for x in pm if _tag(x) == 'name' and x.text), '') or '').strip()
         if geom:
-            name = (next((x.text for x in pm if _tag(x) == 'name' and x.text), '') or '').strip()
             feats.append({'type': 'Feature', 'properties': {'name': name} if name else {}, 'geometry': geom})
+        for p in pts or []:
+            feats.append({'type': 'Feature', 'properties': {'name': name} if name else {}, 'geometry': {'type': 'Point', 'coordinates': p}})
     return {'type': 'FeatureCollection', 'features': feats, 'skipped': skipped[0]}
 
 
@@ -298,7 +306,7 @@ def api(path, p):
         return fetch_osm(p.get('ids'), p.get('lang'))
     if path == '/api/geojson/kml':
         try:
-            return kml_fc(base64.b64decode(str(p.get('data') or '').split(',')[-1]))
+            return kml_fc(base64.b64decode(str(p.get('data') or '').split(',')[-1]), bool(p.get('points')))
         except (TypeError, binascii.Error):
             raise ValueError('KML no válido')
     gs, a, b = normalize(p.get('geoms') or [], float(p.get('tol') or 0))
@@ -337,9 +345,12 @@ def _selfcheck():
     assert list(by) == ['Isle', 'Dos', 'Ring', 'Lazo'], list(by)
     assert fc['skipped'] == 4, fc['skipped']
     assert abs(by['Isle'].area - 15) < 1e-9                       # 16 menos el hueco
-    assert abs(by['Dos'].area - 7) < 1e-9 and len(by['Dos'].geoms) == 1     # dos partes solapadas, unidas (y la primera se cerró sola)
+    assert abs(by['Dos'].area - 7) < 1e-9 and len(by['Dos'].geoms) == 1     # two overlapping parts, merged (and the first one closed itself)
     assert by['Lazo'].is_valid and len(by['Lazo'].geoms) == 2     # lazo en ocho, reparado
-    assert all(len(pt) == 2 for f in fc['features'] for p in f['geometry']['coordinates'] for r in p for pt in r)   # sin altitud
+    assert all(len(pt) == 2 for f in fc['features'] for p in f['geometry']['coordinates'] for r in p for pt in r)   # no altitude
+    withpts = kml_fc(kml, points=True)                              # pins as Point: «Pin» and the one in «Dos»
+    assert sorted(f['properties']['name'] for f in withpts['features'] if f['geometry']['type'] == 'Point') == ['Dos', 'Pin']
+    assert withpts['skipped'] == 2 and next(f for f in withpts['features'] if f['properties']['name'] == 'Pin')['geometry']['coordinates'] == [5.0, 5.0]
     old = kml.replace(b'http://www.opengis.net/kml/2.2', b'http://earth.google.com/kml/2.0')
     assert len(kml_fc(old)['features']) == 4 and len(kml_fc(kml.replace(b' xmlns="http://www.opengis.net/kml/2.2"', b''))['features']) == 4
     buf = io.BytesIO()
@@ -363,7 +374,7 @@ def _selfcheck():
     finally:
         MAX_KML = keep
     html = kml.replace(b'<name> Isle </name>', b'<name> Isle </name><description><![CDATA[<!DOCTYPE html><p>x</p>]]></description>')
-    assert len(kml_fc(html)['features']) == 4                       # HTML en una descripción no es una DTD
+    assert len(kml_fc(html)['features']) == 4                       # HTML in a description is not a DTD
     cut = io.BytesIO()
     with zipfile.ZipFile(cut, 'w', zipfile.ZIP_DEFLATED) as z:
         z.writestr('doc.kml', kml * 50)
@@ -378,8 +389,8 @@ def _selfcheck():
     sq = {'type': 'MultiPolygon', 'coordinates': [[[[0, 0], [1, 0.001], [2, 0], [2, 2], [0, 2], [0, 0]]]]}
     assert normalize([sq], 0.01)[1:] == (6, 5) and normalize([sq])[1:] == (6, 6)
     two = {'type': 'MultiPolygon', 'coordinates': [[[[10, 0], [12, 0], [12, 2], [10, 2], [10, 0]]], [[[11, 1], [13, 1], [13, 3], [11, 3], [11, 1]]]]}
-    assert abs(shape(normalize([two])[0][0]).area - 7) < 1e-9      # GeoJSON con partes solapadas: sin hueco en el solape
-    # Google Earth -> GeoJSON: un feature con GeometryCollection (anidada, con altitud, puntos y líneas mezclados) = una sola forma
+    assert abs(shape(normalize([two])[0][0]).area - 7) < 1e-9      # GeoJSON with overlapping parts: no hole in the overlap
+    # Google Earth -> GeoJSON: a feature with GeometryCollection (nested, with altitude, points and lines mixed) = a single shape
     pol = lambda x: {'type': 'Polygon', 'coordinates': [[[x, 0, 0], [x + 2, 0, 0], [x + 2, 2, 0], [x, 2, 0], [x, 0, 0]]]}
     gc = {'type': 'GeometryCollection', 'geometries': [pol(0), pol(1), {'type': 'Point', 'coordinates': [9, 9, 0]}, {'type': 'LineString', 'coordinates': [[0, 0, 0], [1, 1, 0]]},
                                                        {'type': 'GeometryCollection', 'geometries': [pol(10)]}]}

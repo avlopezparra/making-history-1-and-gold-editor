@@ -1,10 +1,10 @@
-"""Lector mínimo de ejecutables PE (Windows) sin dependencias: exportaciones, importaciones y cadenas.
+"""Minimal PE (Windows) executable reader with no dependencies: exports, imports and strings.
 
-Sirve para entender los binarios del juego (makehist.exe, game.dll, ed.exe…): las DLL de C++ exportan sus funciones
-con el nombre decorado de MSVC (?Metodo@Clase@@…), que revela clases y métodos, y las cadenas muestran mensajes,
-nombres de propiedades XML y rutas. No ejecuta nada.
+Useful to understand the game binaries (makehist.exe, game.dll, ed.exe…): C++ DLLs export their functions
+with the MSVC decorated name (?Metodo@Clase@@…), which reveals classes and methods, and the strings show messages,
+XML property names and paths. Executes nothing.
 
-Uso: python pe_info.py <archivo> [exports|imports|strings] [filtro]
+Usage: python pe_info.py <archivo> [exports|imports|strings] [filtro]
 """
 import re
 import struct
@@ -92,7 +92,7 @@ class PE:
 
 
 def string_table(pe):
-    """{id: texto} de los recursos RT_STRING (tipo 6): bloques de 16 cadenas UTF-16 con su longitud delante."""
+    """{id: text} of the RT_STRING resources (type 6): blocks of 16 UTF-16 strings with their length in front."""
     rva, _ = pe.dirs[2]
     if not rva:
         return {}
@@ -123,7 +123,7 @@ def string_table(pe):
 
 
 def demangle(name):
-    """Demangle sencillo de MSVC para leer clase::metodo (no reconstruye tipos)."""
+    """Simple MSVC demangle to read class::method (does not rebuild types)."""
     if not name.startswith('?'):
         return name
     m = re.match(r'\?(\?[0-9A-Z_]|[^@]+)@((?:[^@]+@)*)@', name)

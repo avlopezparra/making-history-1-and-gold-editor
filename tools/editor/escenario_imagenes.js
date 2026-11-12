@@ -1,24 +1,24 @@
-// Imágenes en el editor de escenarios (se carga al final de escenario.html; envuelve renderList y renderObj):
-// - Naciones: bandera junto a cada país (también en la capa «Propiedad» del mapa) y marcas «sin bandera» / «sin color»;
-//   en el país, bandera y escarapela (exportar / importar, también desde una URL) y la portada y el retrato del líder.
-// - Global Data › Scenario: Title.tga (desde imagen o desde el nombre), Button.tga y ButtonOver.tga (brillo +8 automático).
-// - Ideologías, terrenos, productores (recurso), unidades, productos e investigación: sus iconos en todas las medidas;
-//   si el escenario no tiene versión propia se muestra la del juego y al importar se crea la propia.
-// - Botón «Iconos e interfaz»: catálogo de todos los tipos de icono y explorador de las imágenes de la UI del juego.
-// Rutas /api/img/* de editor_server.py (image_tools.py, image_assets.py). Escribe solo tras confirmar.
+// Images in the scenario editor (loaded at the end of escenario.html; wraps renderList and renderObj):
+// - - Nations: flag next to each country (also in the map's «Propiedad» layer) and «sin bandera» / «sin color» marks;
+//     in the country, flag and cockade (export / import, also from a URL) and the leader's cover and portrait.
+// - - Global Data › Scenario: Title.tga (from an image or from the name), Button.tga and ButtonOver.tga (automatic +8 brightness).
+// - - Ideologies, terrains, producers (resource), units, products and research: their icons in all sizes;
+//     if the scenario has no own version the game's is shown, and importing creates the own one.
+// - - «Iconos e interfaz» button: catalog of all icon types and browser of the game's UI images.
+// /api/img/* routes of editor_server.py (image_tools.py, image_assets.py). Writes only after confirming.
 (() => {
   'use strict';
   const IMG = { scen: null, icons: null, nations: null, bust: Date.now() };
   const ICON_TABS = { units: 'unit', outputs: 'output', research: 'research' };
-  const FLIPPED = new Set(['3DFlag.tga', 'decal.tga']);       // el juego los guarda invertidos verticalmente
+  const FLIPPED = new Set(['3DFlag.tga', 'decal.tga']);       // the game stores them vertically flipped
   const enc = encodeURIComponent;
   const kebab = s => String(s).replace(/([a-z0-9])([A-Z])/g, '$1-$2').replace(/([A-Z])([A-Z][a-z])/g, '$1-$2').replace(/[^A-Za-z0-9-]+/g, '-').replace(/^-|-$/g, '').toLowerCase();
   const readFile = f => new Promise((ok, ko) => { const r = new FileReader(); r.onload = () => ok(r.result); r.onerror = ko; r.readAsDataURL(f); });
   const post = (u, b) => fetch(u, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(b) }).then(r => r.json());
   const getJ = u => fetch(u).then(r => r.json());
   const fname = rel => String(rel || '').split(/[\\/]/).pop();
-  const t = x => (window.mhTr ? window.mhTr(x) : x);      // textos con datos: se traducen por trozos
-  const L = (es, en) => (window.mhTr && window.mhTr('Cerrar') === 'Close' ? en : es);     // ventanas emergentes con datos
+  const t = x => (window.mhTr ? window.mhTr(x) : x);      // texts with data: translated piece by piece
+  const L = (es, en) => (window.mhTr && window.mhTr('Cerrar') === 'Close' ? en : es);     // popups with data
 
   const st = document.createElement('style');
   st.textContent = `img.mhico { width:20px; height:14px; object-fit:contain; vertical-align:-2px; margin-right:6px; image-rendering:auto; }
@@ -91,7 +91,7 @@
   const _renderList = renderList;
   renderList = function () { const r = _renderList.apply(this, arguments); decorate(); return r; };
 
-  // ---------------------------------------------------------------- diálogo de importación (archivo o URL)
+  // ---------------------------------------------------------------- import dialog (file or URL)
   function dialog() {
     let dl = document.getElementById('mhImgDlg');
     if (dl) return dl;
@@ -148,7 +148,7 @@
   const confirmText = (n, where) => L(`¿Escribir ${n} archivo(s) en ${where} de «${S.scen}»?\n\nLos archivos del juego (carpeta de contenido) no se tocan: se crea o reemplaza la versión propia del escenario.`,
     `Write ${n} file(s) to ${where === 'la carpeta' ? 'the folder' : where} of «${S.scen}»?\n\nThe game files (content folder) are not touched: the scenario's own version is created or replaced.`);
 
-  // ---------------------------------------------------------------- país: bandera y escarapela
+  // ---------------------------------------------------------------- country: flag and cockade
   const FIT_OPTS = `<label>Proporción</label><select id="mhFit">
       <option value="centro">recortar al centro (hasta 2:1)</option>
       <option value="bordes">estirar las columnas de los extremos hasta rellenar</option>
@@ -188,7 +188,7 @@
     });
   }
 
-  // ---------------------------------------------------------------- cualquier imagen con sus variantes
+  // ---------------------------------------------------------------- any image with its variants
   // kind: nation | scenario | ideology | resource | terrain | production | uniticon | ui
   async function assetSection(host, kind, name, opts = {}) {
     const inf = await getJ(`/api/img/asset?scen=${enc(S.scen)}&kind=${kind}&name=${enc(name)}`).catch(e => ({ error: String(e) }));
@@ -214,7 +214,7 @@
     sec.innerHTML = h; host.appendChild(sec);
     sec.querySelectorAll('[data-g]').forEach(b => b.onclick = () => importAsset(inf, kind, name, b.dataset.g, opts));
     sec.querySelectorAll('[data-lobby]').forEach(b => b.onclick = () => lobbyDialog(name, opts));
-    sec.querySelectorAll('[data-tpl]').forEach(b => b.onclick = async () => {    // copia la plantilla del editor al escenario
+    sec.querySelectorAll('[data-tpl]').forEach(b => b.onclick = async () => {    // copies the editor's template into the scenario
       const g = inf.groups.find(x => x.key === b.dataset.tpl), file = g.variants[0].file;
       if (!confirm(L(`¿Copiar la plantilla del editor como ${file} de «${S.scen}»?`, `Copy the editor template as ${file} of «${S.scen}»?`))) return;
       const blob = await (await fetch(exportUrl(kind, name, g.key))).blob();
@@ -224,7 +224,7 @@
       opts.done ? opts.done() : refreshAll();
     });
   }
-  // Retrato del lobby por capas (como leader-lobby.psd): bandera de fondo, monumento abajo a la izquierda, líder a la derecha delante
+  // Layered lobby portrait (like leader-lobby.psd): flag as background, monument bottom left, leader on the right in front
   function lobbyDialog(country, opts) {
     let dl = document.getElementById('mhLobby');
     if (!dl) {
@@ -295,7 +295,7 @@
     });
   }
 
-  // ---------------------------------------------------------------- unidad / producto / investigación: icono de tabla
+  // ---------------------------------------------------------------- unit / product / research: table icon
   const kindOf = t => t === 'UnitTemplate' ? 'unit' : /^FactoryOutput/.test(t) ? 'output' : /^ResearchProj(?!ect)/.test(t) ? 'research' : null;
   async function iconSection(d, kind, host) {
     await icons();
@@ -360,7 +360,7 @@
     return r;
   };
 
-  // ---------------------------------------------------------------- catálogo de iconos e interfaz
+  // ---------------------------------------------------------------- icon and interface catalog
   function catDialog() {
     let dl = document.getElementById('mhCatDlg');
     if (dl) return dl;
@@ -408,7 +408,7 @@
     const ref = document.getElementById('openfile'); ref && ref.parentNode === bar ? ref.after(b) : bar.appendChild(b);
   }
   addToolbarButton();
-  // Validador: «Unidad / Investigación X sin imagen válida …; por defecto: Y» -> botón «Usar la imagen por defecto»
+  // Validator: «Unidad / Investigación X sin imagen válida …; por defecto: Y» -> «Usar la imagen por defecto» button
   function iconFixes() {
     const box = document.getElementById('vallist'); if (!box || box.querySelector('[data-mhicon]')) return;
     const re = /(Unidad|Investigación|Unit|Research(?: project)?)\s+(\S+)\s+(?:sin imagen válida|without a valid image).*(?:por defecto|default):/;

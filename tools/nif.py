@@ -1,7 +1,7 @@
-"""Lector/escritor NIF (Gamebryo/NetImmerse) guiado por data/nif.xml (NifTools, licencia BSD).
+"""NIF (Gamebryo/NetImmerse) reader/writer driven by data/nif.xml (NifTools, BSD license).
 
-Making History usa NIF 10.1.0.0 / 10.2.0.0. Lee cada bloque a un dict {campo: valor} siguiendo nif.xml y lo vuelve a
-escribir igual (ida y vuelta byte a byte), así que se puede cambiar un campo y guardar.
+Making History uses NIF 10.1.0.0 / 10.2.0.0. Reads each block into a dict {field: value} following nif.xml and writes it
+back identically (byte-for-byte round trip), so a field can be changed and saved.
     n = Nif.load(ruta); n.blocks[i]['_type']; n.save(ruta2)
 """
 import os
@@ -43,9 +43,9 @@ class Spec:
         self._expr = {}
 
     def fields(self, name):
-        """Campos de un niobject con los de sus padres primero."""
+        """Fields of a niobject with its parents' first."""
         if name not in self._fields:
-            if name == 'NiObject' and name not in self.niobject:   # raíz implícita en nif.xml
+            if name == 'NiObject' and name not in self.niobject:   # implicit root in nif.xml
                 return []
             e = self.niobject[name] if name in self.niobject else self.compound[name]
             par = e.get('inherit')
@@ -64,7 +64,7 @@ class Spec:
                       r'([A-Za-z_#][\w #\\]*[\w#]|[A-Za-z_]))')
 
     def compile(self, s):
-        """Expresión de nif.xml -> código Python que usa L('nombre')."""
+        """nif.xml expression -> Python code using L('nombre')."""
         if s in self._expr:
             return self._expr[s]
         out, pos = [], 0
@@ -146,7 +146,7 @@ _STOR = {'uint': 'I', 'ushort': 'H', 'byte': 'B', 'int': 'i', 'short': 'h'}
 
 
 class Walker:
-    """Lee (io.out is None) o escribe un valor según nif.xml."""
+    """Reads (io.out is None) or writes a value per nif.xml."""
 
     def __init__(self, io):
         self.io = io
@@ -215,7 +215,7 @@ class Walker:
         reading = self.io.out is None
         cur = {} if reading else v
         scope = scope + [cur]
-        if not reading:      # contadores = longitud real de las listas
+        if not reading:      # counters = actual list length
             for a in self.sp.fields(t):
                 a1, a2, val = a.get('arr1'), a.get('arr2'), cur.get(a.get('name'))
                 if a1 in cur and isinstance(val, (list, bytes)) and isinstance(cur[a1], int) and self.present(a, scope, arg)                         and (val or not a.get('cond')):
@@ -268,7 +268,7 @@ class Walker:
 
 
 class RefVisitor(Walker):
-    """Recorre un bloque ya leído y llama cb(contenedor, clave) por cada Ref/Ptr."""
+    """Walks an already read block and calls cb(container, key) for each Ref/Ptr."""
 
     def __init__(self, io, cb):
         super().__init__(io)
@@ -338,7 +338,7 @@ class Nif:
         for i in range(n.header['Num Blocks']):
             t = names[n.header['Block Type Index'][i] & 0x7FFF]
             io.block_type = t
-            if 0x0A000100 <= io.ver <= 0x0A01006A:   # 10.0.1.0-10.1.0.106: uint 0 antes de cada bloque
+            if 0x0A000100 <= io.ver <= 0x0A01006A:   # 10.0.1.0-10.1.0.106: uint 0 before each block
                 n.pad = io.fmt('I')
             b = w.struct(t, None, [])
             b['_type'] = t
@@ -375,7 +375,7 @@ class Nif:
             f.write(data)
 
     def visit_refs(self, cb):
-        """cb(indice_bloque, contenedor, clave) por cada referencia."""
+        """cb(block_index, container, key) for each reference."""
         io = _IO(b'')
         io.ver, io.user, io.user2 = self.ver, self.header.get('User Version', 0), self.header.get('User Version 2', 0)
         for i, b in enumerate(self.blocks):
@@ -385,7 +385,7 @@ class Nif:
             cb(-1, self.footer['Roots'], k)
 
     def compact(self):
-        """Quita los bloques a los que no llega nada desde las raíces y renumera las referencias."""
+        """Removes blocks unreachable from the roots and renumbers the references."""
         refs = {}
         self.visit_refs(lambda i, c, k: refs.setdefault(i, []).append(c[k]))
         seen, todo = set(), [r for r in self.footer['Roots'] if r >= 0]

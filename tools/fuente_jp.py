@@ -1,12 +1,12 @@
-"""Crea fuentes .ttf con glifos japoneses para Making History 1 / Gold (locale jp).
+"""Creates .ttf fonts with Japanese glyphs for Making History 1 / Gold (locale jp).
 
-El motor de texto del juego (bin/fonts.dll, FreeType antiguo) solo escanea `*.ttf` de sus carpetas de fuentes
-y la UI pide familias concretas (Arial, Century Gothic...), sin kana/kanji; las fuentes japonesas de Windows
-son `.ttc`. Este script toma cada fuente original de Windows (asi el texto occidental no cambia) y le anade
-los glifos japoneses de MS PGothic que usa `locale/jp`. Resultado en making-history/fuentes_jp/; luego hay
-que apuntar `strFontDirs` (Options/options.xml) a esa carpeta.
+The game's text engine (bin/fonts.dll, old FreeType) only scans `*.ttf` in its font folders
+and the UI asks for specific families (Arial, Century Gothic...), without kana/kanji; Windows Japanese fonts
+are `.ttc`. This script takes each original Windows font (so Western text does not change) and adds
+the MS PGothic Japanese glyphs used by `locale/jp`. Output in making-history/fuentes_jp/; then
+`strFontDirs` (Options/options.xml) must point to that folder.
 
-Uso: python fuente_jp.py
+Usage: python fuente_jp.py
 """
 import os
 from fontTools.merge import Merger
@@ -29,7 +29,7 @@ DROP = ('GSUB', 'GPOS', 'GDEF', 'BASE', 'JSTF', 'kern', 'EBDT', 'EBLC', 'EBSC', 
 
 
 def jp_chars():
-    """Caracteres no latinos de los textos japoneses (MH1 y Gold usan el mismo locale/jp)."""
+    """Non-Latin characters of the Japanese texts (MH1 and Gold use the same locale/jp)."""
     import gamepaths
     chars = set()
     for g in ('mh1', 'gold'):
@@ -50,7 +50,7 @@ def strip(path):
 
 
 def jp_font(upem, chars, path):
-    """MS PGothic reducida a `chars`, a la escala de la fuente base y sin tablas que rompan el merge."""
+    """MS PGothic subset to `chars`, at the base font's scale and without tables that break the merge."""
     from fontTools import subset as fts
     f = TTCollection(SRC).fonts[1]  # MS PGothic (proporcional)
     opts = fts.Options()
@@ -84,10 +84,10 @@ def build():
             b.save(base)
             jp_font(b['head'].unitsPerEm, chars, jp)
             font = Merger().merge([base, jp])  # la primera fuente manda: nombres y glifos latinos originales
-            # solo nombres Windows/Unicode BMP/ingles: el FreeType antiguo no lee los de UCS-4 (platEncID 10)
+            # only Windows/Unicode BMP/English names: old FreeType does not read UCS-4 ones (platEncID 10)
             name = font['name']
             name.names = [r for r in name.names if r.platformID == 3 and r.platEncID == 1 and r.langID == 0x409]
-            # U+200A de ancho 0: jp_wrap.py lo mete entre caracteres japoneses para que el juego (iswspace) parta lineas
+            # zero-width U+200A: jp_wrap.py inserts it between Japanese characters so the game (iswspace) breaks lines
             sp = font.getBestCmap()[0x20]
             font['hmtx'].metrics['hairsp0'] = (0, 0)
             font['glyf'].glyphs['hairsp0'] = font['glyf'][sp].__class__()

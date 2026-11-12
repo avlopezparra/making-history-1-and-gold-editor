@@ -1,5 +1,5 @@
-"""Vista previa antes/despues de una zona (lon/lat) a partir de los tiles DXT5.
-Uso: python preview_tiles.py <dir tiles nuevos> <dir art juego> <dir originales> salida.png lon0 lat0 lon1 lat1 [escala]"""
+"""Before/after preview of an area (lon/lat) from the DXT5 tiles.
+Usage: python preview_tiles.py <dir tiles nuevos> <dir art juego> <dir originales> salida.png lon0 lat0 lon1 lat1 [escala]"""
 import os, sys
 from PIL import Image, ImageDraw
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))

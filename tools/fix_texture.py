@@ -1,15 +1,15 @@
-"""Repinta la frontera dibujada en las texturas del terreno despues de mover un borde.
+"""Repaints the border drawn on the terrain textures after moving a border.
 
-El juego tiene las fronteras pintadas en OperationalTerrain-CC-RR.tga (DXT5 en bruto, sin cabecera;
-1024x1024 y mipmaps -01..-04 de 512 a 64). Cada tile cubre 15x15 grados: columna CC desde -180 de
-longitud, fila RR desde +105 de latitud hacia el sur.
+The game has the borders painted in OperationalTerrain-CC-RR.tga (raw DXT5, no header;
+1024x1024 and mipmaps -01..-04 from 512 to 64). Each tile covers 15x15 degrees: column CC from -180
+longitude, row RR from +105 latitude southward.
 
-Este script:
-  1. borra la linea antigua en el tramo que paso de una region a otra (relleno desde los bordes),
-  2. pinta la linea nueva (la linea KML dentro de la region origen) con el color de la original,
-  3. recomprime SOLO los bloques 4x4 que cambian, en el tile y en sus 4 mipmaps.
+This script:
+  1. erases the old line in the stretch that moved from one region to another (fill from the edges),
+  2. paints the new line (the KML line inside the source region) with the original's color,
+  3. recompresses ONLY the 4x4 blocks that change, in the tile and its 4 mipmaps.
 
-Uso:
+Usage:
   python fix_texture.py <xml mapa ORIGINAL> <carpeta art del juego> <archivo.kml> "<linea>" \
          <region origen> <region destino> <west|east> <carpeta salida>
 """
@@ -28,10 +28,10 @@ from move_border import kml_line, side_polygon, signed_area  # noqa: E402
 TILE_DEG = 15.0
 SIZE = 1024
 MIPS = 4
-ERASE_WIDTH = 13     # px a 1024: la linea original oscurece hasta +-4 px de su centro
+ERASE_WIDTH = 13     # px at 1024: the original line darkens up to +-4 px from its center
 LINE_WIDTH = 3.0     # px a 1024, antes de difuminar
 LINE_BLUR = 1.0      # perfil medido en el original: centro ~23, +-1 ~33, +-2 ~57, +-3 ~77, fondo ~95
-LINE_COLOR = (26, 18, 10)  # nucleo medido de las lineas originales
+LINE_COLOR = (26, 18, 10)  # measured core of the original lines
 
 
 def tile_name(c, r, mip=0):
@@ -39,10 +39,10 @@ def tile_name(c, r, mip=0):
 
 
 def write_mips(c, r, img, read, out_dir):
-    """Rehace los mipmaps -01..-04 del tile a partir de su nivel 0 ya terminado (reducción BOX, como los del juego). De lejos el
-    juego usa estos niveles: si se retocaran aparte (sumando la diferencia), quedaban restos de líneas borradas al alejar el zoom.
-    read(nombre) -> bytes actuales del mipmap. Se recomprime el nivel entero (el compresor da siempre lo mismo: repetirlo no cambia
-    nada) y solo se escribe si cambia. Devuelve los bloques 4x4 distintos por nivel."""
+    """Rebuilds the tile's -01..-04 mipmaps from its finished level 0 (BOX reduction, like the game's). From afar the
+    game uses these levels: if they were touched up separately (adding the difference), leftovers of erased lines remained when zooming out.
+    read(name) -> current bytes of the mipmap. The whole level is recompressed (the compressor always gives the same: repeating it changes
+    nothing) and it is only written if it changes. Returns the differing 4x4 blocks per level."""
     counts = []
     for k in range(1, MIPS + 1):
         s = SIZE >> k
@@ -67,7 +67,7 @@ def encode_blocks(img):
 
 
 def splice(orig_bytes, new_img, old_img, size):
-    """Recomprime los bloques 4x4 cuyo contenido cambio y los inserta en los bytes originales."""
+    """Recompresses the 4x4 blocks whose content changed and inserts them into the original bytes."""
     nb = size // 4
     out = bytearray(orig_bytes)
     changed = []
@@ -90,7 +90,7 @@ def splice(orig_bytes, new_img, old_img, size):
 
 
 def inpaint(img, mask):
-    """Relleno por capas desde el borde del hueco (media de vecinos conocidos)."""
+    """Layered fill from the edge of the hole (mean of known neighbors)."""
     px = img.load()
     mk = mask.load()
     w, h = img.size
@@ -172,7 +172,7 @@ def main(src_xml, art, kml_path, line_name, from_name, to_name, side, out):
     patch = Image.composite(patch.filter(ImageFilter.GaussianBlur(1.2)), patch, pmask.convert('L').filter(ImageFilter.GaussianBlur(1)))
     img.paste(patch, box[:2])
 
-    # 2. pintar la linea nueva (supermuestreo x4 para suavizar)
+    # 2. paint the new line (x4 supersampling for smoothing)
     S = 4
     lm = Image.new('L', (SIZE * S, SIZE * S), 0)
     dl = ImageDraw.Draw(lm)
@@ -186,7 +186,7 @@ def main(src_xml, art, kml_path, line_name, from_name, to_name, side, out):
     open(os.path.join(out, tile_name(c, r)), 'wb').write(new_bytes)
     print('tile %s: color de linea %s, bloques recomprimidos %d de %d' % (tile_name(c, r), color, n0, (SIZE // 4) ** 2))
 
-    # 3. mipmaps: original + (reducir(nuevo) - reducir(original)), solo donde cambia
+    # 3. mipmaps: original + (reduce(new) - reduce(original)), only where it changes
     for k in range(1, MIPS + 1):
         s = SIZE >> k
         mb = open(os.path.join(art, tile_name(c, r, k)), 'rb').read()

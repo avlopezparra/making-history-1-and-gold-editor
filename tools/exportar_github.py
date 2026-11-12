@@ -1,11 +1,11 @@
-"""Prepara una carpeta limpia para subir el editor a GitHub: solo el código y la documentación propia.
+"""Prepares a clean folder to upload the editor to GitHub: only the code and our own documentation.
 
-Uso:  python tools/exportar_github.py [carpeta_de_salida]      (por defecto ..\\making-history-github)
+Usage:  python tools/exportar_github.py [carpeta_de_salida]      (default ..\\making-history-github)
 
-NO incluye nada del juego ni del trabajo del usuario: ni mapas (regions.bin…), ni copias de escenarios, ni proyectos
-(editor_proyecto*), ni respaldos, ni capturas, ni los textos de las guías oficiales (docs_texto), ni el .exe compilado
-(el .exe va en «Releases», no en el repositorio). Genera además README.md, requirements.txt, .gitignore, un flujo de
-GitHub Actions que compila MHEditor.exe y lo adjunta a cada release, y un script local para compilarlo.
+Does NOT include anything from the game or the user's work: no maps (regions.bin…), scenario copies, projects
+(editor_proyecto*), backups, screenshots, the texts of the official guides (docs_texto), or the compiled .exe
+(the .exe goes in «Releases», not in the repository). Also generates README.md, requirements.txt, .gitignore, a
+GitHub Actions workflow that builds MHEditor.exe and attaches it to each release, and a local script to build it.
 """
 import os
 import shutil
@@ -15,9 +15,9 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 OUT = os.path.abspath(sys.argv[1]) if len(sys.argv) > 1 else os.path.join(os.path.dirname(ROOT), 'making-history-github')
 
-DOCS = ['AGENTS.md', 'EDITOR.md', 'MAPA_FORMATO.md', 'REVERSING_NOTAS.md', 'ESCENARIOS_NOTAS.md', 'GOLD_NOTAS.md', 'CHANGELOG_3.0.md', 'CHANGELOG_3.1.md', 'CHANGELOG_3.3.md', 'CHANGELOG_3.4.md', 'CHANGELOG_3.5.md', 'CHANGELOG_3.6.md', 'tools/MH2_NST_FORMATO.md']
+DOCS = ['AGENTS.md', 'EDITOR.md', 'MAPA_FORMATO.md', 'REVERSING_NOTAS.md', 'ESCENARIOS_NOTAS.md', 'GOLD_NOTAS.md', 'CHANGELOG_3.0.md', 'CHANGELOG_3.1.md', 'CHANGELOG_3.3.md', 'CHANGELOG_3.4.md', 'CHANGELOG_3.5.md', 'CHANGELOG_3.6.md', 'CHANGELOG_3.7.md', 'tools/MH2_NST_FORMATO.md']
 LAUNCHERS = ['Region Editor.bat', 'Scenario Editor.bat', 'Editor (window).bat', 'Scenario Editor (window).bat', 'Game Log.bat']
-SKIP_PY = {'probe2.py', 'probe_regions.py', 'ai_chat.py', 'release_jp.py'}  # pruebas y herramientas locales de publicación
+SKIP_PY = {'probe2.py', 'probe_regions.py', 'release_jp.py'}  # local tests and publishing tools
 
 REQ = """# Making History 1 & Gold Editor
 pywebview>=6.0
@@ -92,7 +92,7 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/')
         with:
           files: MHEditor.*.zip
-          body_path: CHANGELOG_3.6.md
+          body_path: CHANGELOG_3.7.md
 """
 
 
@@ -107,7 +107,7 @@ def main():
     if os.path.exists(OUT):
         if os.listdir(OUT) and not os.path.exists(os.path.join(OUT, '.git')) and not os.path.exists(os.path.join(OUT, 'compilar_exe.bat')):
             raise SystemExit('la carpeta de salida ya existe y no está vacía: %s' % OUT)
-        for n in os.listdir(OUT):                       # conserva .git y la licencia del repositorio
+        for n in os.listdir(OUT):                       # keeps .git and the repository license
             if n not in ('.git', 'LICENSE'):
                 shutil.rmtree(os.path.join(OUT, n)) if os.path.isdir(os.path.join(OUT, n)) else os.remove(os.path.join(OUT, n))
     n = 0
@@ -115,7 +115,7 @@ def main():
         if f.endswith('.py') and f not in SKIP_PY:
             os.makedirs(os.path.join(OUT, 'tools'), exist_ok=True)
             shutil.copy2(os.path.join(HERE, f), os.path.join(OUT, 'tools', f)); n += 1
-    shutil.copytree(os.path.join(HERE, 'editor'), os.path.join(OUT, 'tools', 'editor'), ignore=shutil.ignore_patterns('__pycache__', 'ai_chat.js'))
+    shutil.copytree(os.path.join(HERE, 'editor'), os.path.join(OUT, 'tools', 'editor'), ignore=shutil.ignore_patterns('__pycache__'))
     shutil.copytree(os.path.join(HERE, 'data'), os.path.join(OUT, 'tools', 'data'))
     shutil.copytree(os.path.join(ROOT, 'skill'), os.path.join(OUT, 'skill'))   # skill de Claude Code
     for f in DOCS + LAUNCHERS:

@@ -1,9 +1,9 @@
-"""Editor de escenarios (equivalente a ed.exe) y almacen generico de documentos XML del juego.
+"""Scenario editor (equivalent to ed.exe) and generic store of game XML documents.
 
-Store     documentos XML abiertos (cualquier archivo del juego), con un id por cada <object>,
-          edicion de propiedades, duplicar/quitar objetos, guardar con copia de seguridad.
-Scenario  un escenario: sus XML, las pestanas de ed.exe, opciones de los campos, validacion y las
-          reglas del formato (p. ej. una region vive siempre en el archivo de su propietario).
+Store     open XML documents (any game file), with an id per <object>,
+          property editing, duplicate/remove objects, save with backup.
+Scenario  a scenario: its XMLs, the ed.exe tabs, field options, validation and the
+          format rules (e.g. a region always lives in its owner's file).
 """
 import copy
 import os
@@ -17,8 +17,8 @@ from collections import Counter, defaultdict
 GAME = r"C:\Program Files (x86)\Steam\steamapps\common\Making History The Calm and The Storm"
 SCEN_ROOT = os.path.join(GAME, 'Modern Europe', 'system', 'scenarios')
 HERE = os.path.dirname(os.path.abspath(__file__))
-# copias de seguridad de archivos (originales y version previa a cada guardado): desactivadas salvo MH_RESPALDOS=1.
-# Lo que se puede deshacer queda en el changelog del regionpack y en el deshacer/rehacer de la sesion del editor.
+# file backups (originals and version before each save): disabled unless MH_RESPALDOS=1.
+# What can be undone stays in the regionpack changelog and in the editor session's undo/redo.
 BACKUPS = os.environ.get('MH_RESPALDOS') == '1'
 BACKUP_ROOT = os.path.join(os.environ.get('MH_ROOT') or os.path.join(HERE, '..'), 'backup')
 
@@ -27,7 +27,7 @@ _ENUMS = {}
 
 
 def enum_options():
-    """{propiedad: valores} de las propiedades de tipo Enum del juego (propertyDef subType → defEnum de namespace.xml)."""
+    """{property: values} of the game's Enum-type properties (propertyDef subType → defEnum of namespace.xml)."""
     if GAME in _ENUMS:
         return _ENUMS[GAME]
     dirs = [os.path.join(GAME, 'system', 'game'), os.path.join(GAME, 'Modern Europe', 'system', 'game')]
@@ -52,17 +52,17 @@ def enum_options():
 
 
 def _ev():
-    import scenario_events          # eventos en palabras (importa este módulo: se carga al usarlo)
+    import scenario_events          # events in words (imports this module: loaded on use)
     return scenario_events
 
 
 def _i18n():
-    import scenario_i18n            # textos del servidor en el idioma del editor
+    import scenario_i18n            # server texts in the editor's language
     return scenario_i18n
 
 
 def parse(path):
-    import xml_tolerant          # tolera lo que el juego tolera (bytes ANSI, «&» sueltos…) y, si no, dice qué archivo y línea
+    import xml_tolerant          # tolerates what the game tolerates (ANSI bytes, stray «&»…) and, otherwise, says which file and line
     return xml_tolerant.parse(path, comments=True)
 
 
@@ -116,7 +116,7 @@ LABELS = {
     'bCanPlay': 'Se puede jugar', 'strGovType': 'Gobierno (ideología)', 'strCulture': 'Cultura (etnia)', 'strTerrain': 'Terreno',
 }
 COUNTRY_TYPE = {'COUNTRYTYPE_PLAYABLE': 'Playable', 'COUNTRYTYPE_FEATURED': 'Major', 'COUNTRYTYPE_NON_FEATURED': 'Minor'}
-# valores que el juego acepta (system/game/namespace.xml); otro valor hace que la partida no se cree («Error creating game»)
+# values the game accepts (system/game/namespace.xml); another value makes the game not be created («Error creating game»)
 COUNTRY_TYPE_FIX = {'COUNTRYTYPE_MINOR': 'COUNTRYTYPE_NON_FEATURED', 'COUNTRYTYPE_MAJOR': 'COUNTRYTYPE_FEATURED'}
 FREE_TEXT = re.compile(r'^(strName|sid|vec|str?Description|strDisplayName|strTypeLabel|path|exp)')
 
@@ -142,7 +142,7 @@ class Store:
         return self.docs[path]
 
     def new_doc(self, path, xml):
-        """Documento nuevo que aún no existe en disco (se crea al guardar)."""
+        """New document not yet on disk (created on save)."""
         path = os.path.abspath(path)
         tree = ET.ElementTree(ET.fromstring(xml))
         self.docs[path] = tree
@@ -236,18 +236,18 @@ class Store:
 
     # ---- guardar
     def fix_load_errors(self, paths):
-        """Antes de escribir: corrige lo que haría que el juego no cree la partida («Error creating game»), sea quien sea
-        quien lo produjo (editor de regiones al crear naciones, editor de escenarios, archivos a mano):
-        eCountryType fuera de PLAYABLE/FEATURED/NON_FEATURED y sidShortDescription de un Player sin texto en ningún
-        stringTable (se crea vacío en <escenario>/game/stringTable.xml). Devuelve (rutas a escribir, notas)."""
+        """Before writing: fixes what would make the game fail to create the match («Error creating game»), whoever
+        produced it (region editor when creating nations, scenario editor, hand-edited files):
+        eCountryType outside PLAYABLE/FEATURED/NON_FEATURED and a Player's sidShortDescription without text in any
+        stringTable (created empty in <escenario>/game/stringTable.xml). Returns (paths to write, notes)."""
         paths, notes = list(paths), []
         dirs = {os.path.dirname(p) for p in paths}
         trees = {d: research_tree(d) for d in dirs}
-        for path in [p for p in self.docs if os.path.dirname(p) in dirs]:     # todos los cargados del escenario
+        for path in [p for p in self.docs if os.path.dirname(p) in dirs]:     # all those loaded in the scenario
             for pd in list(self.docs[path].getroot().iter('object')):
                 if pd.get('type') != 'MEPlayerData':
                     continue
-                # investigaciones completadas cuyos requisitos no lo están: se completan también
+                # completed research whose requirements are not: they are completed too
                 refs = [o for o in pd if o.tag == 'object' and o.get('type') == 'ResearchProjectInitRef']
                 miss = missing_prereqs(trees[os.path.dirname(path)], [prop(o, 'strProjectName') for o in refs if prop(o, 'eResearchState') == 'RESEARCH_COMPLETED'])
                 if miss:
@@ -267,7 +267,7 @@ class Store:
                     if path not in paths:
                         paths.append(path)
             for pd in list(self.docs[path].getroot().iter('object')):
-                # DipRelInitialValue suelto en MEPlayerData (fuera de su lista): el juego descarta el player*.xml entero
+                # stray DipRelInitialValue in MEPlayerData (outside its list): the game discards the whole player*.xml
                 stray = [o for o in pd if o.tag == 'object' and o.get('type') == 'DipRelInitialValue'] if pd.get('type') == 'MEPlayerData' else []
                 if not stray:
                     continue
@@ -331,31 +331,31 @@ class Store:
         for path in sorted(paths):
             if path not in self.dirty:
                 continue
-            # copias de prueba (--escenarios) fuera del juego: la copia de seguridad cuelga de su carpeta
+            # test copies (--escenarios) outside the game: the backup hangs from their folder
             in_game = os.path.normcase(path).startswith(os.path.normcase(os.path.abspath(GAME)) + os.sep)
             rel = os.path.relpath(path, GAME if in_game else os.path.dirname(os.path.abspath(SCEN_ROOT)))
             if BACKUPS and os.path.exists(path):
                 orig = os.path.join(BACKUP_ROOT, 'archivos_originales', rel)
                 if not os.path.exists(orig):
                     os.makedirs(os.path.dirname(orig), exist_ok=True)
-                    shutil.copy2(path, orig)       # el original del juego, solo la primera vez
+                    shutil.copy2(path, orig)       # the game's original, only the first time
                 hist = os.path.join(BACKUP_ROOT, 'historial', stamp, rel)
                 os.makedirs(os.path.dirname(hist), exist_ok=True)
                 shutil.copy2(path, hist)           # la version anterior a este guardado
-            raw = open(path, 'rb').read() if os.path.exists(path) else b'\r\n'     # archivo nuevo: CRLF como los del juego
+            raw = open(path, 'rb').read() if os.path.exists(path) else b'\r\n'     # new file: CRLF like the game's
             crlf = b'\r\n' in raw[:4000]
             tree = self.docs[path]
             if path in self.restructured:
                 ET.indent(tree, space='\t')
             data = ET.tostring(tree.getroot(), encoding='unicode')
-            # ElementTree descarta las declaraciones xmlns sin usar: se restaura la etiqueta raiz original
+            # ElementTree drops unused xmlns declarations: the original root tag is restored
             m_old = re.search(r'<objects?\b[^>]*>', raw.decode('utf-8', 'replace'))
             m_new = re.match(r'<[^>]*>', data)
             if m_old and m_new and m_old.group(0).split()[0] == m_new.group(0).split()[0].rstrip('>'):
                 data = m_old.group(0) + data[m_new.end():]
             elif not m_old and m_new and data.startswith('<objects ') and 'xmlns:xsi' not in m_new.group(0):
                 data = m_new.group(0)[:-1] + ' xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">' + data[m_new.end():]
-            if b'/>' in raw and b' />' not in raw:      # mismo cierre que el original (scenarioInfo.xml y treaties.xml: «/>» sin espacio)
+            if b'/>' in raw and b' />' not in raw:      # same closing as the original (scenarioInfo.xml and treaties.xml: «/>» without space)
                 data = data.replace(' />', '/>')
             data = '<?xml version="1.0" encoding="UTF-8"?>\n' + data + '\n'
             if crlf:
@@ -409,7 +409,7 @@ class Store:
         return n or el.get('name') or ''
 
     def tree(self, el, depth=1):
-        """Resumen de un objeto y sus hijos (para el visor de archivos)."""
+        """Summary of an object and its children (for the file viewer)."""
         out = {'id': self.eid(el), 'type': el.get('type'), 'name': el.get('name'), 'label': self.label(el),
                'fromFile': el.get('fromFile'),
                'nprops': sum(1 for c in el if c.tag == 'property'), 'nchildren': len(objs(el))}
@@ -421,13 +421,13 @@ class Store:
 STORE = Store()
 
 
-# ---------------------------------------------------------------------------------------- escenario
-DIP_MIN, DIP_MAX = 0, 1000                      # relación diplomática: 0 = pésimas … 1000 = excelentes
+# ---------------------------------------------------------------------------------------- scenario
+DIP_MIN, DIP_MAX = 0, 1000                      # diplomatic relation: 0 = terrible … 1000 = excellent
 _DIP_BANDS = ((200, 'pésimas'), (400, 'malas'), (600, 'regulares'), (800, 'buenas'), (1001, 'excelentes'))
 
 
 def dip_label(v):
-    """Nombre aproximado del tramo de una relación diplomática (cinco tramos iguales entre 0 y 1000)."""
+    """Approximate name of the band of a diplomatic relation (five equal bands between 0 and 1000)."""
     try:
         x = float(v)
     except (TypeError, ValueError):
@@ -439,9 +439,9 @@ class Scenario:
     def __init__(self, name, store=None):
         self.name = name
         self.dir = os.path.join(SCEN_ROOT, name)
-        store = self.s = store or STORE          # el almacén actual (al cambiar de juego se crea otro)
+        store = self.s = store or STORE          # the current store (switching game creates another)
         self.paths = [os.path.abspath(os.path.join(self.dir, f)) for f in sorted(os.listdir(self.dir)) if f.endswith('.xml')]
-        # como el juego: los country*/player*.xml solo cuentan si game.xml los carga (fromFile=...); los demas se ignoran
+        # like the game: country*/player*.xml only count if game.xml loads them (fromFile=...); the rest are ignored
         self.unused = []
         gx = os.path.join(self.dir, 'game.xml')
         if os.path.exists(gx):
@@ -560,7 +560,7 @@ class Scenario:
         return T
 
     def _culture_count(self):
-        c = getattr(self, '_cc', None)          # la lista de la pestaña lo pide en cada fila: se reutiliza unos segundos
+        c = getattr(self, '_cc', None)          # the tab's list asks for it on every row: reused for a few seconds
         if c is None or time.time() - c[0] > 3:
             c = self._cc = (time.time(), Counter(prop(r, 'strCulture') for r in self.regions(sea=False)))
         return c[1]
@@ -608,7 +608,7 @@ class Scenario:
                 return {'key': k, 'label': label, 'columns': [c for c, _ in cols], 'rows': rows}
         raise KeyError(key)
 
-    # ---------------------------------------------------------------- opciones de los campos
+    # ---------------------------------------------------------------- field options
     def options(self):
         if self._opts is not None:
             return self._opts
@@ -640,14 +640,14 @@ class Scenario:
         opts['__region'] = land + sea
         opts['__unit'] = units
         opts['bool'] = ['true', 'false']
-        # listas completas (no solo las que ya se usan): posición internacional y perfiles diplomático y de tratados
+        # full lists (not only those already used): international position and diplomatic and treaty profiles
         pos = {'PLAYER_INTERNATIONAL_POSITION__' + x for x in ('EXPANSIONIST', 'NEUTRAL', 'STATUSQUO', 'TUTORIAL')}
         opts['eInternationalPosition'] = sorted(pos | set(opts.get('eInternationalPosition', [])))
         opts['strDipRelProcListName'] = sorted({prop(e, 'strName') for e in self.all('DipRelProcessorRefList') if prop(e, 'strName')}
                                                | set(opts.get('strDipRelProcListName', [])))
         opts['strAITreatyEvalListName'] = sorted({prop(e, 'strName') for e in self.all('AIEvalRefList') if prop(e, 'strName')}
                                                  | set(opts.get('strAITreatyEvalListName', [])))
-        # tipos cerrados: todos los valores de cada Enum del juego (namespace.xml), no solo los que ya se usan
+        # closed types: all values of each game Enum (namespace.xml), not only those already used
         for n, vals in enum_options().items():
             opts[n] = sorted(set(vals) | set(opts.get(n, [])))
         opts['strCulture'] = opts['strCultureName'] = sorted({prop(e, 'strCultureName') for e in self.all('CultureTemplate') if prop(e, 'strCultureName')}
@@ -680,7 +680,7 @@ class Scenario:
                           'label': LABELS.get(n, n), 'text': self.strings.get(v) if v and v.startswith('SID.') else None,
                           'kind': 'bool' if n.startswith('b') and v in ('true', 'false') else
                           'color' if n.startswith('col') else 'number' if re.match(r'^(n|f|n64)[A-Z]', n) else 'text'})
-        import scenario_extra      # campos opcionales que ed.exe edita aunque el archivo no los traiga
+        import scenario_extra      # optional fields ed.exe edits even if the file doesn't have them
         props += scenario_extra.missing_props(el, {p['name'] for p in props}, LABELS)
         shared = scenario_extra.is_shared(s.doc_of.get(el, ''))
         children = [{'id': s.eid(c), 'type': c.get('type'), 'name': c.get('name'), 'label': s.label(c),
@@ -707,24 +707,24 @@ class Scenario:
             return 'IPUs %s, nivel %s' % (prop(c, 'nIPUs'), prop(c, 'nTechLevel') or '-')
         return ''
 
-    # ---------------------------------------------------------------- edicion con reglas
+    # ---------------------------------------------------------------- editing with rules
     def update(self, i, values, move_children=True):
-        """values: {propiedad: valor}; '__region' mueve una ciudad/productor a otra region."""
+        """values: {property: value}; '__region' moves a city/producer to another region."""
         el = self.s.get(i)
         t = el.get('type')
         notes = []
         old_owner = prop(el, 'strOwner')
         new_region = values.pop('__region', None)
-        move_point = values.pop('__movepoint', None)      # '1': llevar también el punto (vecPosition) dentro de la región
+        move_point = values.pop('__movepoint', None)      # '1': also bring the point (vecPosition) inside the region
         if move_point and not new_region and t in ('City', 'Producer'):
             new_region = prop(self.s.parent.get(el), 'strName')
-        if t == 'DipRelInitialValue' and 'nValue' in values:      # antes de cambiar nada: 0 (pésimas) a 1000 (excelentes)
+        if t == 'DipRelInitialValue' and 'nValue' in values:      # before changing anything: 0 (terrible) to 1000 (excellent)
             v = str(values['nValue']).strip()
             if not re.fullmatch(r'-?\d+', v) or not (DIP_MIN <= int(v) <= DIP_MAX):
                 raise ValueError('la relación diplomática va de %d (pésimas) a %d (excelentes): «%s» no vale' % (DIP_MIN, DIP_MAX, values['nValue']))
         for n, v in values.items():
             self.s.set_prop(el, n, v)
-        # una region / ejercito vive en el archivo de su propietario
+        # a region / army lives in its owner's file
         new_owner = prop(el, 'strOwner')
         if t in ('Region', 'Army', 'AirForce', 'Fleet') and new_owner != old_owner and self.s.doc_of[el].endswith('.xml') \
                 and os.path.basename(self.s.doc_of[el]).startswith('country'):
@@ -732,7 +732,7 @@ class Scenario:
             if dst is None:
                 raise ValueError('no existe el país «%s»' % new_owner)
             self.s.detach(el)
-            # antes del primer Army/AirForce/Fleet del destino si es una region (orden habitual del archivo)
+            # before the target's first Army/AirForce/Fleet if it is a region (usual file order)
             idx = None
             if t == 'Region':
                 kids = list(dst)
@@ -754,7 +754,7 @@ class Scenario:
                 if c is not el and c.get('type') in ('City', 'Producer'):
                     self.s.set_prop(c, 'strController', values['strController'])
         if new_region and t in ('City', 'Producer'):
-            # también de mar: una ciudad puede depender de una región aunque esté lejos (p. ej. bases en la Antártida)
+            # also sea: a city can depend on a region even if far away (e.g. bases in Antarctica)
             reg = next((r for r in self.regions(sea=False) + self.regions(sea=True) if prop(r, 'strName') == new_region), None)
             if reg is None:
                 raise ValueError('no existe la región «%s»' % new_region)
@@ -766,17 +766,17 @@ class Scenario:
             if reg is not self.s.parent[el]:
                 self.s.detach(el)
                 self.s.attach(el, reg, path=self.s.doc_of[reg])
-                if prop(reg, 'strOwner'):         # una región de mar no tiene dueño: la ciudad conserva el suyo
+                if prop(reg, 'strOwner'):         # a sea region has no owner: the city keeps its own
                     self.s.set_prop(el, 'strOwner', prop(reg, 'strOwner'))
                     self.s.set_prop(el, 'strController', prop(reg, 'strController'))
                 notes.append('movida a la región %s (%s)' % (new_region, os.path.basename(self.s.doc_of[reg])))
-        # relación diplomática inicial: la cifra de A→B se copia a B→A (en el player*.xml del otro país) para que coincidan
+        # initial diplomatic relation: the A→B figure is copied to B→A (in the other country's player*.xml) so they match
         if t == 'DipRelInitialValue' and 'nValue' in values:
             import scenario_layers
             a, b = self.owner_of_player(el), prop(el, 'strTargetCountry')
             if a and b and a != b:
                 notes += scenario_layers.fix_diplomacy(self, [{'a': a, 'b': b, 'use': 'a'}])
-        # región dada a una nación rendida desde la ficha: deja de estarlo y su capital pasa a una ciudad de esa región
+        # region given to a surrendered nation from the sheet: it stops being so and its capital moves to a city of that region
         if t == 'Region' and new_owner != old_owner:
             import scenario_layers
             notes += scenario_layers.unsurrender(self, new_owner, prop(el, 'strName'))
@@ -785,7 +785,7 @@ class Scenario:
 
     # ---------------------------------------------------------------- validacion
     def validate(self, map_regions=None, adjacency=None):
-        """map_regions: {nombre: es_mar} del mapa; adjacency: {nombre: set(vecinos)}."""
+        """map_regions: {name: is_sea} of the map; adjacency: {name: set(neighbours)}."""
         P = prop
         issues = []
         for f in getattr(self, 'unused', []):
@@ -827,7 +827,7 @@ class Scenario:
                 issues.append(('aviso', 'Ciudad repetida: %s (%d)' % (n, len(cs)), self.s.eid(cs[0])))
         for name, c in countries.items():
             if not any(o.get('type') == 'Region' for o in objs(c)):
-                continue   # pais que aun no existe en el escenario (puede aparecer durante la partida)
+                continue   # country that doesn't exist yet in the scenario (may appear during the game)
             cap = P(c, 'strCapital')
             if cap and cap not in cities:
                 issues.append(('error', 'País %s: la capital %s no existe' % (name, cap), self.s.eid(c)))
@@ -870,7 +870,7 @@ class Scenario:
                 issues.append(('aviso', 'País %s: usa el mismo nombre de alianza que %s (%s)' % (P(c, 'strName'), seen[al], al), self.s.eid(c)))
             else:
                 seen[al] = P(c, 'strName')
-        import scenario_new       # cada nación con territorio: capital propia y habitantes > 2
+        import scenario_new       # each nation with territory: own capital and inhabitants > 2
         for m in scenario_new.check_nations(self):
             issues.append(('aviso', m, None))
         units = {norm(P(u, 'strName')) for u in self.all('UnitTemplate')}
@@ -879,13 +879,13 @@ class Scenario:
                 n, where = P(g, 'strName'), P(g, 'strRegion')
                 if P(g, 'strOwner') not in countries:
                     issues.append(('error', '%s %s: no existe el país %s' % (t, n, P(g, 'strOwner')), self.s.eid(g)))
-                # una flota puede estar en el mar o atracada en una region de tierra con ciudad-puerto
+                # a fleet can be at sea or docked in a land region with a port city
                 if t == 'Fleet' and where not in sea:
                     if where not in land:
                         issues.append(('error', 'Flota %s: la región %s no existe' % (n, where), self.s.eid(g)))
                     elif not any(c.get('type') == 'City' and P(c, 'strPortForRegion') for c in objs(land[where])):
                         issues.append(('error', 'Flota %s: está atracada en %s, que no tiene ciudad con puerto' % (n, where), self.s.eid(g)))
-                # un ejercito puede estar en el mar (transportado), como en los escenarios del juego
+                # an army can be at sea (transported), as in the game's scenarios
                 if t != 'Fleet' and where not in land and where not in sea:
                     issues.append(('error', '%s %s: la región %s no existe' % (t, n, where), self.s.eid(g)))
                 for u in objs(g):
@@ -894,7 +894,7 @@ class Scenario:
         for a in self.all('AllianceMember'):
             if P(a, 'strINITCountryName') not in countries:
                 issues.append(('error', 'Alianza: no existe el país %s' % P(a, 'strINITCountryName'), self.s.eid(a)))
-        # reglas del editor oficial (ed.exe, EditorStringTable.dll): guerras, unidades y nombres repetidos
+        # official editor rules (ed.exe, EditorStringTable.dll): wars, units and repeated names
         players = {P(p, 'strName') for p in self.all('Player')}
         ally = {}
         for a in self.all('Alliance'):
@@ -923,7 +923,7 @@ class Scenario:
                     if u.get('type') == 'UnitSummary' and not (P(u, 'nNumber') or '1').lstrip('-').isdigit() or \
                             u.get('type') == 'UnitSummary' and int(P(u, 'nNumber') or 1) <= 0:
                         issues.append(('error', '%s %s: el número de unidades de %s debe ser mayor que 0' % (t, P(g, 'strName'), P(u, 'strName')), self.s.eid(g)))
-        # más reglas de ed.exe (errores 0-75 de EditorStringTable.dll; ver docs_texto/editor_oficial/COMPARACION.md)
+        # more ed.exe rules (errors 0-75 of EditorStringTable.dll; see docs_texto/editor_oficial/COMPARACION.md)
         surr = {n for n, c in countries.items() if P(c, 'bSurrendered') == 'true'}
         for w in self.all('War'):
             for k in ('strINITAttackerCountryName', 'strINITDefenderCountryName'):
@@ -1035,12 +1035,12 @@ class Scenario:
             for n, k in names.items():
                 if k > 1:
                     issues.append(('error', '%s repetido: %s (%d veces)' % (label, n, k), None))
-        import scenario_events      # regiones que los eventos nombran y el regionpack quitó o dividió
+        import scenario_events      # regions named by events that the regionpack removed or split
         return [dict({'level': x[0], 'msg': x[1], 'id': x[2]}, **({'fix': x[3]} if len(x) > 3 else {})) for x in issues]             + scenario_events.event_region_issues(self) + scenario_events.event_surrender_issues(self) + __import__('tech_units').issues(self) + self.load_errors()
 
     def load_errors(self):
-        """Valores que el juego rechaza al leer el escenario y que impiden crear la partida («Error creating game»):
-        eCountryType fuera de su lista y sidShortDescription de un Player sin texto. Cada uno trae su arreglo."""
+        """Values the game rejects when reading the scenario and that prevent creating the match («Error creating game»):
+        eCountryType outside its list and a Player's sidShortDescription without text. Each comes with its fix."""
         out = []
         for d in self.all('ScenarioDisplaySettings'):
             mp = prop(d, 'strMapName')
@@ -1105,7 +1105,7 @@ def load_strings(scen_dir):
 
 
 def research_tree(scen_dir):
-    """{proyecto: (bCompletedByDefault, [requisitos])} de sharedDataResearch.xml del escenario (o de ScenarioDefaults)."""
+    """{project: (bCompletedByDefault, [requirements])} from the scenario's sharedDataResearch.xml (or from ScenarioDefaults)."""
     tree = {}
     for f in (os.path.join(scen_dir, 'sharedDataResearch.xml'),
               os.path.join(GAME, 'Modern Europe', 'system', 'ScenarioDefaults', 'sharedDataResearch.xml')):
@@ -1123,8 +1123,8 @@ def research_tree(scen_dir):
 
 
 def missing_prereqs(tree, completed):
-    """Requisitos (de todos los niveles) que faltan para que el juego pueda completar 'completed' al empezar: los que no
-    están completados ni tienen bCompletedByDefault. Con alguno, la partida no se crea («pre-reqs never met»)."""
+    """Requirements (of all levels) missing for the game to be able to complete 'completed' at start: those not
+    completed nor having bCompletedByDefault. With any, the match is not created («pre-reqs never met»)."""
     have, out, todo = set(completed), [], list(completed)
     while todo:
         for q in tree.get(todo.pop(), (False, []))[1]:
@@ -1140,7 +1140,7 @@ def scenarios():
 
 
 class DocView(Scenario):
-    """Vista de documentos sueltos (no de escenario): mismo detalle, edicion sin reglas especiales."""
+    """View of loose documents (not of a scenario): same detail, editing without special rules."""
     def __init__(self, store=None):
         store = self.s = store or STORE
         self.name = None
@@ -1191,8 +1191,8 @@ WAR_EVENT = """<object type="ScriptedEventDef" name="objScriptedEventDefs">
 
 
 def create_war_event(scen, attacker, target, date, pct=80):
-    """Anade a sharedDataEvents.xml del escenario un evento: 'attacker' declara la guerra a 'target' desde 'date'
-    (MM/DD/YYYY) con 'pct' % por turno. Crea el archivo y lo registra en scenario.xml si no existe."""
+    """Adds an event to the scenario's sharedDataEvents.xml: 'attacker' declares war on 'target' from 'date'
+    (MM/DD/YYYY) with 'pct' % per turn. Creates the file and registers it in scenario.xml if missing."""
     countries = scen.countries()
     for c in (attacker, target):
         if c not in countries:
@@ -1211,14 +1211,14 @@ def create_war_event(scen, attacker, target, date, pct=80):
 
 
 def _events_doc(scen):
-    """sharedDataEvents.xml del escenario (lo crea y lo registra en scenario.xml si no existe)."""
+    """The scenario's sharedDataEvents.xml (creates it and registers it in scenario.xml if missing)."""
     st = scen.s
     path = os.path.abspath(os.path.join(scen.dir, 'sharedDataEvents.xml'))
     notes = []
     if path not in scen.paths:
         if os.path.exists(path):
             st.open(path)
-        else:       # solo en memoria: el archivo se escribe al «Guardar»
+        else:       # in memory only: the file is written on «Guardar»
             st.new_doc(path, '<objects name="Object Load" version="0.1" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">'
                              '<object type="MESharedData" name=""></object></objects>')
         scen.paths.append(path)
@@ -1234,7 +1234,7 @@ def _events_doc(scen):
     return path, notes
 
 
-# embargo comercial al empezar: un evento que se dispara una sola vez (en el turno indicado), como los eventos del juego
+# trade embargo at start: an event fired only once (on the given turn), like the game's events
 EMBARGO_EVENT = """<object type="ScriptedEventDef" name="objScriptedEventDefs">
 	<property name="strTypeLabel" value="{label}"/>
 	<property name="pathPlayer" value="{{Object:Single:Player}}scratch.objPlayer"/>
@@ -1265,7 +1265,7 @@ EMBARGO_EVENT = """<object type="ScriptedEventDef" name="objScriptedEventDefs">
 
 
 def create_embargo_event(scen, origin, target, turn=1):
-    """Evento: 'origin' embarga el comercio con 'target' en el turno 'turn' (una sola vez; el jugador puede levantarlo)."""
+    """Event: 'origin' embargoes trade with 'target' on turn 'turn' (only once; the player can lift it)."""
     countries = scen.countries()
     for c in (origin, target):
         if c not in countries:
@@ -1288,8 +1288,8 @@ def partisans_state(scen):
 
 
 def set_partisans(scen, enable):
-    """Activa/desactiva los Partisans: registro de sharedDataPartisans.xml en scenario.xml
-    (si el escenario no tiene el archivo, se copia de otro que lo tenga)."""
+    """Enables/disables Partisans: registration of sharedDataPartisans.xml in scenario.xml
+    (if the scenario lacks the file, it is copied from another that has it)."""
     st = scen.s
     sx = scen.all('Scenario', lambda f: f == 'scenario.xml')[0]
     refs = [o for o in objs(sx) if o.get('type') == 'SharedDataFileRef']
@@ -1319,7 +1319,7 @@ def set_partisans(scen, enable):
 
 
 
-# ---------------------------------------------------------------------------------------- regiones nuevas del mapa
+# ---------------------------------------------------------------------------------------- new map regions
 def region_sid(name):
     import unicodedata
     base = unicodedata.normalize('NFKD', name).encode('ascii', 'ignore').decode('ascii')
@@ -1352,7 +1352,7 @@ def scenarios_using(pack):
 
 
 def _scen_doc(scen, rel, template):
-    """Abre (o crea con 'template') un XML auxiliar del escenario y lo incluye en sus rutas."""
+    """Opens (or creates with 'template') an auxiliary scenario XML and includes it in its paths."""
     path = os.path.abspath(os.path.join(scen.dir, rel))
     if not os.path.exists(path):
         os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -1373,7 +1373,7 @@ def _add_child(st, par, el, path):
 
 
 def set_region_string(scen, sid, text):
-    """Texto del SID en <escenario>/game/stringTable.xml (lo crea y lo registra en game/namespace.xml si falta)."""
+    """SID text in <escenario>/game/stringTable.xml (creates it and registers it in game/namespace.xml if missing)."""
     st = scen.s
     notes = []
     created = not os.path.exists(os.path.join(scen.dir, 'game', 'stringTable.xml'))
@@ -1400,7 +1400,7 @@ def set_region_string(scen, sid, text):
 
 
 def _region_refs(scen, name):
-    """Referencias por nombre a una region: propiedades strRegions y objetos NameRegionRefPair."""
+    """References by name to a region: strRegions properties and NameRegionRefPair objects."""
     props, pairs = [], []
     for p in scen.paths:
         for el in scen.s.docs[p].getroot().iter():
@@ -1412,12 +1412,12 @@ def _region_refs(scen, name):
 
 
 def add_new_region(scen, name, mother=None, fraction=None, owner=None, terrain=None, goes_to_new=None, population=None, text=None):
-    """Registra una region nueva del mapa en el escenario (no guarda).
-    mother:  region de la que sale (subdivision): mismo dueno, controlador, terreno, cultura, infraestructura;
-             se lleva 'fraction' de la poblacion; ciudades, productores y ejercitos con goes_to_new(x, y) pasan a ella;
-             se anade junto a la madre en las listas de regiones (HistoricCountry, strRegions).
-    owner:   (sin madre: dibujada en el mar) pais al que se asigna; terreno 'terrain', 'population' habitantes.
-    text:    nombre visible (SID en game/stringTable.xml); por defecto 'name'."""
+    """Registers a new map region in the scenario (does not save).
+    mother:  region it comes from (subdivision): same owner, controller, terrain, culture, infrastructure;
+             takes 'fraction' of the population; cities, producers and armies with goes_to_new(x, y) move to it;
+             added next to the mother in the region lists (HistoricCountry, strRegions).
+    owner:   (no mother: drawn on the sea) country it is assigned to; terrain 'terrain', 'population' inhabitants.
+    text:    visible name (SID in game/stringTable.xml); defaults to 'name'."""
     st = scen.s
     land = {prop(r, 'strName'): r for r in scen.regions(sea=False)}
     if name in land:
@@ -1486,7 +1486,7 @@ def add_new_region(scen, name, mother=None, fraction=None, owner=None, terrain=N
         cult = Counter(prop(r, 'strCulture') for r in own if prop(r, 'strCulture')).most_common(1)
         if not cult:
             cult = Counter(prop(r, 'strCulture') for r in land.values() if prop(r, 'strCulture')).most_common(1)
-        if not cult:        # escenario desde cero: la primera cultura de la nación
+        if not cult:        # scenario from scratch: the nation's first culture
             cs = next((k for k in objs(c) if k.get('type') == 'CultureSet'), None)
             first = next((prop(k, 'strCultureName') for k in objs(cs) if prop(k, 'strCultureName')), None) if cs is not None else None
             cult = [(first, 1)] if first else []
@@ -1519,7 +1519,7 @@ def add_new_region(scen, name, mother=None, fraction=None, owner=None, terrain=N
 
 
 def remove_new_region(scen, name, mother=None, fractions=None):
-    """Deshace add_new_region: ciudades, productores, ejercitos y poblacion vuelven a la madre; se quitan las referencias."""
+    """Undoes add_new_region: cities, producers, armies and population return to the mother; references are removed."""
     st = scen.s
     land = {prop(r, 'strName'): r for r in scen.regions(sea=False)}
     el = land.get(name)
@@ -1527,7 +1527,7 @@ def remove_new_region(scen, name, mother=None, fractions=None):
         sea = next((r for r in scen.regions(sea=True) if prop(r, 'strName') == name), None)
         if sea is None:
             return ['%s: no estaba en el escenario' % name]
-        # region de mar: las flotas vuelven a la madre y se quita de waterWorld.xml
+        # sea region: fleets return to the mother and it is removed from waterWorld.xml
         for g in scen.all('Fleet'):
             if prop(g, 'strRegion') == name and mother:
                 st.set_prop(g, 'strRegion', mother)
@@ -1539,11 +1539,11 @@ def remove_new_region(scen, name, mother=None, fractions=None):
             if c.get('type') in ('City', 'Producer'):
                 st.detach(c)
                 st.attach(c, dst)
-                for k in ('strOwner', 'strController'):   # vuelve con el dueño de la región madre
+                for k in ('strOwner', 'strController'):   # returns with the mother region's owner
                     st.set_prop(c, k, prop(dst, k))
         a, b = prop(el, 'nPopulation'), prop(dst, 'nPopulation')
         if fractions:
-            # cada region de origen recupera lo que dio: si se llevo la fraccion f, ahora tiene R = P(1-f) -> dio R*f/(1-f)
+            # each source region recovers what it gave: if fraction f was taken, it now has R = P(1-f) -> gave R*f/(1-f)
             for m, f in fractions.items():
                 r = land.get(m)
                 cur = prop(r, 'nPopulation') if r is not None else None
@@ -1551,7 +1551,7 @@ def remove_new_region(scen, name, mother=None, fractions=None):
                     st.set_prop(r, 'nPopulation', str(int(round(int(cur) / (1 - float(f))))))
         elif a and b and a.isdigit() and b.isdigit():
             st.set_prop(dst, 'nPopulation', str(int(a) + int(b)))
-        for t in ('Army', 'AirForce', 'Fleet'):     # tambien las flotas atracadas en sus puertos
+        for t in ('Army', 'AirForce', 'Fleet'):     # also the fleets docked in its ports
             for g in scen.all(t):
                 if prop(g, 'strRegion') == name:
                     st.set_prop(g, 'strRegion', mother)
@@ -1568,7 +1568,7 @@ def remove_new_region(scen, name, mother=None, fractions=None):
 
 
 
-# «si el protegido es atacado por el agresor, el protector actúa»: un evento por turno con probabilidad (guerra o embargo)
+# «if the protected is attacked by the aggressor, the protector acts»: one event per turn with probability (war or embargo)
 PROTECT_EVENT = """<object type="ScriptedEventDef" name="objScriptedEventDefs">
 	<property name="strTypeLabel" value="{label}"/>
 	<property name="pathPlayer" value="{{Object:Single:Player}}scratch.objPlayer"/>
@@ -1601,8 +1601,8 @@ PROTECT_NOT_AT_WAR = """			<object type="AccessorIsAtWar" name="objAccessors"><p
 
 
 def create_protection_event(scen, protector, protected, aggressor, action='war', pct=30):
-    """Evento: si 'aggressor' está en guerra con 'protected' y 'protector' aún no, cada turno hay un 'pct' % de que
-    'protector' le declare la guerra (action 'war') o le embargue (action 'embargo')."""
+    """Event: if 'aggressor' is at war with 'protected' and 'protector' not yet, each turn there is a 'pct' % chance that
+    'protector' declares war on it (action 'war') or embargoes it (action 'embargo')."""
     countries = scen.countries()
     for c in (protector, protected, aggressor):
         if c not in countries:

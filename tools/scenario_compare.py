@@ -1,7 +1,7 @@
-"""Comparador de escenarios: diferencias entre dos escenarios (también Gold ↔ MH1) y traspaso de elementos.
+"""Scenario comparer: differences between two scenarios (also Gold ↔ MH1) and transfer of items.
 
-El escenario «origen» se abre en un almacén aparte, solo para leer. El «destino» es el escenario abierto en el editor:
-lo traspasado queda en memoria hasta que el usuario pulsa Guardar.
+The «source» scenario is opened in a separate store, read-only. The «target» is the scenario open in the editor:
+what is transferred stays in memory until the user presses Guardar.
 """
 import copy
 import os
@@ -12,14 +12,14 @@ import scenario_core as sc
 import scenario_layers
 from scenario_core import prop, objs, norm
 
-NEAR = 0.25          # grados: dos ciudades a menos de esto se tratan como la misma (≈ 25 km)
+NEAR = 0.25          # degrees: two cities closer than this are treated as the same (≈ 25 km)
 FORCES = ('Army', 'Fleet', 'AirForce')
 EVENT_TYPES = ('ScriptedEventDef', 'PlayerDecisionDef', 'PlayerDecisionTrigPlayEvent', 'DecisionPointDef', 'WarPlan')
-_SOURCES = {}        # carpeta -> Scenario (almacén propio, solo lectura)
+_SOURCES = {}        # folder -> Scenario (own store, read-only)
 
 
 def sources():
-    """Escenarios que se pueden usar como origen: los del juego actual y los del otro juego si está instalado."""
+    """Scenarios usable as source: those of the current game and those of the other game if installed."""
     out = []
     seen = set()
     roots = [(gamepaths.CURRENT[0], sc.SCEN_ROOT)]
@@ -90,7 +90,7 @@ def _forces(s):
 
 
 def _match_city(tgt_cities, c, xy):
-    """Ciudad del destino que es «la misma»: por nombre o por cercanía."""
+    """Target city that is «the same»: by name or by proximity."""
     n = norm(prop(c, 'strName'))
     for t in tgt_cities:
         if norm(prop(t, 'strName')) == n:
@@ -163,7 +163,7 @@ def diff(tgt, src):
                       'file': os.path.basename(src.s.doc_of[e]), 'status': 'igual' if _event_key(e) in tev else 'nueva'}
                      for e in src.all_types(EVENT_TYPES)]
     out['events_only_target'] = sorted(k for k in tev - {_event_key(e) for e in src.all_types(EVENT_TYPES)})
-    # regiones y dueños
+    # regions and owners
     tl = {P(r, 'strName'): r for r in tgt.regions(sea=False)}
     sl = {P(r, 'strName'): r for r in src.regions(sea=False)}
     regions = []
@@ -176,7 +176,7 @@ def diff(tgt, src):
     out['regions'] = regions
     out['regions_only_source'] = sorted(set(sl) - set(tl))
     out['regions_only_target'] = sorted(set(tl) - set(sl))
-    # diplomacia (relaciones iniciales) entre países de los dos
+    # diplomacy (initial relations) between countries of both
     tm, sm = scenario_layers._dip_map(tgt), scenario_layers._dip_map(src)
     dip = []
     for (a, b), (_, v) in sorted(sm.items()):
@@ -185,7 +185,7 @@ def diff(tgt, src):
             if tv != v:
                 dip.append({'key': '%s|%s' % (a, b), 'a': a, 'b': b, 'value': v, 't_value': tv})
     out['diplomacy'] = dip
-    # alianzas y guerras (solo informativo)
+    # alliances and wars (informational only)
     names = lambda s, t, k: sorted({P(e, k) or '' for e in s.all(t)})
     out['alliances'] = {'only_source': sorted(set(names(src, 'Alliance', 'strDisplayName')) - set(names(tgt, 'Alliance', 'strDisplayName'))),
                         'only_target': sorted(set(names(tgt, 'Alliance', 'strDisplayName')) - set(names(src, 'Alliance', 'strDisplayName')))}
@@ -196,7 +196,7 @@ def diff(tgt, src):
 
 # ---------------------------------------------------------------------------------------- traspaso
 def _copy_strings(tgt, src, el, notes):
-    """Textos SID del elemento: si el destino no los tiene, se copian a su game/stringTable.xml."""
+    """SID texts of the item: if the target lacks them, they are copied to its game/stringTable.xml."""
     n = 0
     for p in el.iter('property'):
         v = p.get('value') or ''
@@ -213,7 +213,7 @@ def transfer(tgt, src, items):
     notes, skipped = [], []
     nstr = 0
     countries = tgt.countries()
-    # ciudades: dentro de la región del mismo nombre (o la que contiene el punto) y del dueño de esa región
+    # cities: inside the region of the same name (or the one containing the point) and owned by that region's owner
     want = set(items.get('cities') or [])
     if want:
         land = {P(r, 'strName'): r for r in tgt.regions(sea=False)}
@@ -256,7 +256,7 @@ def transfer(tgt, src, items):
             n += 1
         if n:
             notes.append('%d ciudad(es) copiadas al destino' % n)
-    # fuerzas militares: al archivo del país dueño, sin unidades de plantillas desconocidas
+    # military forces: to the owning country's file, without units of unknown templates
     want = set(items.get('forces') or [])
     if want:
         templates = {P(t, 'strName') for t in tgt.all('UnitTemplate')}
@@ -294,7 +294,7 @@ def transfer(tgt, src, items):
             n += 1
         if n:
             notes.append('%d fuerza(s) militar(es) copiadas' % n)
-    # eventos: al sharedDataEvents.xml del destino
+    # events: to the target's sharedDataEvents.xml
     want = set(items.get('events') or [])
     if want:
         have = {_event_key(e) for e in tgt.all_types(EVENT_TYPES)}
@@ -317,7 +317,7 @@ def transfer(tgt, src, items):
             n += 1
         if n:
             notes.append('%d evento(s) copiados a sharedDataEvents.xml' % n)
-    # dueño / controlador de regiones (mueve la región al archivo del país, como en el editor)
+    # region owner / controller (moves the region to the country's file, as in the editor)
     want = set(items.get('regions') or [])
     if want:
         tl = {P(r, 'strName'): r for r in tgt.regions(sea=False)}
@@ -335,7 +335,7 @@ def transfer(tgt, src, items):
             n += 1
         if n:
             notes.append('%d región(es) con el dueño/controlador del origen' % n)
-    # diplomacia: misma cifra en los dos sentidos
+    # diplomacy: same figure in both directions
     want = set(items.get('diplomacy') or [])
     if want:
         sm = scenario_layers._dip_map(src)

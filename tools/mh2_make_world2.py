@@ -1,10 +1,10 @@
-"""Crea el regionpack nuevo «MH2World2» desde mh2/mh2_mundo.geojson (mapa vacio + una region nueva por contorno).
+"""Creates the new «MH2World2» regionpack from mh2/mh2_mundo.geojson (empty map + one new region per outline).
 
     python -u mh2_make_world2.py [--resume [--retry]] [--limit N]
 
-Deja el proyecto del editor en making-history/editor_proyecto_MH2World2 (regionpack nuevo aun sin instalar: en el editor de
-regiones aparece en «Regionpack» y se instala con Instalar). No escribe nada en el juego. Si se corta, --resume sigue por donde iba.
-Las regiones que el editor rechaza (contorno invalido) se reintentan con el contorno aligerado; las que aun asi fallan van a
+Leaves the editor project in making-history/editor_proyecto_MH2World2 (new regionpack not yet installed: in the region
+editor it appears under «Regionpack» and is installed with Instalar). Writes nothing to the game. If cut off, --resume continues where it left off.
+Regions the editor rejects (invalid outline) are retried with a lightened outline; those that still fail go to
 mh2/MH2World2_fallos.json.
 """
 import argparse, json, os, shutil, sys, time
@@ -18,7 +18,7 @@ ROOT = mh2_plan.ROOT
 NAME = 'MH2World2'
 FOLDER = os.path.join(ROOT, 'editor_proyecto_' + NAME)
 SRC = os.path.join(ROOT, 'mh2', 'mh2_mundo.geojson')
-GRID = 1e-4          # grados: los contornos se redondean a esta rejilla (vertices vecinos identicos; el editor funde a menos de 5e-5)
+GRID = 1e-4          # degrees: outlines are rounded to this grid (identical neighboring vertices; the editor merges below 5e-5)
 BATCH = 40
 
 
@@ -49,15 +49,15 @@ def main():
 
 
 def build(a):
-    """Construye (o sigue construyendo) el regionpack; devuelve la lista de contornos que no se pudieron poner."""
+    """Builds (or continues building) the regionpack; returns the list of outlines that could not be placed."""
     world = os.path.join(editor_core.MAPS, 'World')
     if not a.resume:
         if os.path.exists(FOLDER):
             raise SystemExit('ya existe %s (usa --resume o borra la carpeta)' % FOLDER)
         new_pack.create_project(FOLDER, NAME, world)
     P = editor_core.Project(FOLDER, os.path.join(FOLDER, '_respaldo'), pack=NAME)
-    P.snapshot = lambda *x, **k: None       # sin instantaneas de «Volver» (solo cuestan tiempo y disco en una construccion por lotes)
-    done = {r.name for r in P.m['regions']}           # ya en el mapa (nombre interno)
+    P.snapshot = lambda *x, **k: None       # without «Volver» snapshots (they only cost time and disk in a batch build)
+    done = {r.name for r in P.m['regions']}           # already on the map (internal name)
     ff = os.path.join(ROOT, 'mh2', NAME + '_fallos.json')
     prev_failed = json.load(open(ff)) if a.resume and not getattr(a, 'retry', False) and os.path.exists(ff) else []
     feats = json.load(open(SRC, encoding='utf-8'))['features']
@@ -93,11 +93,11 @@ def build(a):
         try:
             rep = P.save({'assigns': items, 'paint': True, 'topo': True}, log=lambda *x: None)
             err = rep.get('errors') or []
-        except (SystemExit, Exception) as e:       # el editor rechaza el cambio (o falla): se deshace y cuenta como fallo
+        except (SystemExit, Exception) as e:       # the editor rejects the change (or fails): undone and counted as a failure
             P._drop_pending_snapshot()
             P.reload()
             err = [str(e)[:160] or type(e).__name__]
-        shutil.rmtree(P.history, ignore_errors=True)      # sin instantaneas de «Volver»: llenan el disco (GB)
+        shutil.rmtree(P.history, ignore_errors=True)      # without «Volver» snapshots: they fill the disk (GB)
         os.makedirs(P.history, exist_ok=True)
         return err
 
@@ -109,7 +109,7 @@ def build(a):
             if d:
                 items.append((f, d))
         def attempt(group):
-            """Guarda el grupo; si el editor lo rechaza, lo parte en dos; una region sola se reintenta aligerada."""
+            """Saves the group; if the editor rejects it, splits it in two; a single region is retried lightened."""
             nonlocal ok
             if not group:
                 return

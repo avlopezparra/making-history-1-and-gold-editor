@@ -1,11 +1,11 @@
-"""Registro del juego: captura los mensajes de depuración de Making History mientras se juega.
+"""Game log: captures Making History's debug messages while playing.
 
-El juego (logger.dll) escribe sus avisos y errores con OutputDebugString —p. ej. «invalid region ID %d for region %s»,
-«Failed to load scenario named %s»—, que normalmente nadie ve. Este programa escucha ese canal de Windows
-(DBWIN_BUFFER) y los guarda en making-history/logs/juego_<fecha>.log. Sirve para saber por qué un escenario no carga.
+The game (logger.dll) writes its warnings and errors with OutputDebugString (e.g. «invalid region ID %d for region %s»,
+«Failed to load scenario named %s»), which normally nobody sees. This program listens on that Windows channel
+(DBWIN_BUFFER) and saves them to making-history/logs/juego_<fecha>.log. Useful to find out why a scenario does not load.
 
-Uso: dejarlo abierto (python game_log.py, o «Registro del juego.bat»), abrir el juego, reproducir el problema y cerrar
-con Ctrl+C. Solo escucha; no toca el juego. Solo puede haber un oyente a la vez (DebugView, otro game_log…).
+Usage: leave it open (python game_log.py, or «Registro del juego.bat»), open the game, reproduce the problem and stop
+with Ctrl+C. It only listens; it does not touch the game. Only one listener at a time (DebugView, another game_log…).
 """
 import ctypes
 import ctypes.wintypes as w
@@ -40,7 +40,7 @@ def process_name(pid, cache={}):
 
 
 def main(all_processes=False, stop=None, started=None):
-    """Escucha hasta Ctrl+C, o hasta que se active 'stop' (threading.Event; así lo usa el editor). 'started(ruta)' al empezar."""
+    """Listens until Ctrl+C, or until 'stop' is set (threading.Event; that is how the editor uses it). 'started(path)' on start."""
     ready = k32.CreateEventW(None, False, False, 'DBWIN_BUFFER_READY')
     data = k32.CreateEventW(None, False, False, 'DBWIN_DATA_READY')
     if ctypes.get_last_error() == 183:   # ERROR_ALREADY_EXISTS: puede haber otro oyente (DebugView...)
@@ -76,7 +76,7 @@ def main(all_processes=False, stop=None, started=None):
         except KeyboardInterrupt:
             pass
     print('\n%d mensajes guardados en %s' % (n, os.path.abspath(path)))
-    k32.UnmapViewOfFile(ctypes.c_void_p(view))     # deja el canal libre para otro oyente (otra captura, DebugView)
+    k32.UnmapViewOfFile(ctypes.c_void_p(view))     # frees the channel for another listener (another capture, DebugView)
     for h in (mapping, ready, data):
         k32.CloseHandle(h)
     return path

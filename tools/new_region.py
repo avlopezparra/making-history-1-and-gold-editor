@@ -1,17 +1,17 @@
-"""Regiones nuevas en los binarios del mapa y datos derivados de la geometria.
+"""New regions in the map binaries and data derived from the geometry.
 
-Lo que se sabe de los campos de regions.bin (comparando las 852 regiones originales):
-  u_type   clase de terreno base del mapa: 0 mar, 1 llanura/bosque, 2 colinas, 3 montana, 4 desierto/estepa
-           (coincide con el strTerrain mas frecuente de cada clase en los escenarios; el escenario puede cambiarlo).
-  u_a      area de TIERRA de la region; 0 en el mar; menor que u_b en islas y costas recortadas.
-  u_b      area TOTAL de la malla: u_b = 4767.13 * suma(area_triangulo_grados2 * cos(latitud)) (~ millas cuadradas).
-  points   hasta 30 puntos dentro de la region en una rejilla alrededor del centro (el primero es el centro),
-           ordenados por distancia; paso 0.108..1.73 grados segun el tamano.
-borders.brd tabla final: u_x = indice de la region. regions.nts tabla final: u_last = last.
+What is known of the regions.bin fields (comparing the 852 original regions):
+  u_type   base terrain class of the map: 0 sea, 1 plains/forest, 2 hills, 3 mountain, 4 desert/steppe
+           (matches the most frequent strTerrain of each class in the scenarios; the scenario may change it).
+  u_a      LAND area of the region; 0 at sea; smaller than u_b on islands and clipped coasts.
+  u_b      TOTAL mesh area: u_b = 4767.13 * sum(triangle_area_degrees2 * cos(latitude)) (~ square miles).
+  points   up to 30 points inside the region on a grid around the center (the first is the center),
+           sorted by distance; step 0.108..1.73 degrees depending on size.
+borders.brd final table: u_x = region index. regions.nts final table: u_last = last.
 
-create_region() anade la region vacia (shape sin triangulos, sin vecinos ni bordes) al final de los tres archivos;
-el area le llega luego con transfer.apply_transfers(), que crea sus bordes y vecindades.
-refresh_derived() recalcula areas, centro y puntos de las regiones cuya malla cambio.
+create_region() adds the empty region (shape without triangles, without neighbors or borders) at the end of the three files;
+the area comes later with transfer.apply_transfers(), which creates its borders and neighborships.
+refresh_derived() recomputes areas, center and points of the regions whose mesh changed.
 """
 import math
 import os
@@ -24,7 +24,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import mhmap  # noqa: E402
 from transfer import f32, SEA  # noqa: E402
 
-AREA_K = 4767.13          # u_b / (grados2 * cos lat), mediana del mapa original (~ millas cuadradas)
+AREA_K = 4767.13          # u_b / (degrees2 * cos lat), median of the original map (~ square miles)
 GRID = 0.21575            # paso base de la rejilla de puntos (en grados)
 MAX_POINTS = 30
 TERRAIN_OF_TYPE = {1: 'Plains', 2: 'Hills', 3: 'Mountains', 4: 'Desert'}
@@ -32,7 +32,7 @@ TYPE_OF_TERRAIN = {'Plains': 1, 'Forest': 1, 'Tundra': 1, 'Hills': 2, 'Jungle': 
 
 
 def internal_name(text):
-    """Nombre interno de una region: ASCII sin acentos (ninguna region original usa otros caracteres)."""
+    """Internal region name: ASCII without accents (no original region uses other characters)."""
     import re
     import unicodedata
     s = unicodedata.normalize('NFKD', text or '').encode('ascii', 'ignore').decode('ascii')
@@ -40,7 +40,7 @@ def internal_name(text):
 
 
 def create_region(m, name, u_type):
-    """Anade una region vacia al final; devuelve su indice."""
+    """Adds an empty region at the end; returns its index."""
     R = m['regions']
     idx = len(R)
     si = len(m['shapes'])
@@ -58,7 +58,7 @@ def mesh_polygon(m, r):
 
 
 def cos_area(m, r):
-    """Suma de area_grados2 * cos(latitud) de los triangulos de la region."""
+    """Sum of area_degrees2 * cos(latitude) of the region's triangles."""
     k = 0.0
     for s in mhmap.region_shapes(m, r):
         for t in s.triangles():
@@ -68,7 +68,7 @@ def cos_area(m, r):
 
 
 def grid_points(poly, center):
-    """Centro + puntos de rejilla dentro del poligono (hasta 30, del mas cercano al centro al mas lejano)."""
+    """Center + grid points inside the polygon (up to 30, from closest to the center to farthest)."""
     inner = poly.buffer(-1e-4)
     if inner.is_empty:
         inner = poly
@@ -91,7 +91,7 @@ def grid_points(poly, center):
 
 
 def pick_center(poly, old=None):
-    """El centro anterior si sigue dentro; si no, el centroide de la pieza mayor (o un punto interior)."""
+    """The previous center if still inside; otherwise the centroid of the largest piece (or an interior point)."""
     if old is not None and poly.buffer(-1e-4).contains(Point(old)):
         return old
     pieces = list(getattr(poly, 'geoms', [poly]))
@@ -103,9 +103,9 @@ def pick_center(poly, old=None):
 
 
 def refresh_derived(m, regions, old_k=None, new_regions=(), land_ratio=None, scale_of=None):
-    """Recalcula u_a/u_b, centro y puntos de 'regions' tras cambiar su malla.
-    old_k: {region: cos_area antes del cambio} para conservar la escala propia de cada region.
-    land_ratio: {region nueva: u_a/u_b} (por defecto 1 en tierra); scale_of: {region nueva: escala u_b/cos_area de su madre}."""
+    """Recomputes u_a/u_b, center and points of 'regions' after their mesh changes.
+    old_k: {region: cos_area before the change} to keep each region's own scale.
+    land_ratio: {new region: u_a/u_b} (default 1 on land); scale_of: {new region: its mother's u_b/cos_area scale}."""
     R = m['regions']
     out = {}
     for r in regions:
@@ -133,8 +133,8 @@ def refresh_derived(m, regions, old_k=None, new_regions=(), land_ratio=None, sca
 
 
 def delete_region(m, r):
-    """Quita del mapa la region r, que ya no debe tener area (sus triangulos se traspasaron antes) ni bordes.
-    Renumera las regiones, shapes, tablas y bordes posteriores."""
+    """Removes region r from the map; it must no longer have area (its triangles were transferred before) or borders.
+    Renumbers the following regions, shapes, tables and borders."""
     R = m['regions']
     if any(s.indices for s in mhmap.region_shapes(m, r)):
         raise ValueError('%s todavia tiene area: traspasala antes de borrarla' % R[r].name)
@@ -168,7 +168,7 @@ def delete_region(m, r):
             t.region -= 1
         if t.u_x > r:
             t.u_x -= 1
-    # bordes que solo servian a r (no deberia haber): se quitan y se renumeran los demas
+    # borders serving only r (there should be none): removed and the rest renumbered
     if dead:
         alive = [b for b in m['borders'] if b.index not in dead]
         remap = {b.index: i for i, b in enumerate(alive)}
@@ -189,9 +189,9 @@ def delete_region(m, r):
 
 
 def normalize_map(m):
-    """Reglas que el juego necesita y que un mapa hecho desde cero (o con regiones que cambiaron de mar a tierra) podía romper:
-    triángulos en sentido antihorario (en horario el juego no los dibuja ni deja elegir la región) y flag de costa a 0 en los bordes
-    tierra-tierra y mar-mar (como en World). Devuelve {'triangulos': n invertidos, 'costas': n tramos corregidos}."""
+    """Rules the game needs that a map made from scratch (or with regions that changed from sea to land) could break:
+    counterclockwise triangles (clockwise ones the game neither draws nor lets the region be selected) and coast flag 0 on
+    land-land and sea-sea borders (as in World). Returns {'triangulos': n flipped, 'costas': n stretches fixed}."""
     flipped = 0
     for s in m['shapes']:
         ix, v = s.indices, s.vertices
@@ -206,7 +206,7 @@ def normalize_map(m):
         if len(b.regions) != 2:
             continue
         if (R[b.regions[0]].u_type == SEA) != (R[b.regions[1]].u_type == SEA):
-            continue           # tierra-mar: en World pueden ir con 0, 1 o mezclados; se dejan
+            continue           # land-sea: in World they may be 0, 1 or mixed; left alone
         want = 0               # tierra-tierra y mar-mar: siempre 0 en World
         segs = []
         for f, pts in b.segments:

@@ -1,11 +1,11 @@
-"""Escenario desde cero sobre un regionpack nuevo (pocas regiones) y naciones nuevas con su capital.
+"""Scenario from scratch on a new regionpack (few regions) and new nations with their capital.
 
-Diseño (ver EDITOR.md, «Naciones y escenario desde cero»): el escenario nuevo toma de una plantilla (por defecto «Clash of Continents»,
-el escenario del juego con pocas naciones; si no está, el que tenga menos países) solo lo que no depende del mapa: sharedData*.xml,
-game/, ui/ y scenarioDefs. Todo lo demás se genera aquí vacío: scenario.xml, scenarioInfo.xml, game.xml, gamestate.xml, treaties.xml,
-waterWorld.xml (sin mares) y sharedDataHistoricCountries.xml (sin países históricos). Las naciones se añaden después, cada una con
-country<Nombre>.xml + player<Nombre>.xml, su Player en gamestate.xml y su entrada en game.xml / scenarioInfo.xml.
-Sin imágenes: no se crean Button.tga, ButtonOver.tga, Title.tga ni banderas (se prescinde de ellas).
+Design (see EDITOR.md, «Naciones y escenario desde cero»): the new scenario takes from a template (default «Clash of Continents»,
+the game scenario with few nations; if missing, the one with the fewest countries) only what does not depend on the map: sharedData*.xml,
+game/, ui/ and scenarioDefs. Everything else is generated here empty: scenario.xml, scenarioInfo.xml, game.xml, gamestate.xml, treaties.xml,
+waterWorld.xml (no seas) and sharedDataHistoricCountries.xml (no historic countries). Nations are added later, each with
+country<Nombre>.xml + player<Nombre>.xml, its Player in gamestate.xml and its entry in game.xml / scenarioInfo.xml.
+No images: Button.tga, ButtonOver.tga, Title.tga and flags are not created (done without).
 """
 import os
 import re
@@ -19,9 +19,9 @@ BAD_FILE = re.compile(r'[\\/:*?"<>|]')
 HEAD = '<?xml version="1.0" encoding="UTF-8"?>\r\n<objects name="Object Load" version="0.1" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">\r\n'
 RESOURCES = (('Armaments', 'Arms'), ('Coal', 'Coal'), ('Food', 'Food'), ('Consumer', 'Goods'), ('Metals', 'Metals'), ('Oil', 'Oil'))
 RESEARCH = ('MotorizedInfantry', 'EarlyTanks', 'LightTanks', 'MechanizedInfantry', 'PreWarFighters', 'LightBombers')
-MIN_POP = 2      # «población mayor que 2»: la capital y la nación suman más de MIN_POP habitantes
+MIN_POP = 2      # «population greater than 2»: the capital and the nation total more than MIN_POP inhabitants
 BUILTIN_TEMPLATE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'editor', 'plantilla_escenario')
-# datos compartidos que necesita un escenario (los de scenario.xml de la plantilla propia), copiados de ScenarioDefaults
+# shared data a scenario needs (those in the template's own scenario.xml), copied from ScenarioDefaults
 BUILTIN_SHARED = ('sharedData.xml', 'sharedDataAI.xml', 'sharedDataUnitTemplates.xml', 'sharedDataFactories.xml', 'sharedDataResearch.xml',
                   'sharedDataTemplates.xml', 'sharedDataUnitTemplateSprites.xml', 'sharedDataCultureTemplates.xml')
 
@@ -65,11 +65,11 @@ def check_name(name, root=None):
 
 
 def create_scenario(name, pack, template=None, display=None, description=None, year=1936, month=1, day=1, turns=480):
-    """Crea la carpeta del escenario vacío (sin naciones ni regiones) que usa el regionpack 'pack'. No toca el mapa."""
+    """Creates the empty scenario folder (no nations or regions) using regionpack 'pack'. Does not touch the map."""
     root = sc.SCEN_ROOT
     name = check_name(name, root)
-    # sin plantilla elegida: la del propio editor (editor/plantilla_escenario: scenario.xml, game/, ui/) y los datos
-    # compartidos de ScenarioDefaults (los instala siempre el juego, MH1 y Gold): no depende de ningún escenario concreto
+    # no template chosen: the editor's own (editor/plantilla_escenario: scenario.xml, game/, ui/) and the shared
+    # data from ScenarioDefaults (always installed by the game, MH1 and Gold): does not depend on any specific scenario
     own = not template
     src = BUILTIN_TEMPLATE if own else os.path.join(root, template)
     if not os.path.isfile(os.path.join(src, 'scenario.xml')):
@@ -82,21 +82,21 @@ def create_scenario(name, pack, template=None, display=None, description=None, y
     dst = os.path.join(root, name)
     try:
         os.makedirs(dst)
-        for f in sorted(os.listdir(shared_src)):      # datos compartidos (copias propias del escenario)
+        for f in sorted(os.listdir(shared_src)):      # shared data (the scenario's own copies)
             if f.startswith('sharedData') and f.endswith('.xml') and f != 'sharedDataHistoricCountries.xml' \
                     and (not own or f in BUILTIN_SHARED):
                 shutil.copy2(os.path.join(shared_src, f), dst)
         for d in ('game', 'ui'):
             if os.path.isdir(os.path.join(src, d)):
-                # de otro escenario no se copian sus banderas (ui/.../countries); de la plantilla del editor sí (las genéricas)
+                # from another scenario its flags (ui/.../countries) are not copied; from the editor template they are (the generic ones)
                 shutil.copytree(os.path.join(src, d), os.path.join(dst, d),
                                 ignore=shutil.ignore_patterns('stringTable.xml') if own else shutil.ignore_patterns('countries', 'stringTable.xml'))
-        for f in ('Title.tga', 'Button.tga', 'ButtonOver.tga'):     # imagenes de la lista de escenarios (plantilla del editor)
+        for f in ('Title.tga', 'Button.tga', 'ButtonOver.tga'):     # scenario list images (editor template)
             if os.path.isfile(os.path.join(src, f)) and not os.path.exists(os.path.join(dst, f)):
                 shutil.copy2(os.path.join(src, f), dst)
         if os.path.exists(os.path.join(dst, 'game', 'namespace.xml')):
             _write(os.path.join(dst, 'game', 'stringTable.xml'), '<?xml version="1.0" encoding="UTF-8"?>\r\n<stringTable existence="optional">\r\n</stringTable>\r\n')
-        # scenario.xml: el de la plantilla con nombre, descripción, fechas y regionpack propios
+        # scenario.xml: the template's with its own name, description, dates and regionpack
         t = open(os.path.join(src, 'scenario.xml'), encoding='utf-8', errors='replace', newline='').read()
         disp = display or name
         desc = description or ''
@@ -104,7 +104,7 @@ def create_scenario(name, pack, template=None, display=None, description=None, y
         for k, v in (('strName', name), ('strDisplayName', disp), ('strDescription', desc), ('strVersion', '1.0'),
                      ('nStartYear', str(year)), ('nStartMonth', str(month)), ('nStartDay', str(day)),
                      ('dateStart', '%02d/%02d/%s' % (month, day, year)), ('nScenarioDuration', str(turns)),
-                     ('strMapName', pack),          # strSpriteMapName se deja el de la plantilla (World): no hay sprite map por regionpack
+                     ('strMapName', pack),          # strSpriteMapName is left as the template's (World): there is no sprite map per regionpack
                      ('fileMapProperties', '/../Modern Europe/system/DisplayLibraries/Maps/%s/xml/properties.xml' % pack)):
             t = sub(k, v, t)
         _write(os.path.join(dst, 'scenario.xml'), t)
@@ -133,9 +133,9 @@ def create_scenario(name, pack, template=None, display=None, description=None, y
 
 # ---------------------------------------------------------------------------------------- naciones
 def name_taken(s, name):
-    """Por qué no se puede usar 'name' para una nación nueva (None si está libre): ya hay país, jugador en gamestate.xml,
-    entrada en game.xml o archivos con ese nombre (p. ej. una nación a medio crear con otro editor). Dos jugadores con el
-    mismo nombre impiden crear la partida («Found duplicate player named …»)."""
+    """Why 'name' cannot be used for a new nation (None if free): there is already a country, a player in gamestate.xml,
+    an entry in game.xml or files with that name (e.g. a nation half-created with another editor). Two players with the
+    same name prevent the game from being created («Found duplicate player named …»)."""
     if name in s.countries():
         return 'ya existe la nación %s' % name
     if any(prop(p, 'strName') == name for p in s.all('Player', lambda f: f == 'gamestate.xml')):
@@ -147,7 +147,7 @@ def name_taken(s, name):
 
 
 def validate_nation(spec, existing=(), need_capital=True):
-    """Reglas de una nación nueva: nombre libre, capital con nombre y habitantes de la capital y de la nación > MIN_POP."""
+    """Rules for a new nation: free name, named capital, and capital and nation inhabitants > MIN_POP."""
     n = (spec.get('name') or '').strip()
     if not n or BAD_FILE.search(n):
         raise ValueError('la nación nueva «%s» necesita un nombre válido (sin \\ / : * ? " < > |)' % n)
@@ -161,7 +161,7 @@ def validate_nation(spec, existing=(), need_capital=True):
     cap = spec.get('capital') or {}
     if not (cap.get('name') or '').strip():
         raise ValueError('%s: toda nación necesita una ciudad capital (nombre)' % n)
-    if cap.get('existing'):         # capital = una ciudad que ya cae dentro de la región (se comprueba al registrarla)
+    if cap.get('existing'):         # capital = a city already inside the region (checked when registering it)
         cp = MIN_POP + 1
     else:
         try:
@@ -188,8 +188,8 @@ def free_color(used):
 
 
 def create_nation(s, spec, need_capital=True):
-    """Nación nueva sin regiones en el escenario 's' (Scenario abierto): country/player.xml, game.xml, gamestate.xml,
-    scenarioInfo.xml y textos. La capital se fija cuando se crea su ciudad (set_capital). No guarda."""
+    """New nation without regions in scenario 's' (open Scenario): country/player.xml, game.xml, gamestate.xml,
+    scenarioInfo.xml and texts. The capital is set when its city is created (set_capital). Does not save."""
     import xml.etree.ElementTree as ET
     st = s.s
     name = validate_nation(spec, s.countries(), need_capital)
@@ -226,7 +226,7 @@ def create_nation(s, spec, need_capital=True):
             pl += _p(k, 'Default') + _p(k, 'Playable') + _p('strPLPDefLists', 'Playable')
             continue
         pl += _p(k, v)
-    # cada escenario tiene su árbol: solo los proyectos que existen, más sus requisitos (si falta uno no se crea la partida)
+    # each scenario has its tree: only the projects that exist, plus their prerequisites (if one is missing the game is not created)
     tree = sc.research_tree(s.dir)
     done = [r for r in RESEARCH if not tree or r in tree]
     for r in done + sc.missing_prereqs(tree, done):
@@ -273,15 +273,15 @@ def create_nation(s, spec, need_capital=True):
     notes += sc.set_region_string(s, 'SID.Game.Country.Name.' + slug, name)
     for k in ('Possessive', 'Adjective', 'People', 'Alliance'):
         notes += sc.set_region_string(s, 'SID.Game.Country.%s.%s' % (k, slug), name)
-    # el texto tiene que existir aunque esté vacío: un sidShortDescription sin texto impide cargar la partida
+    # the text must exist even if empty: a sidShortDescription without text prevents the game from loading
     notes += sc.set_region_string(s, 'SID.Game.Country.Description.%s.%s' % (_slug(s.name), slug), spec.get('description') or '')
-    # imágenes de la nación: marcador de posición liso
+    # nation images: plain placeholder
     s._opts = None
     return notes
 
 
 def add_historic(s, nation, regions):
-    """HistoricCountry de la nación con sus regiones (lo usa el juego para liberar naciones)."""
+    """HistoricCountry of the nation with its regions (the game uses it to liberate nations)."""
     import xml.etree.ElementTree as ET
     st = s.s
     h = next((h for h in s.all('HistoricCountry') if prop(h, 'strCountry') == nation), None)
@@ -310,7 +310,7 @@ def set_capital(s, nation, city):
 
 
 def check_nations(s, names=None):
-    """Errores de las naciones con territorio: sin capital propia o con habitantes <= MIN_POP (capital o total)."""
+    """Errors of nations with territory: no capital of their own or with inhabitants <= MIN_POP (capital or total)."""
     out = []
     cities = {}
     for r in s.regions(sea=False):
@@ -337,16 +337,16 @@ def check_nations(s, names=None):
     return out
 
 
-# ---------------------------------------------------------------------------------------- enganche con las regiones nuevas
+# ---------------------------------------------------------------------------------------- hook into the new regions
 def prepare_region(s, c):
-    """Antes de registrar una región nueva ('c' = entrada de regiones_nuevas): si trae una nación nueva que aún no existe en
-    el escenario, la crea. La capital de la nación es la ciudad que se crea en esta región."""
+    """Before registering a new region ('c' = regiones_nuevas entry): if it brings a new nation that does not yet exist in
+    the scenario, creates it. The nation's capital is the city created in this region."""
     nat = c.get('nacion')
     if not nat:
         return []
     notes = []
     import scenario_layers
-    same = scenario_layers.match_country(s, nat['name'])     # «UnitedStates» = «United States»: no se duplica la nación
+    same = scenario_layers.match_country(s, nat['name'])     # «UnitedStates» = «United States»: the nation is not duplicated
     if same:
         nat = dict(nat, name=same)
         c['nacion'] = nat
@@ -364,7 +364,7 @@ def prepare_region(s, c):
 
 
 def finish_region(s, c, region):
-    """Tras crear la región y su ciudad: fija la capital de la nación y la hace país histórico con esta región."""
+    """After creating the region and its city: sets the nation's capital and makes it a historic country with this region."""
     nat = c.get('nacion')
     if not nat:
         return []

@@ -1,7 +1,7 @@
-"""Contornos exactos de las regiones a partir de su malla (para el editor).
+"""Exact region outlines from their mesh (for the editor).
 
-region_polygons(m, r) -> lista de poligonos [[anillo exterior], [hueco], ...] con los vertices EXACTOS de la
-malla (incluidos los que comparte con sus vecinas), en el formato de coordenadas de GeoJSON MultiPolygon.
+region_polygons(m, r) -> list of polygons [[outer ring], [hole], ...] with the EXACT vertices of the
+mesh (including those shared with its neighbors), in GeoJSON MultiPolygon coordinate format.
 """
 import math
 import os
@@ -25,7 +25,7 @@ def ring_area(ring):
 
 
 def shape_rings(sh):
-    """Anillos cerrados (sin repetir el primer punto) del contorno de un shape."""
+    """Closed rings (without repeating the first point) of a shape's outline."""
     count = defaultdict(int)
     directed = []
     if True:
@@ -60,7 +60,7 @@ def shape_rings(sh):
             if len(nxts) == 1 or prev is None:
                 n = nxts[0]
             else:
-                # vertice de pinzamiento: la salida que gira mas a la izquierda respecto de la llegada
+                # pinch vertex: the exit turning furthest left relative to the arrival
                 ang_in = math.atan2(prev[1] - cur[1], prev[0] - cur[0])
                 n = min(nxts, key=lambda q: (ang_in - math.atan2(q[1] - cur[1], q[0] - cur[0])) % (2 * math.pi) or 2 * math.pi)
             nxts.remove(n)
@@ -68,7 +68,7 @@ def shape_rings(sh):
                 del out[cur]
             if n == start:
                 break
-            if n in pos:   # el anillo se toca a si mismo: el lazo se separa como anillo propio
+            if n in pos:   # the ring touches itself: the loop is split off as its own ring
                 j = pos[n]
                 loop = ring[j:]
                 if len(loop) >= 3:
@@ -94,7 +94,7 @@ def _polygons(rings):
     shp = [Polygon(o) for o, in polys]
     for h in holes:
         p = Point(h[0])
-        # el exterior mas pequeno que contiene al hueco
+        # the smallest exterior containing the hole
         for i, s in enumerate(shp):
             if s.buffer(1e-9).contains(Polygon(h).representative_point()) or s.contains(p):
                 polys[i].append(h)
@@ -103,8 +103,8 @@ def _polygons(rings):
 
 
 def region_polygons(m, r):
-    """MultiPolygon editable de la region. En las regiones-isla (isla + halo superpuestos) es el halo;
-    los shapes cubiertos por otro shape de la misma region se devuelven aparte como detalle."""
+    """Editable MultiPolygon of the region. In island regions (overlapping island + halo) it is the halo;
+    shapes covered by another shape of the same region are returned separately as detail."""
     shapes = mhmap.region_shapes(m, r)
     per = [_polygons(shape_rings(sh)) for sh in shapes]
     main, detail = [], []
@@ -112,10 +112,10 @@ def region_polygons(m, r):
         geo = [[Polygon(p[0], p[1:]) for p in ps] for ps in per]
         cov = [[g.buffer(1e-7) for g in gs] for gs in geo]
         for i, ps in enumerate(per):
-            for k, p in enumerate(ps):      # por polígono: un shape con la isla bajo su halo y otra isla aparte (Mauritius + una isla importada)
+            for k, p in enumerate(ps):      # per polygon: a shape with the island under its halo and another separate island (Mauritius + an imported island)
                 g = geo[i][k]
-                # detalle = tapado por un polígono MAYOR de otro shape; si son iguales (malla duplicada) se queda como principal el del
-                # primer shape (antes los dos pasaban a detalle y el contorno editable quedaba reducido a una miga)
+                # detail = covered by a LARGER polygon of another shape; if equal (duplicated mesh) the main one kept is that of the
+                # first shape (previously both became detail and the editable outline was reduced to a crumb)
                 covered = any(j != i and (q.area > g.area * (1 + 1e-6) or j < i) and c.covers(g)
                               for j in range(len(per)) for q, c in zip(geo[j], cov[j]))
                 (detail if covered else main).append(p)

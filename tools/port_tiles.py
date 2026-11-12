@@ -1,16 +1,16 @@
-"""Traslada cambios de las texturas del terreno (OperationalTerrain, DXT5 sin cabecera) de un juego a otro.
+"""Carries over terrain texture changes (OperationalTerrain, headerless DXT5) from one game to another.
 
-Making History Gold tiene las mismas texturas que MH1 con otro color (mar menos saturado...): es una
-transformacion de color pixel a pixel (comprobado: una tabla de color MH1 -> Gold acierta con error medio < 1/255).
-Para cada tile modificado por un mod de MH1:
-  1. se comparan, bloque 4x4 a bloque 4x4 (16 bytes DXT5), el original de MH1 y el del mod;
-  2. en los bloques que cambian se pone el pixel del mod pasado por la tabla de color MH1 -> destino
-     (aprendida de los pixeles del original de MH1 y del destino en esos mismos tiles; si un color no esta en la
-     tabla, ajuste lineal);
-  3. se recomprimen solo esos bloques sobre la textura del destino (tile y sus 4 mipmaps).
+Making History Gold has the same textures as MH1 with another color (less saturated sea...): it is a
+pixel-by-pixel color transform (verified: an MH1 -> Gold color table hits with mean error < 1/255).
+For each tile modified by an MH1 mod:
+  1. the MH1 original and the mod's are compared, 4x4 block by 4x4 block (16 DXT5 bytes);
+  2. in the blocks that change, the mod's pixel is put through the MH1 -> target color table
+     (learned from the pixels of the MH1 original and of the target in those same tiles; if a color is not in the
+     table, linear fit);
+  3. only those blocks are recompressed over the target texture (tile and its 4 mipmaps).
 
-Uso: python port_tiles.py <art original MH1> <art del mod> <art del destino> <carpeta salida>
-     (cada una es una carpeta OperationalTerrain con los OperationalTerrain-CC-RR[-0N].tga)
+Usage: python port_tiles.py <art original MH1> <art del mod> <art del destino> <carpeta salida>
+     (each is an OperationalTerrain folder with the OperationalTerrain-CC-RR[-0N].tga files)
 """
 import os
 import re
@@ -58,7 +58,7 @@ class ColorMap:
 def port(orig_dir, mod_dir, target_dir, out_dir, log=print):
     names = sorted(n for n in os.listdir(mod_dir) if NAME.match(n))
     os.makedirs(out_dir, exist_ok=True)
-    # una tabla de color por nivel de mipmap (los mipmaps se filtran y comprimen por separado)
+    # one color table per mipmap level (mipmaps are filtered and compressed separately)
     by_size = {}
     for n in names:
         by_size.setdefault(size_of(n), []).append(n)

@@ -1,8 +1,8 @@
-"""Modelos 3D de las unidades (NIF Gamebryo 10.2.0.0).
+"""3D models of the units (NIF Gamebryo 10.2.0.0).
 
-Los SpriteLib*.xml apuntan siempre a «/../Modern Europe/system/ui/art/3D/...», pero el juego busca antes la misma ruta
-dentro de la carpeta del escenario (scenarios/<Esc>/ui/art/3D/...). Si el escenario trae el .nif, el modelo es suyo; si
-solo trae texturas (.dds/.tga con el nombre que pide el .nif), es el modelo del juego con textura propia.
+The SpriteLib*.xml always point to «/../Modern Europe/system/ui/art/3D/...», but the game first looks for the same path
+inside the scenario folder (scenarios/<Esc>/ui/art/3D/...). If the scenario ships the .nif, the model is its own; if
+it only ships textures (.dds/.tga with the name the .nif asks for), it is the game's model with its own texture.
 """
 import os
 import re
@@ -14,18 +14,18 @@ _CACHE = {}
 
 
 def rel_path(file_name):
-    """«/../Modern Europe/system/ui/art/3D/X.nif» -> «ui/art/3D/X.nif» (relativa a system/ o al escenario)."""
+    """«/../Modern Europe/system/ui/art/3D/X.nif» -> «ui/art/3D/X.nif» (relative to system/ or to the scenario)."""
     f = file_name.replace('\\', '/')
     i = f.lower().find('/system/')
     if i >= 0:
         f = f[i + len('/system/'):]
-        if f.lower().startswith('scenarios/'):   # ruta explícita a un escenario
+        if f.lower().startswith('scenarios/'):   # explicit path to a scenario
             return None
     return f.lstrip('/')
 
 
 def nif_textures(path):
-    """Nombres de textura que pide el .nif (cadenas NiSourceTexture)."""
+    """Texture names the .nif asks for (NiSourceTexture strings)."""
     try:
         st = os.stat(path)
     except OSError:
@@ -41,7 +41,7 @@ def model_status(file_name, scen_dir=None):
     """{'model': 'scenario'|'game'|'missing', 'textures': [..propias..], 'nif': ruta usada}"""
     rel = rel_path(file_name)
     game_sys = os.path.join(sc.GAME, 'Modern Europe', 'system')
-    if rel is None:     # ruta absoluta a un escenario
+    if rel is None:     # absolute path to a scenario
         p = os.path.normpath(os.path.join(game_sys, file_name.replace('\\', '/').split('/system/', 1)[1]))
         return {'model': 'scenario' if os.path.exists(p) else 'missing', 'textures': [], 'nif': p}
     own = os.path.join(scen_dir, rel) if scen_dir else None

@@ -79,7 +79,7 @@
   <button data-p="icon">Iconos de unidades y productos</button>
 </div>
 
-<!-- ====================================================================== título -->
+<!-- ====================================================================== title -->
 <section class="page on" id="p-title">
   <div class="cols">
     <div>
@@ -215,7 +215,7 @@
 
 <script>
 const $ = s => document.querySelector(s);
-const L = (es, en) => (window.mhTr && window.mhTr('Cerrar') === 'Close' ? en : es);     // ventanas emergentes con datos
+const L = (es, en) => (window.mhTr && window.mhTr('Cerrar') === 'Close' ? en : es);     // popups with data
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const api = async (url, body) => {
   const r = await fetch(url, body ? {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)} : {});
@@ -249,7 +249,7 @@ function dropZone(el, onset) {
   el.clear = () => { delete inputs[el.dataset.k]; el.textContent = label; };
 }
 
-// ================================================================== TÍTULO Y BOTONES
+// ================================================================== TITLE AND BUTTONS
 const cv = $('#cv'), ctx = cv.getContext('2d');
 let T = {files:[], file:null, layers:[], sel:-1, base:null};
 
@@ -512,5 +512,6 @@ async function loadScenario() { store('img-scen', scen()); await Promise.all([lo
   await loadScenario();
 })();
 </script>
+<script src="/ai_chat.js"></script>
 </body>
 </html>

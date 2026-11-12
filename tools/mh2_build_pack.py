@@ -1,11 +1,11 @@
-"""Construye el regionpack «WorldMH2»: el mapa de MH1 Gold con sus regiones subdivididas segun las de Making History II.
+"""Builds the «WorldMH2» regionpack: the MH1 Gold map with its regions subdivided like those of Making History II.
 
     python -u mh2_build_pack.py [--resume] [--finish] [--limit N] [--only NOMBRE ...] [--water]
 
-Trabaja SOLO en copias (mh2/_build); no toca el juego (las texturas del juego se leen por un enlace de solo lectura).
-Resultado en mh2/WorldMH2/ (xml, texturas cambiadas, changelog.json, poblacion.json).
-Para ponerlo en el juego: python mh2_install.py (o «Instalar → crear regionpack nuevo» del editor).
-Si se interrumpe, --resume sigue por donde iba (salta las regiones madre ya subdivididas).
+Works ONLY on copies (mh2/_build); does not touch the game (game textures are read through a read-only link).
+Output in mh2/WorldMH2/ (xml, changed textures, changelog.json, poblacion.json).
+To put it in the game: python mh2_install.py (or the editor's «Instalar → crear regionpack nuevo»).
+If interrupted, --resume continues where it left off (skips mother regions already subdivided).
 """
 import argparse, json, os, shutil, subprocess, sys, time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -19,7 +19,7 @@ PACK = 'WorldMH2'
 
 
 def live_mesh(P, i):
-    """(contorno, vertices) de la region i en la malla actual del proyecto."""
+    """(outline, vertices) of region i in the project's current mesh."""
     import shapely, new_region, mhmap
     G = new_region.mesh_polygon(P.m, i)
     V = shapely.MultiPoint(sorted({tuple(v[:2]) for sh in mhmap.region_shapes(P.m, i) for v in sh.vertices}))
@@ -27,7 +27,7 @@ def live_mesh(P, i):
 
 
 def nst_shapes(name):
-    """Union de la malla de cada nodo de un .nst del mapa de MH2 -> {nombre: geometria}."""
+    """Union of the mesh of each node of an MH2 map .nst -> {name: geometry}."""
     import mh2_regions
     from shapely.geometry import Polygon
     from shapely.ops import unary_union
@@ -41,7 +41,7 @@ def nst_shapes(name):
 
 
 def safe_save(P, payload):
-    """P.save que no revienta: devuelve (informe, errores). Si el editor rechaza el cambio no queda nada a medias."""
+    """P.save that does not blow up: returns (report, errors). If the editor rejects the change nothing is left half-done."""
     try:
         rep = P.save(payload, log=lambda *x: None)
         return rep, rep.get('errors') or []
@@ -52,8 +52,8 @@ def safe_save(P, payload):
 
 
 def add_water(P, a):
-    """DecorativeLakes.nst -> huecos vacios en la tierra; Rivers.nst -> regiones maritimas nuevas.
-    Por lotes pequenos (cada uno: primero se cortan los huecos de la tierra y luego se crean las regiones de mar sobre ellos)."""
+    """DecorativeLakes.nst -> empty holes in the land; Rivers.nst -> new sea regions.
+    In small batches (each: first the holes are cut in the land and then the sea regions are created over them)."""
     import new_region
     from shapely.geometry import MultiPolygon
     from shapely.ops import unary_union
@@ -62,7 +62,7 @@ def add_water(P, a):
     t0 = time.time()
     done = {x['nombre'] for e in P.changelog() for x in e.get('regiones_nuevas', [])}
     taken = {r.name for r in P.m['regions']}
-    # los rios se hacen disjuntos entre si (de mayor a menor) para que cada hueco lo tome un solo rio
+    # rivers are made disjoint from each other (largest to smallest) so each hole is taken by a single river
     items, seen = [], None
     for k, W in sorted(rivers.items(), key=lambda kv: -kv[1].area):
         g = W if seen is None else W.difference(seen)
@@ -70,7 +70,7 @@ def add_water(P, a):
         parts = [p for p in getattr(g, 'geoms', [g]) if p.geom_type == 'Polygon' and p.area > 1e-7]
         if parts:
             items.append((k.replace('_', ' ') + (' (river)' if k.replace('_', ' ') in taken else ''), MultiPolygon(parts)))
-    # lagos: cada poligono suelto, agrupados por casillas de 10 grados (zonas de guardado pequenas = rapido); rios: de uno en uno
+    # lakes: each loose polygon, grouped in 10-degree cells (small save areas = fast); rivers: one by one
     cells = {}
     for k, W in lakes.items():
         for q in getattr(W, 'geoms', [W]):
@@ -96,7 +96,7 @@ def add_water(P, a):
             def cut_asg(d):
                 return [{'kind': 'cut', 'polygon': mapping(g), 'from': i, 'into': None} for i, g in d.items()]
             rep, err = safe_save(P, {'assigns': cut_asg(cuts), 'paint': True})
-            if err and len(cuts) > 1:      # se prueba region por region y se salta la que el editor rechaza
+            if err and len(cuts) > 1:      # tried region by region, skipping the one the editor rejects
                 bad = 0
                 for i, g in cuts.items():
                     rep, e1 = safe_save(P, {'assigns': cut_asg({i: g}), 'paint': True})
@@ -106,7 +106,7 @@ def add_water(P, a):
                 err = ['%d regiones sin recortar' % bad] if bad else []
             elif err:
                 print('   no se pudo recortar: %s' % err[0][:90], flush=True)
-            for i in cuts:      # solo cambian las regiones recortadas
+            for i in cuts:      # only the cut regions change
                 land[i] = new_region.mesh_polygon(P.m, i)
             print('%s lote %d/%d: %d regiones recortadas, errores %s | %.0f s' % (kind, n, len(batches), len(cuts), err, time.time() - t0), flush=True)
         if make_sea:
@@ -119,7 +119,7 @@ def add_water(P, a):
 
 
 def reference_population(P, m2props, mother_of):
-    """Habitantes de MH2 que caen en cada region de tierra del mapa nuevo (por area): {region: {pop, mh2, owner, culture, mother}}."""
+    """MH2 inhabitants falling in each land region of the new map (by area): {region: {pop, mh2, owner, culture, mother}}."""
     import new_region
     from shapely.strtree import STRtree
     R = P.m['regions']
@@ -165,9 +165,9 @@ def main():
     if not a.resume:
         if os.path.exists(link):
             try:
-                os.rmdir(link)      # quita el enlace sin tocar el juego
+                os.rmdir(link)      # removes the link without touching the game
             except OSError:
-                pass          # era una carpeta real (copia de una version anterior): rmtree de abajo la borra
+                pass          # it was a real folder (copy from a previous version): rmtree below deletes it
         shutil.rmtree(BUILD, ignore_errors=True)
         os.makedirs(os.path.join(pk, 'xml'))
         for f in editor_core.XML_FILES:
@@ -177,7 +177,7 @@ def main():
         os.makedirs(os.path.join(BUILD, 'proj', 'tiles'))
         for f in os.listdir(os.path.join(mh2_plan.ORIG, 'OperationalTerrain')):
             shutil.copy2(os.path.join(mh2_plan.ORIG, 'OperationalTerrain', f), os.path.join(BUILD, 'proj', 'tiles', f))
-    # texturas: las del juego (solo lectura, por enlace) salvo las 40 que el mapa de Chile cambio, que se toman de las originales
+    # textures: the game's (read-only, via link) except the 40 the Chile map changed, which are taken from the originals
     if not os.path.exists(link):
         os.makedirs(os.path.join(pk, 'art'), exist_ok=True)
         subprocess.check_call(['cmd', '/c', 'mklink', '/J', link, os.path.join(editor_core.MAPS, 'World', 'art', 'OperationalTerrain')],
@@ -188,7 +188,7 @@ def main():
     pl.taken |= {r.name for r in P.m['regions']}
     log0 = P.changelog()
     done_m = {x['madre'] for e in log0 for x in e.get('regiones_nuevas', []) if x.get('madre')}
-    water_done = False       # add_water se puede repetir: no vuelve a hacer lo que ya esta
+    water_done = False       # add_water can be repeated: it does not redo what is already done
     t0 = time.time()
     failed, tot_new = [], 0
     ff = os.path.join(BUILD, 'fallos.json')
@@ -204,7 +204,7 @@ def main():
         for level in range(len(mh2_plan.LADDER)):
             try:
                 parts = pl.plan(i, level, live_mesh(P, i))
-            except Exception as ex:      # geometria rara (TopologyException): se prueba con mas simplificacion
+            except Exception as ex:      # odd geometry (TopologyException): retried with more simplification
                 print('   plan %s nivel %d: %s' % (rname, level, str(ex)[:80]), flush=True)
                 parts = [True]
                 continue
@@ -239,7 +239,7 @@ def main():
     json.dump(failed, open(ff, 'w'))
     if (not a.limit or a.water) and not water_done and not a.no_water:
         add_water(P, a)
-    # changelog: sin dueno ni fraccion, para que el editor reparta lo que haya en cada escenario
+    # changelog: without owner or fraction, so the editor distributes whatever each scenario has
     log = P.changelog()
     mother_of = {}
     for e in log:
@@ -268,7 +268,7 @@ def main():
     json.dump(log, open(os.path.join(OUT, 'changelog.json'), 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
     json.dump({'fuente': 'Making History II', 'regiones': pops}, open(os.path.join(OUT, 'poblacion.json'), 'w', encoding='utf-8'),
               ensure_ascii=False, indent=1)
-    os.rmdir(link)      # quita el enlace a las texturas del juego (no borra nada)
+    os.rmdir(link)      # removes the link to the game textures (deletes nothing)
     print('regiones nuevas en esta pasada:', tot_new, '| total en el mapa:', len(P.m['regions']), '| madres que no se pudieron subdividir:', failed)
 
 

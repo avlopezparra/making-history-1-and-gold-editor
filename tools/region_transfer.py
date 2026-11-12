@@ -1,14 +1,14 @@
-"""Exportar e importar regiones entre escenarios (varias a la vez), con sus ciudades y recursos y, si se pide, sus unidades.
+"""Export and import regions between scenarios (several at once), with their cities and resources and, if requested, their units.
 
-Paquete (dict, se guarda como .json): {'kind': 'mh-regions', 'scenario', 'regions': [xml de cada Region con sus City/Producer],
-'units': [xml de cada Army/AirForce/Fleet cuyo strRegion es una de ellas]}.
-Al importar en otro escenario:
-- la región tiene que existir en él (la define el mapa): se le ponen los datos de la de origen (dueño, controlador, población,
-  cultura, terreno, infraestructura…) y pasa al archivo de su nuevo dueño;
-- los países de origen que no existen en el destino se asignan a uno existente (mapping);
-- ciudades, recursos y unidades no se duplican: si ya hay uno igual (mismo nombre; recurso: mismo nombre y tipo;
-  unidad: mismo tipo, nombre y región) se actualiza en vez de añadir otro.
-Todo queda en memoria hasta «Guardar».
+Package (dict, saved as .json): {'kind': 'mh-regions', 'scenario', 'regions': [xml of each Region with its City/Producer],
+'units': [xml of each Army/AirForce/Fleet whose strRegion is one of them]}.
+When importing into another scenario:
+- the region must exist in it (the map defines it): it gets the source region's data (owner, controller, population,
+  culture, terrain, infrastructure…) and moves to its new owner's file;
+- source countries that do not exist in the target are assigned to an existing one (mapping);
+- cities, resources and units are not duplicated: if an equal one exists (same name; resource: same name and type;
+  unit: same type, name and region) it is updated instead of adding another.
+Everything stays in memory until «Guardar».
 """
 import copy
 import xml.etree.ElementTree as ET
@@ -17,7 +17,7 @@ import scenario_core as sc
 from scenario_core import prop, objs
 
 UNIT_TYPES = ('Army', 'AirForce', 'Fleet')
-KEEP = ('strName',)          # propiedades de la región que no se copian
+KEEP = ('strName',)          # region properties that are not copied
 
 
 def export_regions(s, names, units=True):
@@ -53,7 +53,7 @@ def _owners(regs, us):
 
 
 def plan(s, bundle):
-    """Qué pasaría al importar: regiones que existen o no en el destino, países que faltan y duplicados."""
+    """What would happen on import: regions that exist or not in the target, missing countries and duplicates."""
     regs, us = _parse(bundle)
     land = {prop(r, 'strName'): r for r in s.regions(sea=False)}
     countries = set(s.countries())
@@ -78,7 +78,7 @@ def plan(s, bundle):
 
 
 def apply(s, bundle, mapping=None, cities=True, units=True):
-    """Importa el paquete en el escenario 's' (en memoria). mapping: {país de origen: país del destino} para los que faltan."""
+    """Imports the package into scenario 's' (in memory). mapping: {source country: target country} for the missing ones."""
     st = s.s
     regs, us = _parse(bundle)
     countries = s.countries()
@@ -96,7 +96,7 @@ def apply(s, bundle, mapping=None, cities=True, units=True):
             skipped.append(name)
             continue
         tid = st.eid(t)
-        # datos de la región (dueño y controlador traducidos); el cambio de dueño la lleva al archivo de su país
+        # region data (owner and controller translated); the owner change moves it to its country's file
         values = {}
         for p in r:
             if p.tag == 'property' and p.get('name') not in KEEP and p.get('value') is not None:
@@ -115,7 +115,7 @@ def apply(s, bundle, mapping=None, cities=True, units=True):
                 for p in new.iter('property'):
                     if p.get('name') in ('strOwner', 'strController'):
                         p.set('value', M(p.get('value')))
-                if old is not None:          # ya estaba: se reemplaza (no se duplica)
+                if old is not None:          # already there: replaced (not duplicated)
                     idx = list(t).index(old)
                     st.remove(old)
                     st.attach(new, t, index=idx)
@@ -125,7 +125,7 @@ def apply(s, bundle, mapping=None, cities=True, units=True):
                     n_add += 1
     n_u_add = n_u_upd = 0
     if units:
-        # misma unidad = mismo tipo, nombre y región (aunque cambie de dueño al importarla): se reemplaza, no se duplica
+        # same unit = same type, name and region (even if its owner changes on import): replaced, not duplicated
         have = {(u.get('type'), prop(u, 'strName'), prop(u, 'strRegion')): u for t in UNIT_TYPES for u in s.all(t)}
         for u in us:
             if prop(u, 'strRegion') in skipped:
@@ -142,7 +142,7 @@ def apply(s, bundle, mapping=None, cities=True, units=True):
                 same = par is owner
                 idx = list(par).index(old)
                 st.remove(old)
-                st.attach(new, owner, index=idx if same else None)      # en el archivo de su dueño
+                st.attach(new, owner, index=idx if same else None)      # in its owner's file
                 n_u_upd += 1
             elif owner is not None:
                 st.attach(new, owner)

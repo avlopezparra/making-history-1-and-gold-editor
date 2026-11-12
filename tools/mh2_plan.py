@@ -18,11 +18,11 @@ ROOT = os.path.dirname(HERE)
 ORIG = os.path.join(ROOT, 'backup', 'mapa_original')
 GEOJSON = os.path.join(ROOT, 'mh2', 'mh2_regions.geojson')
 MIN_FRAC, MIN_AREA = 0.03, 0.01
-SNAP, SIMPLIFY = 5e-4, 5e-4   # grados: las lineas de MH2 se ajustan a los vertices de la malla de MH1 y se aligeran
-OPEN = 0.02                 # grados: se quitan los apendices mas finos que esto (rompen el contorno de la malla)      # una pieza cuenta si cubre >=3 % de R y >=0,01 grados2
+SNAP, SIMPLIFY = 5e-4, 5e-4   # degrees: MH2 lines are snapped to the MH1 mesh vertices and lightened
+OPEN = 0.02                 # degrees: appendages thinner than this are removed (they break the mesh outline)      # a piece counts if it covers >=3 % of R and >=0.01 degrees2
 
 
-VERTS = {}      # indice de region -> MultiPoint con TODOS los vertices de su malla
+VERTS = {}      # region index -> MultiPoint with ALL the vertices of its mesh
 
 
 def pretty(name):
@@ -52,13 +52,13 @@ def mh2_land():
 
 
 def r32(g):
-    """Coordenadas redondeadas a float32 (como las del mapa): evita astillas de 1e-10 junto a las aristas existentes."""
+    """Coordinates rounded to float32 (like the map's): avoids 1e-10 slivers next to existing edges."""
     import numpy as np
     return shapely.transform(g, lambda c: c.astype(np.float32).astype(np.float64))
 
 
 def _polys(g):
-    """Solo la parte poligonal (los cortes de shapely a veces dejan lineas sueltas en una GeometryCollection)."""
+    """Only the polygonal part (shapely cuts sometimes leave loose lines in a GeometryCollection)."""
     ps = [x for x in getattr(g, 'geoms', [g]) if x.geom_type == 'Polygon' and not x.is_empty]
     for x in getattr(g, 'geoms', []):
         if x.geom_type == 'MultiPolygon':
@@ -67,8 +67,8 @@ def _polys(g):
 
 
 def cluster_snap(G, geoms, tol=1.5e-4, V=None):
-    """Funde los vertices de las piezas que quedan a menos de 'tol' unos de otros o de un vertice de G (el editor funde los que
-    estan a menos de 5e-5 y, si la linea de division tiene vertices tan juntos, queda en zigzag y la malla sale rota)."""
+    """Merges the vertices of the pieces that are less than 'tol' from each other or from a vertex of G (the editor merges those
+    less than 5e-5 apart and, if the split line has vertices that close, it zigzags and the mesh comes out broken)."""
     import numpy as np
     from scipy.spatial import cKDTree
     def verts(g):
@@ -118,14 +118,14 @@ def cluster_snap(G, geoms, tol=1.5e-4, V=None):
 
 
 def split_region(G, pieces, covtol=None, V=None):
-    """pieces: [(key, geom)] (disjuntas, dentro de G). Reparte el resto de G entre ellas por dilatacion."""
-    if V is not None:       # las lineas nuevas no pasan a menos de 1e-4 de un vertice de la malla (el editor funde a 5e-5 y deja huecos)
+    """pieces: [(key, geom)] (disjoint, inside G). Distributes the rest of G among them by dilation."""
+    if V is not None:       # new lines do not pass within 1e-4 of a mesh vertex (the editor merges at 5e-5 and leaves gaps)
         pieces = [(k, _polys(shapely.make_valid(shapely.snap(g, V, VSNAP)))) for k, g in pieces]
-    Gin = G.buffer(-ERODE, quad_segs=2)       # las lineas de division no corren pegadas al contorno de la madre (ruido de 1e-6 = bordes rotos)
+    Gin = G.buffer(-ERODE, quad_segs=2)       # split lines do not run glued to the mother's outline (1e-6 noise = broken edges)
     pieces = [(k, _polys(g.intersection(Gin))) for k, g in pieces]
     pieces = sorted([(k, g) for k, g in pieces if g.area > 1e-4], key=lambda kv: -kv[1].area)
     seen, clean = None, []
-    for k, g in pieces:         # los poligonos de MH2 se solapan un poco: cada trozo se queda con lo que no tiene uno mayor
+    for k, g in pieces:         # MH2 polygons overlap a bit: each piece keeps what no larger one has
         g = g if seen is None else g.difference(seen)
         g = unary_union([x for x in getattr(g, 'geoms', [g]) if x.geom_type == 'Polygon' and x.area > 1e-3])
         if g.area > 0:
@@ -145,8 +145,8 @@ def split_region(G, pieces, covtol=None, V=None):
                 rem = _polys(rem.difference(grow))
         eps *= 2
     if rem.area > 1e-12:
-        geoms[0] = _polys(unary_union([geoms[0], rem]))      # lo lejano (islas sueltas) se queda con la mayor
-    # topologia exacta: nodar todas las fronteras juntas y repartir las caras, para que las piezas vecinas compartan vertices
+        geoms[0] = _polys(unary_union([geoms[0], rem]))      # distant parts (loose islands) go to the largest
+    # exact topology: node all borders together and distribute the faces, so neighboring pieces share vertices
     from shapely.ops import polygonize
     faces = list(polygonize(unary_union([g.boundary for g in geoms] + [G.boundary])))
     bucket = [[] for _ in geoms]
@@ -160,7 +160,7 @@ def split_region(G, pieces, covtol=None, V=None):
         bucket[j].append(f)
     geoms = [_polys(unary_union([_polys(shapely.make_valid(r32(f))) for f in b])) if b else None for b in bucket]
     keep = [i for i, g in enumerate(geoms) if g is not None and g.area > 0]
-    if len(keep) > 1:     # las lineas de division se aligeran todas a la vez, sin tocar el contorno de la region madre
+    if len(keep) > 1:     # split lines are all lightened at once, without touching the mother region's outline
         simp = shapely.coverage_simplify([geoms[i] for i in keep], covtol or COVTOL, simplify_boundary=False)
         for i, g in zip(keep, simp):
             geoms[i] = _polys(g)
@@ -170,13 +170,13 @@ def split_region(G, pieces, covtol=None, V=None):
 
 ERODE = 4e-4
 VSNAP = 1.2e-4
-COVTOL = 3e-4    # grados: tolerancia al aligerar las lineas de division entre piezas
-EXT = 0.01     # grados: el poligono que se entrega al editor se alarga hacia fuera de la region madre (el editor lo recorta con su malla)
+COVTOL = 3e-4    # degrees: tolerance when lightening the split lines between pieces
+EXT = 0.01     # degrees: the polygon handed to the editor is extended outside the mother region (the editor clips it with its mesh)
 
 
 def extend(G, g, d=EXT):
-    """g + una franja de d grados por fuera de G: asi el borde de la pieza coincide EXACTAMENTE con la malla de la madre
-    (el editor hace poligono ∩ malla) y no quedan astillas de 1e-10 junto a sus aristas."""
+    """g + a strip of d degrees outside G: so the piece edge matches the mother's mesh EXACTLY
+    (the editor does polygon ∩ mesh) and no 1e-10 slivers remain next to its edges."""
     out = _polys(g.buffer(d, quad_segs=2)).difference(G.buffer(1e-7))
     return _polys(unary_union([g, _polys(out)]))
 
@@ -195,11 +195,11 @@ class Planner:
         self.simple = {}
 
     def plan(self, i, level=0, live=None):
-        """Partes [(clave MH2, geometria)] de la region i de MH1 (la mayor primero) o [] si no se subdivide."""
+        """Parts [(MH2 key, geometry)] of MH1 region i (largest first) or [] if it is not subdivided."""
         snap, simp, opn, cov = LADDER[level]
         rname, G = self.m1[i]
         V = VERTS.get(i)
-        if live is not None:       # malla actual del proyecto (los vecinos ya subdivididos le han anadido vertices)
+        if live is not None:       # project's current mesh (already subdivided neighbors have added vertices to it)
             G, V = live
         ps = []
         for j in self.tree.query(G):
@@ -219,7 +219,7 @@ class Planner:
         return parts if len(parts) >= 2 else []
 
     def names(self, mother_name, parts):
-        """[{key, name, geom, mother}] con nombres unicos (el primero conserva el de la madre)."""
+        """[{key, name, geom, mother}] with unique names (the first keeps the mother's)."""
         out = []
         for n, (k, g) in enumerate(parts):
             if n == 0:

@@ -1,13 +1,13 @@
-"""Funciones del editor de escenarios que trabajan sobre el mapa y sobre archivos compartidos.
+"""Scenario editor functions that work on the map and on shared files.
 
-- mapdata: lo que necesitan las capas del mapa (dueños, cultura, terreno, ideología, regiones históricas,
-  alianzas, guerras y países rendidos que se pueden liberar).
-- toggle_historic / toggle_alliance: añadir o quitar con un clic.
-- set_string: texto visible de un SID (p. ej. renombrar un país) en game/stringTable.xml del escenario.
-- set_pack: regionpack (mapa) del escenario.
-- archivos de ScenarioDefaults: los escenarios del juego cargan sus datos compartidos de ahí; al guardar se elige
-  entre sustituir los defaults (afecta a todos los que los usan) o guardar como escenario nuevo independiente.
-- ai_summary: cómo reacciona la IA de un país (diplomacia, tratados y eventos con su probabilidad).
+- mapdata: what the map layers need (owners, culture, terrain, ideology, historic regions,
+  alliances, wars and surrendered countries that can be liberated).
+- toggle_historic / toggle_alliance: add or remove with one click.
+- set_string: visible text of a SID (e.g. renaming a country) in the scenario game/stringTable.xml.
+- set_pack: regionpack (map) of the scenario.
+- ScenarioDefaults files: game scenarios load their shared data from there; on save you choose
+  between replacing the defaults (affects everyone using them) or saving as a new independent scenario.
+- ai_summary: how a country's AI reacts (diplomacy, treaties and events with their probability).
 """
 import json
 import math
@@ -28,7 +28,7 @@ DEFAULT_SCENARIOS['gold'] = DEFAULT_SCENARIOS['mh1'] + ['Blitzkrieg', 'Clash of 
 
 # ---------------------------------------------------------------------------------------- archivos externos
 def shared_refs(scen_dir):
-    """[(valor, ruta absoluta)] de los fileSharedData de scenario.xml."""
+    """[(value, absolute path)] of the fileSharedData in scenario.xml."""
     f = os.path.join(scen_dir, 'scenario.xml')
     if not os.path.exists(f):
         return []
@@ -40,7 +40,7 @@ def shared_refs(scen_dir):
 
 
 def attach_external(s):
-    """Añade al escenario los datos compartidos que viven fuera de su carpeta (ScenarioDefaults)."""
+    """Adds to the scenario the shared data living outside its folder (ScenarioDefaults)."""
     s.external = []
     for v, path in shared_refs(s.dir):
         if os.path.exists(path) and path not in s.paths and not path.startswith(os.path.abspath(s.dir) + os.sep):
@@ -105,8 +105,8 @@ def _rekey(st, old, new):
 
 
 def save_as_new(s, new_name):
-    """Copia el escenario a scenarios/<new_name> con sus datos compartidos dentro (como un mod) y escribe ahí
-    los cambios sin guardar. El escenario original queda como estaba en disco."""
+    """Copies the scenario to scenarios/<new_name> with its shared data inside (like a mod) and writes there
+    the unsaved changes. The original scenario stays as it was on disk."""
     new_name = new_name.strip()
     if not new_name or re.search(r'[\\/:*?"<>|]', new_name):
         raise ValueError('nombre de carpeta no válido')
@@ -127,9 +127,9 @@ def save_as_new(s, new_name):
         if p in st.dirty:
             _rekey(st, p, q)
             moved.append(q)
-            st.open(p)      # el original (sin cambios, desde disco) sigue disponible para otros escenarios
+            st.open(p)      # the original (unchanged, from disk) remains available for other scenarios
     written = st.save(moved) if moved else {'written': [], 'history': None}
-    # scenario.xml del nuevo: datos compartidos locales y nombre nuevo
+    # scenario.xml of the new one: local shared data and new name
     f = os.path.join(dst, 'scenario.xml')
     raw = open(f, 'rb').read().decode('utf-8')
     raw = re.sub(r'(name="fileSharedData" value=")[^"]*[\\/]([^"\\/]+")', r'\1\2', raw)
@@ -137,11 +137,11 @@ def save_as_new(s, new_name):
         raw = re.sub(r'(name="%s" value=")[^"]*(")' % k, lambda m: m.group(1) + new_name + m.group(2), raw, count=1)
     open(f, 'wb').write(raw.encode('utf-8'))
     import scenario_extra
-    scenario_extra.ensure_dirs(dst)      # game/ y ui/ con namespace.xml y UICommand*.xml, como ed.exe
+    scenario_extra.ensure_dirs(dst)      # game/ and ui/ with namespace.xml and UICommand*.xml, like ed.exe
     return {'scenario': new_name, 'written': written['written'], 'history': written['history']}
 
 
-# ---------------------------------------------------------------------------------------- capas del mapa
+# ---------------------------------------------------------------------------------------- map layers
 def _city_region(s):
     out = {}
     for c in s.all('City'):
@@ -190,8 +190,8 @@ def mapdata(s):
 
 
 def surrendered(s, countries=None, historic=None):
-    """Países sin regiones en el mapa y si se pueden liberar en la partida: necesitan strCapital y
-    strOriginalCapital, y que sus regiones históricas incluyan la región de esa ciudad."""
+    """Countries without regions on the map and whether they can be liberated in game: they need strCapital and
+    strOriginalCapital, and their historic regions must include the region of that city."""
     if countries is None:
         d = mapdata(s)
         return d['surrendered']
@@ -220,7 +220,7 @@ def surrendered(s, countries=None, historic=None):
 
 
 def toggle_historic(s, country, region):
-    """Añade o quita una región de las históricas de un país (crea el HistoricCountry si no existe)."""
+    """Adds or removes a region from a country's historic ones (creates the HistoricCountry if missing)."""
     st = s.s
     hs = [h for h in s.all('HistoricCountry') if prop(h, 'strCountry') == country]
     for h in hs:
@@ -237,7 +237,7 @@ def toggle_historic(s, country, region):
         par = lists[0]
         h = ET.Element('object', {'type': 'HistoricCountry', 'name': 'objHistoricCountryList'})
         ET.SubElement(h, 'property', {'name': 'strCountry', 'value': country})
-        # orden alfabetico como en el archivo original
+        # alphabetical order as in the original file
         sibs = [c for c in par if c.get('type') == 'HistoricCountry']
         after = [c for c in sibs if (prop(c, 'strCountry') or '') > country]
         st.attach(h, par, index=list(par).index(after[0]) if after else None)
@@ -252,8 +252,8 @@ def _alliance_name(al):
 
 
 def leave_alliance(s, al, member):
-    """Quita un miembro de una alianza. Si era el líder, lo pasa al siguiente; si no queda nadie, la alianza desaparece (y las guerras
-    que la nombraban dejan de hacerlo). Antes quedaban alianzas vacías o sin líder en gamestate.xml."""
+    """Removes a member from an alliance. If it was the leader, passes it to the next; if nobody is left, the alliance disappears (and wars
+    that named it stop doing so). Before, empty or leaderless alliances remained in gamestate.xml."""
     st = s.s
     mem = [m for m in objs(al) if m.get('type') == 'AllianceMember']
     leader = prop(member, 'bOwner') == 'true'
@@ -275,7 +275,7 @@ def leave_alliance(s, al, member):
 
 
 def toggle_alliance(s, alliance_id, country):
-    """Añade o quita un país de una alianza; un país solo puede estar en una alianza."""
+    """Adds or removes a country from an alliance; a country can only be in one alliance."""
     st = s.s
     a = st.get(alliance_id)
     notes = []
@@ -299,7 +299,7 @@ def toggle_alliance(s, alliance_id, country):
 
 # ---------------------------------------------------------------------------------------- regiones nuevas: mar, traspasos y unidades
 def add_sea_region(s, name, mother=None, text=None):
-    """Registra una región de mar nueva en waterWorld.xml (junto a la madre si la hay)."""
+    """Registers a new sea region in waterWorld.xml (next to the mother if any)."""
     st = s.s
     seas = {prop(r, 'strName'): r for r in s.regions(sea=True)}
     if name in seas:
@@ -308,7 +308,7 @@ def add_sea_region(s, name, mother=None, text=None):
     if not seas and ww not in st.docs:
         raise ValueError('el escenario no tiene waterWorld.xml')
     ref = seas.get(mother) or next(iter(seas.values()), None)
-    par = st.parent[ref] if ref is not None else st.docs[ww].getroot()     # waterWorld.xml sin mares (escenario desde cero)
+    par = st.parent[ref] if ref is not None else st.docs[ww].getroot()     # waterWorld.xml without seas (scenario from scratch)
     new = ET.Element('object', {'type': 'Region', 'name': ref.get('name', '') if ref is not None else ''})
     sid = sc.region_sid(name)
     for k, v in (('strName', name), ('strOwner', ''), ('strController', ''), ('sidName', sid)):
@@ -321,8 +321,8 @@ def add_sea_region(s, name, mother=None, text=None):
 
 
 def reassign_by_geometry(s, name, geom, sea=False):
-    """Todo lo que queda dentro de la región nueva pasa a ella: ciudades y productores (de cualquier región de la que
-    se haya recortado) y ejércitos / aviación (tierra) o flotas (mar)."""
+    """Everything left inside the new region goes to it: cities and producers (from any region it was
+    clipped from) and armies / aircraft (land) or fleets (sea)."""
     from shapely.geometry import Point
     st = s.s
     notes = []
@@ -340,12 +340,12 @@ def reassign_by_geometry(s, name, geom, sea=False):
                     old = prop(st.parent[c], 'strName')
                     s.update(st.eid(c), {'__region': name})
                     notes.append('%s %s pasa de %s a %s' % ('ciudad' if t == 'City' else 'recurso', prop(c, 'strName'), old, name))
-        kinds = ('Army', 'AirForce', 'Fleet')   # las flotas atracadas en un puerto que queda dentro tambien pasan
+        kinds = ('Army', 'AirForce', 'Fleet')   # fleets docked in a port left inside also move
     else:
         kinds = ('Fleet',)
     land_names = {prop(r, 'strName') for r in s.regions(sea=False)}
     if not sea:
-        # flotas atracadas sin posicion: si su region se quedo sin puerto y el puerto paso a la nueva, la siguen
+        # docked fleets without position: if their region was left without a port and the port went to the new one, they follow it
         lands = {prop(r, 'strName'): r for r in s.regions(sea=False)}
         has_port = lambda r: r is not None and any(c.get('type') == 'City' and prop(c, 'strPortForRegion') for c in objs(r))
         if has_port(lands.get(name)):
@@ -357,7 +357,7 @@ def reassign_by_geometry(s, name, geom, sea=False):
     for t in kinds:
         for g in s.all(t):
             if t == 'Fleet' and not sea and prop(g, 'strRegion') not in land_names:
-                continue        # una flota en el mar no pasa a una region de tierra
+                continue        # a fleet at sea does not move to a land region
             if prop(g, 'strRegion') != name and inside(g):
                 notes.append('%s %s (%s) pasa de %s a %s' % ({'Army': 'ejército', 'AirForce': 'aviación', 'Fleet': 'flota'}[t],
                                                              prop(g, 'strName'), prop(g, 'strOwner'), prop(g, 'strRegion'), name))
@@ -366,9 +366,9 @@ def reassign_by_geometry(s, name, geom, sea=False):
 
 
 def reassign_ports(s, name, geom, geom_of, max_dist=1.5):
-    """Región de mar nueva (p. ej. recortada de otra de mar): las ciudades portuarias cuyo puerto da a otra región de mar
-    y que quedan más cerca de la nueva pasan a tener su puerto en ella (strPortForRegion). geom_of(nombre) da la forma de
-    una región del mapa."""
+    """New sea region (e.g. clipped from another sea one): port cities whose port faces another sea region
+    and that are closer to the new one get their port in it (strPortForRegion). geom_of(name) gives the shape of
+    a map region."""
     from shapely.geometry import Point
     notes = []
     if geom is None:
@@ -396,7 +396,7 @@ def reassign_ports(s, name, geom, geom_of, max_dist=1.5):
 
 
 def unit_conflicts(s, name):
-    """Ejércitos y aviación en la región nueva que son de otro país que el dueño de la región."""
+    """Armies and aircraft in the new region that belong to a country other than the region owner."""
     reg = next((r for r in s.regions(sea=False) if prop(r, 'strName') == name), None)
     if reg is None:
         return []
@@ -412,7 +412,7 @@ def unit_conflicts(s, name):
 
 
 def resolve_unit(s, uid, action, target=None, xy=None):
-    """action 'owner': la unidad pasa al país dueño de la región; 'move': se traslada a la región 'target' (centro xy)."""
+    """action 'owner': the unit goes to the region owner country; 'move': it moves to region 'target' (center xy)."""
     st = s.s
     g = st.get(uid)
     if action == 'owner':
@@ -430,9 +430,9 @@ def resolve_unit(s, uid, action, target=None, xy=None):
     return '%s se queda donde está' % prop(g, 'strName')
 
 
-# ---------------------------------------------------------------------------------------- selección múltiple
+# ---------------------------------------------------------------------------------------- multiple selection
 def at_war_from_start(s, a, b):
-    """¿Están a y b en bandos opuestos de una guerra que ya existe al empezar el escenario (gamestate)?"""
+    """Are a and b on opposite sides of a war that already exists at scenario start (gamestate)?"""
     amembers = {prop(x, 'strName'): [prop(m, 'strINITCountryName') for m in objs(x) if m.get('type') == 'AllianceMember']
                 for x in s.all('Alliance')}
     for w in s.all('War'):
@@ -444,7 +444,7 @@ def at_war_from_start(s, a, b):
 
 
 def bulk_regions(s, regions, values):
-    """Aplica los mismos valores (dueño, controlador, terreno, cultura) a varias regiones."""
+    """Applies the same values (owner, controller, terrain, culture) to several regions."""
     land = {prop(r, 'strName'): r for r in s.regions(sea=False)}
     notes = []
     own, ctl = values.get('strOwner'), values.get('strController')
@@ -466,7 +466,7 @@ def bulk_regions(s, regions, values):
 
 
 def set_region_population(s, region, population):
-    """Habitantes puestos a mano a una región (sin restarlos de otra)."""
+    """Inhabitants set by hand for a region (without subtracting them from another)."""
     reg = next((r for r in s.regions(sea=False) if prop(r, 'strName') == region), None)
     if reg is None:
         return []
@@ -475,7 +475,7 @@ def set_region_population(s, region, population):
 
 
 def set_historic(s, region, countries):
-    """Deja la región como histórica exactamente de 'countries' (se quita de los demás países históricos)."""
+    """Makes the region historic of exactly 'countries' (removed from the other historic countries)."""
     notes = []
     want = set(countries or [])
     have = {prop(h, 'strCountry') for h in s.all('HistoricCountry') if any(prop(k, 'strRegion') == region for k in objs(h))}
@@ -497,7 +497,7 @@ def add_to_historic(s, country, regions):
 
 
 def alliance_add(s, countries, alliance_id=None, new_name=None):
-    """Mete varios países en una alianza (existente o nueva; el primero lidera la nueva)."""
+    """Puts several countries in an alliance (existing or new; the first one leads the new one)."""
     st = s.s
     notes = []
     if alliance_id:
@@ -508,7 +508,7 @@ def alliance_add(s, countries, alliance_id=None, new_name=None):
             raise ValueError('falta el nombre de la alianza nueva')
         same = next((x for x in s.all('Alliance') if name.lower() in ((prop(x, 'strDisplayName') or '').lower(),
                                                                        (prop(x, 'strINITAllianceName') or '').lower())), None)
-        if same is not None:      # «alianza nueva» con el nombre de una que ya existe: se usa esa (antes se creaba otra igual)
+        if same is not None:      # «alianza nueva» with the name of an existing one: that one is used (before, another identical one was created)
             return alliance_add(s, countries, st.eid(same))
         existing = s.all('Alliance')
         mgr = st.parent[existing[0]] if existing else next(iter(s.all('AllianceManager')), None)
@@ -526,7 +526,7 @@ def alliance_add(s, countries, alliance_id=None, new_name=None):
             continue
         r = toggle_alliance(s, st.eid(a), c)
         notes += r['notes']
-        if not alliance_id and i == 0:   # lider de la alianza nueva
+        if not alliance_id and i == 0:   # leader of the new alliance
             m = [x for x in objs(a) if x.get('type') == 'AllianceMember'][-1]
             st.set_prop(m, 'bOwner', 'true')
             st.set_prop(m, 'bPrincipal', 'true')
@@ -534,7 +534,7 @@ def alliance_add(s, countries, alliance_id=None, new_name=None):
 
 
 def create_wars(s, attacker, defenders, name=None):
-    """Guerras iniciales (gamestate): una por cada defensor, como en los escenarios del juego."""
+    """Initial wars (gamestate): one per defender, as in the game scenarios."""
     st = s.s
     wars = s.all('War')
     mgr = st.parent[wars[0]] if wars else (st.parent[s.all('Alliance')[0]] if s.all('Alliance') else None)
@@ -558,7 +558,7 @@ def create_wars(s, attacker, defenders, name=None):
 
 
 def create_flows(s, origin, targets, kind='trade'):
-    """Acuerdos comerciales (objFlows) o ayuda (objAidFlows) de 'origin' a cada destino, en WorldMarket de game.xml."""
+    """Trade agreements (objFlows) or aid (objAidFlows) from 'origin' to each destination, in WorldMarket of game.xml."""
     st = s.s
     name = 'objFlows' if kind == 'trade' else 'objAidFlows'
     market = next(iter(s.all('WorldMarket')), None)
@@ -579,7 +579,7 @@ def create_flows(s, origin, targets, kind='trade'):
 
 # ---------------------------------------------------------------------------------------- textos y regionpack
 def set_string(s, sid, value):
-    """Texto visible de un SID en game/stringTable.xml del escenario (lo crea si falta)."""
+    """Visible text of a SID in the scenario game/stringTable.xml (creates it if missing)."""
     path = os.path.abspath(os.path.join(s.dir, 'game', 'stringTable.xml'))
     st = s.s
     if not os.path.exists(path):
@@ -605,7 +605,7 @@ def set_string(s, sid, value):
 
 
 def set_pack(s, pack):
-    """Cambia el regionpack del escenario (strMapName y fileMapProperties de scenario.xml)."""
+    """Changes the scenario regionpack (strMapName and fileMapProperties of scenario.xml)."""
     sx = s.all('Scenario', lambda f: f == 'scenario.xml')
     disp = next((o for o in sx[0].iter('object') if o.get('type') == 'ScenarioDisplaySettings'), None) if sx else None
     if disp is None:
@@ -616,9 +616,9 @@ def set_pack(s, pack):
 
 
 def fix_sprite_map(s):
-    """strSpriteMapName de scenario.xml debe nombrar un archivo que exista en DisplayLibraries/SpriteMaps (en el juego solo
-    hay World.xml). Si nombra otro (p. ej. el del regionpack, «Tamriel»), el juego no carga los gráficos del mapa y todas las
-    regiones salen negras («Error loading sprite map»). Se pone «World»."""
+    """strSpriteMapName in scenario.xml must name a file that exists in DisplayLibraries/SpriteMaps (the game only
+    has World.xml). If it names another (e.g. the regionpack one, «Tamriel»), the game does not load the map graphics and all
+    regions show black («Error loading sprite map»). It is set to «World»."""
     sx = s.all('Scenario', lambda f: f == 'scenario.xml')
     disp = next((o for o in sx[0].iter('object') if o.get('type') == 'ScenarioDisplaySettings'), None) if sx else None
     if disp is None:
@@ -647,7 +647,7 @@ def tilt_state(s):
 
 
 def set_tilt(s, enable):
-    """Inclinación 3D del mapa: WorldUnified (inclina hasta 55° al acercarse) o WorldUnifiedFlat (siempre cenital)."""
+    """3D map tilt: WorldUnified (tilts up to 55° when zooming in) or WorldUnifiedFlat (always top-down)."""
     d = _display(s)
     if d is None:
         raise ValueError('scenario.xml no tiene ScenarioDisplaySettings')
@@ -656,8 +656,8 @@ def set_tilt(s, enable):
 
 
 def ensure_flat_camera():
-    """Crea DisplayLibraries/CameraSettings/WorldUnifiedFlat.xml (copia de WorldUnified sin elevación) si falta.
-    Devuelve la ruta creada o None."""
+    """Creates DisplayLibraries/CameraSettings/WorldUnifiedFlat.xml (copy of WorldUnified without elevation) if missing.
+    Returns the created path or None."""
     d = os.path.join(sc.GAME, 'Modern Europe', 'system', 'DisplayLibraries', 'CameraSettings')
     src, dst = os.path.join(d, 'WorldUnified.xml'), os.path.join(d, FLAT_CAMERA + '.xml')
     if os.path.exists(dst) or not os.path.exists(src):
@@ -669,7 +669,7 @@ def ensure_flat_camera():
 
 
 def set_playable(s, countries):
-    """Lista de países jugables de scenarioInfo.xml (objPlayableCountries)."""
+    """List of playable countries from scenarioInfo.xml (objPlayableCountries)."""
     st = s.s
     info = s.all('ScenarioInfo')
     if not info:
@@ -748,8 +748,8 @@ def ai_summary(s, country):
 
 
 def move_population(s, name, fractions):
-    """Población de una región nueva: de cada región de origen pasa la fracción indicada de sus habitantes
-    (p. ej. {'Atacama': 0.35, 'Coquimbo': 0.6}); se resta de ellas y se suma a la nueva."""
+    """Population of a new region: from each source region the given fraction of its inhabitants moves
+    (e.g. {'Atacama': 0.35, 'Coquimbo': 0.6}); subtracted from them and added to the new one."""
     st = s.s
     land = {prop(r, 'strName'): r for r in s.regions(sea=False)}
     new = land.get(name)
@@ -771,8 +771,8 @@ def move_population(s, name, fractions):
 
 
 def take_population(s, name, amounts):
-    """La región nueva 'name' tiene sum(amounts) habitantes (p. ej. puestos a mano o del GeoJSON), que se restan de cada región de
-    origen según 'amounts' ({madre: habitantes}; ninguna baja de 0). Antes la cifra a mano se ponía sin restarla de nadie."""
+    """The new region 'name' has sum(amounts) inhabitants (e.g. set by hand or from the GeoJSON), subtracted from each source
+    region according to 'amounts' ({mother: inhabitants}; none goes below 0). Before, the hand-set figure was applied without subtracting it from anyone."""
     st = s.s
     land = {prop(r, 'strName'): r for r in s.regions(sea=False)}
     new = land.get(name)
@@ -793,7 +793,7 @@ def take_population(s, name, amounts):
 
 
 def set_population_from(s, name, mother, amount):
-    """La región 'name' recupera exactamente 'amount' habitantes, que se restan de 'mother'."""
+    """Region 'name' gets back exactly 'amount' inhabitants, subtracted from 'mother'."""
     st = s.s
     land = {prop(r, 'strName'): r for r in s.regions(sea=False)}
     new, src = land.get(name), land.get(mother)
@@ -805,9 +805,9 @@ def set_population_from(s, name, mother, amount):
     return ['población: %s recupera %s hab. (de %s)' % (name, int(amount), mother)]
 
 
-# ---------------------------------------------------------------------------------------- compatibilidad con un regionpack
+# ---------------------------------------------------------------------------------------- compatibility with a regionpack
 class PackMap:
-    """Regiones de un regionpack instalado: nombres (con RegionRename), si son mar, vecinos y geometría."""
+    """Regions of an installed regionpack: names (with RegionRename), whether they are sea, neighbors and geometry."""
     def __init__(self, pack, folder=None):
         import mhmap
         import editor_core
@@ -818,7 +818,7 @@ class PackMap:
             raise ValueError('no existe el regionpack %s' % pack)
         self.m = mhmap.load_map(os.path.join(self.dir, 'xml'))
         ren = editor_core.load_renames(self.dir)
-        self.renames = ren          # {nombre en regions.bin: nombre en los escenarios} (RegionRename de map.xml)
+        self.renames = ren          # {name in regions.bin: name in the scenarios} (RegionRename of map.xml)
         R = self.m['regions']
         self.name = {g.index: ren.get(g.name, g.name) for g in R}
         self.idx = {v: k for k, v in self.name.items()}
@@ -848,7 +848,7 @@ class PackMap:
 
 
 def pack_mismatch(s, pack):
-    """Comprobación rápida (solo nombres): regiones del mapa que faltan en el escenario y regiones que sobran."""
+    """Quick check (names only): map regions missing from the scenario and extra regions."""
     pm = PackMap(pack)
     land = {prop(r, 'strName') for r in s.regions(sea=False)}
     seas = {prop(r, 'strName') for r in s.regions(sea=True)}
@@ -859,9 +859,9 @@ def pack_mismatch(s, pack):
 
 
 def pack_sync_plan(s, pack):
-    """Qué hay que cambiar para que el escenario cuadre con el regionpack 'pack':
-    'remove': regiones del escenario que el mapa no tiene (su contenido pasa a 'into');
-    'add': regiones del mapa sin datos en el escenario (salen de 'mother')."""
+    """What must change for the scenario to match regionpack 'pack':
+    'remove': scenario regions the map lacks (their content goes to 'into');
+    'add': map regions without data in the scenario (taken from 'mother')."""
     pm = PackMap(pack)
     P = prop
     land = {P(r, 'strName'): r for r in s.regions(sea=False)}
@@ -869,11 +869,11 @@ def pack_sync_plan(s, pack):
     madre = {}
     logs = list(pm.changelog)
     cur = sc.pack_of(s)
-    pa = None                                   # mapa del regionpack actual del escenario (para traducir por geometría)
+    pa = None                                   # map of the scenario's current regionpack (to translate by geometry)
     if cur and cur != pack:
         try:
             pa = PackMap(cur)
-            logs += pa.changelog                # la creacion de lo que sobra esta en el changelog del mapa actual
+            logs += pa.changelog                # the creation of the extra ones is in the current map changelog
         except ValueError:
             pass
     for e in logs:
@@ -888,8 +888,8 @@ def pack_sync_plan(s, pack):
         if k % 25 == 0:
             tick(k, len(land), 'Comparando las regiones del escenario con el mapa')
         if n in pm.sea and not pm.sea[n]:
-            continue        # en el mapa es de mar (p. ej. un lago creado como tierra): se quita la de tierra y se añade la de mar
-        # adonde va: la region del mapa que contiene la mayoria de sus ciudades / su madre en el changelog
+            continue        # on the map it is sea (e.g. a lake created as land): the land one is removed and the sea one added
+        # where it goes: the map region containing most of its cities / its mother in the changelog
         votes = {}
         for c in objs(r):
             xy = sc.parse_vec(P(c, 'vecPosition')) if c.get('type') in ('City', 'Producer') else None
@@ -900,8 +900,8 @@ def pack_sync_plan(s, pack):
         into = None
         ga = pa.geom(n) if pa is not None else None
         if ga is not None:
-            # por geometría: la región del mapa nuevo (que el escenario ya tiene) que más se solapa con esta; así dos regiones
-            # de un regionpack que eran una sola en el otro (o al revés) se traducen sin depender de nombres ni changelogs
+            # by geometry: the region of the new map (which the scenario already has) overlapping this one most; so two regions
+            # of one regionpack that were one in the other (or vice versa) are translated without depending on names or changelogs
             best, area = None, 0.0
             for m in land:
                 gm = pm.geom(m) if m != n and m in pm.sea and not pm.sea[m] else None
@@ -913,12 +913,12 @@ def pack_sync_plan(s, pack):
         if into is None:
             into = max(votes, key=votes.get) if votes else None
         if into is None:
-            # su madre en algun changelog conocido, si existe en el mapa
+            # its mother in some known changelog, if it exists on the map
             into = next((m for m in [madre.get(n)] if m and m in land and m in pm.sea and not pm.sea[m]), None)
         remove.append({'name': n, 'sea': False, 'into': into, 'owner': P(r, 'strOwner'),
                        'cities': [P(c, 'strName') for c in objs(r) if c.get('type') == 'City']})
     for n in seas:
-        if n not in pm.sea or not pm.sea[n]:        # tampoco si en el mapa ahora es de tierra
+        if n not in pm.sea or not pm.sea[n]:        # nor if on the map it is now land
             remove.append({'name': n, 'sea': True, 'into': None, 'owner': '', 'cities': []})
     for n, is_sea in pm.sea.items():
         if n in skip:
@@ -929,8 +929,8 @@ def pack_sync_plan(s, pack):
             m = None
             gn_ = pm.geom(n)
             if pa is not None and gn_ is not None:
-                # región de origen por geometría: la del mapa actual donde estaba esta área; si ya se quita, su contenido
-                # está en la región a la que va (into)
+                # source region by geometry: the current map one where this area was; if it is already being removed, its content
+                # is in the region it goes to (into)
                 landing = {x['name']: x['into'] for x in remove if not x['sea']}
                 best, area = None, 0.0
                 for r_ in land:
@@ -956,8 +956,8 @@ def pack_sync_plan(s, pack):
 
 
 def _add_owned_region(s, pm, name, c):
-    """Añade al escenario una región del mapa que no sale de otra: dueño/controlador, terreno, población (la puesta a
-    mano o la densidad media del país por su área) y países históricos del changelog; lo que quede dentro pasa a ella."""
+    """Adds to the scenario a map region that does not come from another: owner/controller, terrain, population (the one set
+    by hand or the country average density times its area) and historic countries from the changelog; what is inside goes to it."""
     import scenario_new
     notes0 = scenario_new.prepare_region(s, c) if c.get('nacion') else []
     owner = match_country(s, c['pais'])
@@ -973,14 +973,14 @@ def _add_owned_region(s, pm, name, c):
         area = sum(ub.get(prop(r, 'strName'), 0) for r in regs)
         population = int(round(pop / area * ub.get(name, 0))) if area else 0
         if population <= 2:
-            population = 1000          # una región con 0-2 habitantes no vale (el juego la trata como vacía)
+            population = 1000          # a region with 0-2 inhabitants is not valid (the game treats it as empty)
     notes = notes0 + sc.add_new_region(s, name, owner=owner, terrain=c.get('terreno'), population=population, text=c.get('texto'))
     ctl = c.get('controlador')
     reg = next((r for r in s.regions(sea=False) if prop(r, 'strName') == name), None)
     if reg is not None and ctl and ctl != owner and ctl in s.countries():
         s.update(s.s.eid(reg), {'strController': ctl})
         notes.append('%s: controlador %s' % (name, ctl))
-    if c.get('historicos'):          # vacío o sin elegir: se queda como histórica de su dueño
+    if c.get('historicos'):          # empty or not chosen: stays as historic of its owner
         notes += set_historic(s, name, c['historicos'])
     notes += reassign_by_geometry(s, name, pm.geom(name))
     notes += _city_and_liberate(s, name, c, pm.geom(name))
@@ -989,7 +989,7 @@ def _add_owned_region(s, pm, name, c):
 
 
 def _city_and_liberate(s, region, c, geom):
-    """Ciudad pedida al crear la región (si no hay ya una dentro y se pidió) y, si el dueño estaba rendido, lo libera."""
+    """City requested when creating the region (if there is none inside already and one was requested) and, if the owner was surrendered, liberates it."""
     reg = next((r for r in s.regions(sea=False) if prop(r, 'strName') == region), None)
     if reg is None:
         return []
@@ -1010,8 +1010,8 @@ def _city_and_liberate(s, region, c, geom):
 
 
 def island_source(pm, name, land, eqs=None):
-    """Región con datos de la que sacar una región de tierra que no tiene vecinas de tierra con datos (una isla rodeada de mar):
-    su equivalente vanilla (changelog) si el escenario la tiene y, si no, la región de tierra con datos más cercana. None si no hay."""
+    """Region with data from which to take a land region that has no land neighbors with data (an island surrounded by sea):
+    its vanilla equivalent (changelog) if the scenario has it and, otherwise, the nearest land region with data. None if none."""
     eqs = pack_equivalences(pm) if eqs is None else eqs
     m = next((v for v in eqs.get(name) or [] if v in land and v != name), None)
     if m:
@@ -1033,7 +1033,7 @@ def island_source(pm, name, land, eqs=None):
 
 
 def pack_pop_table(pack):
-    """Poblacion de referencia del regionpack (poblacion.json: {region: {pop, mother}}), o {} si no tiene."""
+    """Reference population of the regionpack (poblacion.json: {region: {pop, mother}}), or {} if it has none."""
     import editor_core
     f = os.path.join(editor_core.MAPS, pack, 'poblacion.json')
     try:
@@ -1043,7 +1043,7 @@ def pack_pop_table(pack):
 
 
 def pack_equivalences(pm):
-    """{región del regionpack: [regiones vanilla]} según su changelog (regiones_nuevas.equivale y entradas «equivalencias»)."""
+    """{regionpack region: [vanilla regions]} according to its changelog (regiones_nuevas.equivale and «equivalencias» entries)."""
     out = {}
     for e in pm.changelog:
         for x in e.get('regiones_nuevas', []):
@@ -1058,8 +1058,8 @@ def pack_equivalences(pm):
 
 
 def apply_equivalences(s, pm):
-    """Escenario de World -> regionpack hecho desde cero: cada región nueva que dice equivaler a regiones vanilla las sustituye:
-    nace de la primera (dueño, controlador, cultura) y se queda con las ciudades, recursos, unidades y población de todas."""
+    """World scenario -> regionpack made from scratch: each new region that claims to be equivalent to vanilla regions replaces them:
+    it is born from the first (owner, controller, culture) and takes the cities, resources, units and population of all of them."""
     notes = []
     land = {prop(r, 'strName') for r in s.regions(sea=False)}
     made = {x['nombre']: for_scenario(x, s.name) for e in pm.changelog for x in e.get('regiones_nuevas', [])}
@@ -1082,14 +1082,14 @@ def apply_equivalences(s, pm):
     return notes
 
 
-# el mismo país con nombres distintos (vanilla primero): al importar GeoJSON o cruzar escenarios cuentan como uno
-# (también en editor/index.html, natKey)
+# the same country with different names (vanilla first): when importing GeoJSON or crossing scenarios they count as one
+# (also in editor/index.html, natKey)
 COUNTRY_EQUIV = [('Salvador', 'El Salvador'), ('Swaziland', 'Eswatini'), ('Burma', 'Myanmar'),
                  ('South Africa', 'Union of South Africa')]
 
 
 def country_key(t):
-    """Clave para comparar nombres de país: sin mayúsculas, acentos, espacios ni signos, y con las equivalencias de COUNTRY_EQUIV."""
+    """Key to compare country names: without case, accents, spaces or punctuation, and with the COUNTRY_EQUIV equivalences."""
     import unicodedata
     n = lambda x: re.sub(r'[^a-z0-9]', '', unicodedata.normalize('NFKD', str(x)).encode('ascii', 'ignore').decode('ascii').lower())
     k = n(t)
@@ -1100,8 +1100,8 @@ def country_key(t):
 
 
 def match_country(s, name):
-    """País del escenario que corresponde a 'name' aunque se escriba distinto: «UnitedKingdom» (MH2) = «United Kingdom»,
-    mayúsculas, acentos, guiones o espacios aparte. None si no hay ninguno."""
+    """Scenario country matching 'name' even if written differently: «UnitedKingdom» (MH2) = «United Kingdom»,
+    ignoring case, accents, hyphens or spaces. None if there is none."""
     if not name:
         return None
     cs = s.countries()
@@ -1112,8 +1112,8 @@ def match_country(s, name):
 
 
 def for_scenario(c, scen):
-    """Entrada de región nueva del changelog con el dueño (y controlador) que le corresponden en el escenario 'scen':
-    «pais_por_escenario» manda sobre «pais» (p. ej. la región al sur de Kaliningrado es de Polonia en un escenario y de Rusia en otro)."""
+    """Changelog new region entry with the owner (and controller) it gets in scenario 'scen':
+    «pais_por_escenario» overrides «pais» (e.g. the region south of Kaliningrad belongs to Poland in one scenario and to Russia in another)."""
     o = (c.get('pais_por_escenario') or {}).get(scen)
     if not o:
         return c
@@ -1124,18 +1124,18 @@ def for_scenario(c, scen):
 
 
 def pack_sync_apply(s, pack, switch=True, pop_mode='area'):
-    """Aplica pack_sync_plan en memoria (falta guardar): quita, añade y, si 'switch', cambia el regionpack del escenario.
-    pop_mode (población de las regiones nuevas que salen de otra): 'area' (por defecto) reparte los habitantes que tiene ahora
-    la región de origen según el área; 'ref' los reparte según la población de referencia del regionpack (poblacion.json)
-    conservando el total de la región de origen; 'ref_abs' pone la cifra de referencia tal cual (se resta del origen)."""
+    """Applies pack_sync_plan in memory (still needs saving): removes, adds and, if 'switch', changes the scenario regionpack.
+    pop_mode (population of new regions taken from another): 'area' (default) splits the inhabitants the source region
+    has now by area; 'ref' splits them by the regionpack reference population (poblacion.json)
+    keeping the source region total; 'ref_abs' sets the reference figure as is (subtracted from the source)."""
     import progress
     progress.step(5, 'Comparando el escenario con el regionpack %s' % pack)
     pm = PackMap(pack)
     notes = []
     # regiones renombradas en el regionpack (changelog «renombradas»): se renombran, no se quitan y se vuelven a crear
     have = {prop(r, 'strName') for r in s.regions()}
-    # también los RegionRename de map.xml aunque el changelog no los anote (renombrados antes de que se anotaran): sin esto la
-    # región «Rostov» se quitaba y «Rostov Oblast» se volvía a crear a partir de una vecina, con el dueño y la población de esa vecina
+    # also the map.xml RegionRename entries even if the changelog does not note them (renamed before they were noted): without this the
+    # region «Rostov» was removed and «Rostov Oblast» recreated from a neighbor, with that neighbor's owner and population
     rens = [{'de': a, 'a': b} for a, b in getattr(pm, 'renames', {}).items() if a != b]
     for e in pm.changelog:
         rens += e.get('renombradas', [])
@@ -1148,11 +1148,11 @@ def pack_sync_apply(s, pack, switch=True, pop_mode='area'):
     notes += apply_equivalences(s, pm)
     plan = pack_sync_plan(s, pack)
     pdata = pack_pop_table(pack) if pop_mode in ('ref', 'ref_abs') else {}
-    pending = {}      # región de origen -> regiones nuevas que aún faltan por sacarle (para repartir bien entre varias)
+    pending = {}      # source region -> new regions still to be taken from it (to split correctly among several)
     for x_ in plan['add']:
         if x_['mother'] and not x_['sea']:
             pending.setdefault(x_['mother'], []).append(x_['name'])
-    # lo que se eligió al crear cada región (dueño, controlador, terreno, población) según el changelog del regionpack
+    # what was chosen when creating each region (owner, controller, terrain, population) according to the regionpack changelog
     made = {x['nombre']: for_scenario(x, s.name) for e in pm.changelog for x in e.get('regiones_nuevas', [])}
     import progress
     total = len(plan['remove']) + len(plan['add']) or 1
@@ -1176,8 +1176,8 @@ def pack_sync_apply(s, pack, switch=True, pop_mode='area'):
                 notes += reassign_ports(s, x['name'], pm.geom(x['name']), pm.geom)
                 continue
             c = made.get(x['name'], {})
-            if c and (not c.get('madre') or not x['mother']) and c.get('pais') and (match_country(s, c['pais']) or not x['mother']):     # sin madre en el escenario (p. ej. salió del mar)
-                # región creada sin región de origen (p. ej. una isla en el mar): con el dueño, terreno y población del changelog
+            if c and (not c.get('madre') or not x['mother']) and c.get('pais') and (match_country(s, c['pais']) or not x['mother']):     # without a mother in the scenario (e.g. it came from the sea)
+                # region created without a source region (e.g. an island in the sea): with the owner, terrain and population from the changelog
                 notes += _add_owned_region(s, pm, x['name'], c)
                 continue
             if not x['mother']:
@@ -1191,7 +1191,7 @@ def pack_sync_apply(s, pack, switch=True, pop_mode='area'):
             pops = {k: v for k, v in (c.get('poblacion') or {}).items() if k in land}
             sib = [n_ for n_ in pending.get(x['mother'], []) if n_ != x['name']]
             pending[x['mother']] = sib
-            def _w(n_):      # peso de reparto: población de referencia o, si falta, área
+            def _w(n_):      # split weight: reference population or, if missing, area
                 g_ = pm.geom(n_)
                 return (pdata[n_]['pop'] if n_ in pdata else None), (g_.area if g_ is not None else 0)
             ws = [_w(n_) for n_ in [x['name'], x['mother']] + sib]
@@ -1200,9 +1200,9 @@ def pack_sync_apply(s, pack, switch=True, pop_mode='area'):
                 rest = sum(w[0] for w in ws)
                 fr = ws[0][0] / rest if rest else 0
             else:
-                rest = sum(w[1] for w in ws)       # su área + la de la región de origen + la de las que aún faltan
+                rest = sum(w[1] for w in ws)       # its area + that of the source region + that of the ones still missing
                 fr = ws[0][1] / rest if rest else 0
-            fixed = c.get('fraccion') if not pdata and pop_mode == 'area' else None   # fracción elegida al crearla en el editor
+            fixed = c.get('fraccion') if not pdata and pop_mode == 'area' else None   # fraction chosen when creating it in the editor
             notes += sc.add_new_region(s, x['name'], mother=x['mother'], fraction=0 if pops else (fixed or fr),
                                        text=c.get('texto'), terrain=c.get('terreno'))
             if pops:
@@ -1235,9 +1235,9 @@ def pack_sync_apply(s, pack, switch=True, pop_mode='area'):
 
 
 def rehome_transferred(s, pm):
-    """Traspasos del changelog (cortar / sumar área entre regiones existentes): las ciudades y recursos que estaban en la región
-    de la que salió el área y que ahora caen dentro de la región que la recibió pasan a esta. Solo se miran las regiones
-    de origen y destino que el changelog nombra; una ciudad que no cae en ninguna de ellas no se toca."""
+    """Changelog transfers (cut / add area between existing regions): cities and resources that were in the region
+    the area came from and that now fall inside the region that received it move to the latter. Only the source and
+    destination regions named by the changelog are checked; a city that falls in none of them is not touched."""
     from shapely.geometry import Point
     st = s.s
     src, dst = set(), set()
@@ -1273,14 +1273,14 @@ def rehome_transferred(s, pm):
     return notes
 
 
-# ------------------------------------------------------------------ renombrar una región (con el RegionRename de map.xml)
-# propiedades que guardan nombres de región (no de país: strOwner, strCountry, strHomelands… no se tocan)
+# ------------------------------------------------------------------ rename a region (with the map.xml RegionRename)
+# properties holding region names (not country ones: strOwner, strCountry, strHomelands... are not touched)
 REGION_PROPS = {'strRegion', 'strRegions', 'strPortForRegion', 'strRegionList', 'strTargetRegionList', 'strMyRegionNames',
                 'strRegionName'}
 
 
 def rename_region(s, old, new, text=None):
-    """Cambia el nombre de una región en todo el escenario (su objeto Region y todas las referencias) y su texto visible."""
+    """Renames a region in the whole scenario (its Region object and all references) and its visible text."""
     st = s.s
     names = {prop(r, 'strName'): r for r in s.regions()}
     if old not in names:
@@ -1303,9 +1303,9 @@ def rename_region(s, old, new, text=None):
     return notes
 
 
-# ------------------------------------------------------------------ crear ciudades, recursos y ejércitos
+# ------------------------------------------------------------------ create cities, resources and armies
 def _land_region_at(s, x, y):
-    """(Region del escenario, nombre) que contiene el punto, según el mapa de su regionpack."""
+    """(scenario Region, name) containing the point, according to the map of its regionpack."""
     pack = sc.pack_of(s)
     pm = pack_map(pack)
     n = pm.region_at(x, y)
@@ -1323,7 +1323,7 @@ _PM = {}
 
 
 def pack_map(pack):
-    """PackMap reutilizable (se vuelve a leer si cambia regions.bin): las formas calculadas quedan en memoria."""
+    """Reusable PackMap (re-read if regions.bin changes): computed shapes stay in memory."""
     import editor_core
     f = os.path.join(editor_core.MAPS, pack, 'xml', 'regions.bin')
     key = (pack, os.path.getmtime(f) if os.path.exists(f) else None)
@@ -1333,14 +1333,14 @@ def pack_map(pack):
 
 
 def scenario_pack(s):
-    """Regionpack que usa el escenario (strMapName de scenario.xml); World si no lo dice."""
+    """Regionpack used by the scenario (strMapName of scenario.xml); World if not stated."""
     sx = s.all('Scenario', lambda f: f == 'scenario.xml')
     disp = next((o for o in sx[0].iter('object') if o.get('type') == 'ScenarioDisplaySettings'), None) if sx else None
     return (prop(disp, 'strMapName') if disp is not None else None) or 'World'
 
 
 def region_point(s, region):
-    """(x, y) al azar dentro de 'region' en el mapa del regionpack del escenario."""
+    """Random (x, y) inside 'region' in the map of the scenario regionpack."""
     try:
         g = pack_map(scenario_pack(s)).geom(region)
     except ValueError as e:
@@ -1351,7 +1351,7 @@ def region_point(s, region):
 
 
 def random_point_in(geom, seed=None):
-    """Punto al azar dentro de una geometría (por rechazo; si no sale, un punto representativo)."""
+    """Random point inside a geometry (by rejection; if that fails, a representative point)."""
     import random
     from shapely.geometry import Point
     rnd = random.Random(seed)
@@ -1365,8 +1365,8 @@ def random_point_in(geom, seed=None):
 
 
 def create_city(s, name, x, y, ipus=1, population=0, display=None, port=None, region=None, owner=None):
-    """Ciudad nueva en (x, y): va dentro de la región que contiene el punto y es de su dueño. Su nombre visible va al
-    stringTable del escenario. 'port': región de mar del puerto (opcional)."""
+    """New city at (x, y): goes inside the region containing the point and belongs to its owner. Its visible name goes to the
+    scenario stringTable. 'port': sea region of the port (optional)."""
     st = s.s
     name = (name or '').strip()
     if not name:
@@ -1374,7 +1374,7 @@ def create_city(s, name, x, y, ipus=1, population=0, display=None, port=None, re
     if any(prop(c, 'strName') == name for c in s.all('City')):
         raise ValueError('ya existe una ciudad llamada %s' % name)
     notes = []
-    if region:      # región elegida (de tierra o de mar, p. ej. una base en la Antártida); el punto puede quedar fuera
+    if region:      # chosen region (land or sea, e.g. a base in Antarctica); the point may fall outside
         reg = next((r for r in s.regions(sea=False) + s.regions(sea=True) if prop(r, 'strName') == region), None)
         if reg is None:
             raise ValueError('no existe la región %s' % region)
@@ -1431,8 +1431,8 @@ def fix_landless(s, country, action, member=None, regions=None):
 
 
 def unsurrender(s, owner, region=None):
-    """Si 'owner' estaba rendido (bSurrendered) y ya tiene regiones: deja de estarlo y su capital pasa a una ciudad de su
-    territorio (de 'region' si hay alguna, si no la de más IPUs). Sin ciudad en su territorio avisa de que hay que crear una."""
+    """If 'owner' was surrendered (bSurrendered) and now has regions: it stops being so and its capital moves to a city in its
+    territory (of 'region' if any, otherwise the one with most IPUs). Without a city in its territory it warns that one must be created."""
     st = s.s
     c = s.countries().get(owner)
     if c is None or prop(c, 'bSurrendered') != 'true':
@@ -1465,7 +1465,7 @@ def unsurrender(s, owner, region=None):
 
 
 def create_producer(s, name, resource, x, y, output=1):
-    """Recurso (productor) nuevo en (x, y), dentro de la región que contiene el punto."""
+    """New resource (producer) at (x, y), inside the region containing the point."""
     st = s.s
     name = (name or '').strip()
     if not name:
@@ -1483,7 +1483,7 @@ def create_producer(s, name, resource, x, y, output=1):
 
 
 def create_army(s, owner, name, region, units):
-    """Ejército nuevo de 'owner' en 'region'. units: [{'type': plantilla, 'n': número}]."""
+    """New army of 'owner' in 'region'. units: [{'type': template, 'n': number}]."""
     st = s.s
     countries = s.countries()
     if owner not in countries:
@@ -1517,14 +1517,14 @@ def create_army(s, owner, name, region, units):
     return st.eid(el), ['ejército %s de %s creado en %s con %s' % (name, owner, region, ', '.join('%d %s' % (int(u['n']), u['type']) for u in units))]
 
 
-# ------------------------------------------------------------------ estado de las relaciones entre varios países
+# ------------------------------------------------------------------ state of relations among several countries
 COUNTRY_KEYS = {'strName', 'strCountry', 'strFromCountry', 'strToCountry', 'strINITCountryName', 'strINITAttackerCountryName',
                 'strINITDefenderCountryName', 'strOwner', 'strTargetCountry'}
 
 
 def relations(s, countries):
-    """Relaciones entre los países elegidos al empezar el escenario: alianzas, guerras, comercio, ayuda, acuerdos (acceso
-    militar…), embargos y los eventos programados que los mencionan (y los que declaran guerra o dependen de una)."""
+    """Relations among the chosen countries at scenario start: alliances, wars, trade, aid, agreements (military
+    access...), embargoes and the scheduled events that mention them (and those that declare war or depend on one)."""
     cs = set(countries)
     pairs = {}
 
@@ -1569,7 +1569,7 @@ def relations(s, countries):
         if kind in ('declara guerra', 'embargo') and len(hit) >= 2:
             tag(hit[0], hit[1], 'evento: %s (%s)' % (label, kind))
     dm = _dip_map(s)
-    for (a, b), (_e, v) in dm.items():       # cifra de relación inicial de cada pareja (0 pésimas – 1000 excelentes)
+    for (a, b), (_e, v) in dm.items():       # initial relation figure of each pair (0 terrible - 1000 excellent)
         if a in cs and b in cs and a < b:
             w = dm.get((b, a))
             if w is None or _num(w[1]) == _num(v):
@@ -1579,7 +1579,7 @@ def relations(s, countries):
         elif a in cs and b in cs and a > b and (b, a) not in dm:
             tag(b, a, 'relación inicial %s/1000 (%s)' % (v, sc.dip_label(v)))
     names = sorted(cs)
-    for i, x in enumerate(names):            # todas las combinaciones (A–B, A–C, B–C…), aunque no tengan relación
+    for i, x in enumerate(names):            # all combinations (A-B, A-C, B-C...), even without a relation
         for y in names[i + 1:]:
             pairs.setdefault((x, y), [])
     return {'countries': sorted(cs), 'pairs': [{'a': k[0], 'b': k[1], 'tags': v,
@@ -1631,9 +1631,9 @@ def bulk_elements(s, ids, op, field=None, value=None):
 
 
 
-# ------------------------------------------------------------------ acciones sobre países (selección múltiple)
+# ------------------------------------------------------------------ actions on countries (multiple selection)
 def transfer_assets(s, sources, dest, regions=True, units=True):
-    """Las regiones (con sus ciudades y recursos) y las unidades militares de 'sources' pasan a 'dest'."""
+    """The regions (with their cities and resources) and military units of 'sources' go to 'dest'."""
     countries = s.countries()
     if dest not in countries:
         raise ValueError('no existe el país %s' % dest)
@@ -1668,10 +1668,10 @@ def _owned(s, name):
 
 
 def duplicate_countries(s):
-    """[(duplicado, bueno)]: naciones que son la misma escrita distinto («UnitedStates» / «United States»). Se queda la que tiene
-    nombre escrito como en el juego vanilla (sin palabras pegadas: «South Africa», no «UnionOfSouthAfrica») y, a igualdad, la que
-    tiene más regiones. También
-    «ElSalvador» / «Salvador» y «UnionOfSouthAfrica» / «South Africa» (artículo o «Union of» delante)."""
+    """[(duplicate, good)]: nations that are the same written differently («UnitedStates» / «United States»). Keeps the one whose
+    name is written as in vanilla (no joined words: «South Africa», not «UnionOfSouthAfrica») and, if tied, the one
+    with more regions. Also
+    «ElSalvador» / «Salvador» and «UnionOfSouthAfrica» / «South Africa» (article or «Union of» in front)."""
     import unicodedata
     norm = lambda t: re.sub(r'^(el|la|the|unionof)(?=[a-z]{4})', '', country_key(t))
     groups = {}
@@ -1680,14 +1680,14 @@ def duplicate_countries(s):
     out = []
     for g in groups.values():
         if len(g) > 1:
-            keep = max(g, key=lambda c: (not re.search(r'[a-z][A-Z]', c), len(_owned(s, c)[0])))   # «UnionOfSouthAfrica» se ve así en el juego
+            keep = max(g, key=lambda c: (not re.search(r'[a-z][A-Z]', c), len(_owned(s, c)[0])))   # «UnionOfSouthAfrica» shows like this in the game
             out += [(c, keep) for c in g if c != keep]
     return out
 
 
 def merge_country(s, dup, keep):
-    """Fusiona la nación 'dup' en 'keep' (la misma escrita distinto): sus regiones, unidades y regiones históricas pasan a 'keep'
-    y 'dup' se quita del escenario."""
+    """Merges nation 'dup' into 'keep' (the same one written differently): its regions, units and historic regions go to 'keep'
+    and 'dup' is removed from the scenario."""
     notes = []
     hist = [prop(k, 'strRegion') for h in s.all('HistoricCountry') if prop(h, 'strCountry') == dup for k in objs(h)]
     have = {prop(k, 'strRegion') for h in s.all('HistoricCountry') if prop(h, 'strCountry') == keep for k in objs(h)}
@@ -1695,13 +1695,13 @@ def merge_country(s, dup, keep):
         if r and r not in have:
             toggle_historic(s, keep, r); have.add(r)
     play = [w for w in s.all('WrappedString') if w.get('name') == 'objPlayableCountries']
-    for w in play:                         # países jugables (scenarioinfo.xml): el duplicado pasa a ser el bueno, sin repetir
+    for w in play:                         # playable countries (scenarioinfo.xml): the duplicate becomes the good one, without repeating
         if prop(w, 'strString') == dup:
             if any(prop(x, 'strString') == keep for x in play):
                 s.s.remove(w)
             else:
                 s.s.set_prop(w, 'strString', keep)
-    for v in s.all('View'):                # vistas del mapa (game.xml): alias del duplicado -> el bueno, sin repetir
+    for v in s.all('View'):                # map views (game.xml): alias of the duplicate -> the good one, without repeating
         al = [p for p in v if p.tag == 'property' and p.get('name') == 'strAliases']
         for p in al:
             if p.get('value') == dup:
@@ -1712,8 +1712,8 @@ def merge_country(s, dup, keep):
                 s.s.touch(v, structural=True)
     cs = s.countries()
     if prop(cs[dup], 'bNonPlayable') == 'false' and prop(cs[keep], 'bNonPlayable') == 'true':
-        s.s.set_prop(cs[keep], 'bNonPlayable', 'false')     # si el duplicado era jugable, el bueno también
-    for t in s.all('TriggerCountry'):      # disparadores de IA de otros países («guerra si invaden a dup») -> el bueno
+        s.s.set_prop(cs[keep], 'bNonPlayable', 'false')     # if the duplicate was playable, the good one too
+    for t in s.all('TriggerCountry'):      # AI triggers of other countries («war if they invade dup») -> the good one
         if prop(t, 'strName') == dup:
             s.s.set_prop(t, 'strName', keep)
     notes += delete_country(s, dup, keep)
@@ -1721,9 +1721,9 @@ def merge_country(s, dup, keep):
 
 
 def delete_country(s, name, dest=None):
-    """Quita un país del escenario: sus regiones y unidades pasan a 'dest' (obligatorio si tiene), se quita de alianzas, guerras,
-    comercio, ayuda, acuerdos y países históricos, y se dejan de cargar sus archivos (country*/player*.xml salen de game.xml y
-    el jugador de gamestate.xml; los archivos quedan en la carpeta pero el juego los ignora)."""
+    """Removes a country from the scenario: its regions and units go to 'dest' (required if it has any), it is removed from alliances, wars,
+    trade, aid, agreements and historic countries, and its files stop being loaded (country*/player*.xml leave game.xml and
+    the player leaves gamestate.xml; the files stay in the folder but the game ignores them)."""
     st = s.s
     countries = s.countries()
     if name not in countries:
@@ -1734,7 +1734,7 @@ def delete_country(s, name, dest=None):
         if not dest or dest == name:
             raise ValueError('%s tiene %d región(es) y %d unidad(es): elige a qué país pasan' % (name, len(regs), len(units)))
         notes += transfer_assets(s, [name], dest)
-    # alianzas: se quita como miembro (si era el líder pasa a otro o la alianza desaparece)
+    # alliances: removed as a member (if it was the leader, passes to another or the alliance disappears)
     for al in list(s.all('Alliance')):
         mem = [m for m in objs(al) if m.get('type') == 'AllianceMember']
         for m in [m for m in mem if prop(m, 'strINITCountryName') == name]:
@@ -1773,8 +1773,8 @@ def delete_country(s, name, dest=None):
 
 
 def make_surrendered(s, name, capital, dest=None):
-    """Convierte un país en una nación rendida que el jugador puede liberar: sin regiones, con capital anhelada en 'capital' y
-    esa región entre sus regiones históricas. Si tiene regiones o unidades, pasan a 'dest' (obligatorio)."""
+    """Turns a country into a surrendered nation the player can liberate: no regions, with desired capital in 'capital' and
+    that region among its historic regions. If it has regions or units, they go to 'dest' (required)."""
     st = s.s
     countries = s.countries()
     c = countries.get(name)
@@ -1789,7 +1789,7 @@ def make_surrendered(s, name, capital, dest=None):
         if not dest or dest == name:
             raise ValueError('%s tiene %d región(es) y %d unidad(es): elige a qué país pasan' % (name, len(regs), len(units)))
         notes += transfer_assets(s, [name], dest)
-    # la capital anhelada: no puede ser de este país (ya no tiene regiones); queda como ciudad de otro
+    # the desired capital: cannot belong to this country (it has no regions now); stays as a city of another
     st.set_prop(c, 'bSurrendered', 'true')
     st.set_prop(c, 'strCapital', capital)
     st.set_prop(c, 'strOriginalCapital', capital)
@@ -1805,9 +1805,9 @@ def make_surrendered(s, name, capital, dest=None):
 
 
 
-# ------------------------------------------------------------------ validación de naciones rendidas (liberables)
+# ------------------------------------------------------------------ validation of surrendered (liberable) nations
 def _best_city_in(s, regions):
-    """Ciudad (nombre, región) con más IPUs entre las regiones dadas (la que sea capital anhelada); None si no hay."""
+    """City (name, region) with most IPUs among the given regions (the one to be desired capital); None if none."""
     st = s.s
     best, score = None, -1
     for c in s.all('City'):
@@ -1823,8 +1823,8 @@ def _best_city_in(s, regions):
 
 
 def surrendered_issues(s):
-    """Avisos sobre las naciones rendidas (bSurrendered) que el jugador no podría liberar: sin capital válida, con una capital fuera de
-    sus regiones históricas o sin regiones históricas (en ese caso no aparecen en el juego)."""
+    """Warnings about surrendered nations (bSurrendered) the player could not liberate: no valid capital, a capital outside
+    their historic regions or no historic regions (in that case they do not appear in the game)."""
     out = []
     countries = s.countries()
     for x in surrendered(s):
@@ -1848,7 +1848,7 @@ def surrendered_issues(s):
 
 
 def auto_capitals(s, only=None):
-    """Capital anhelada automática para las naciones rendidas no liberables: la ciudad con más IPUs de sus regiones históricas."""
+    """Automatic desired capital for non-liberable surrendered nations: the city with most IPUs in their historic regions."""
     st = s.s
     countries = s.countries()
     notes = []
@@ -1866,9 +1866,9 @@ def auto_capitals(s, only=None):
 
 
 
-# ------------------------------------------------------------------ relaciones diplomáticas iniciales (simétricas)
+# ------------------------------------------------------------------ initial diplomatic relations (symmetric)
 def _dip_map(s):
-    """{(país, hacia): (elemento, valor)} de las DipRelInitialValue de los jugadores."""
+    """{(country, towards): (element, value)} of the players' DipRelInitialValue."""
     out = {}
     for e in s.all('DipRelInitialValue'):
         a, b, v = s.owner_of_player(e), prop(e, 'strTargetCountry'), prop(e, 'nValue')
@@ -1885,11 +1885,11 @@ def _num(v):
 
 
 def diplomacy_issues(s):
-    """Dos países deben tener la misma cifra de relación entre sí (A→B = B→A) o en el juego se aplican cifras distintas.
-    Avisa de las parejas con valores distintos y de las que solo están definidas en un sentido."""
+    """Two countries must have the same relation figure to each other (A->B = B->A) or the game applies different figures.
+    Warns about pairs with different values and those defined in one direction only."""
     out = []
     m = _dip_map(s)
-    for (a, b), (e, v) in sorted(m.items()):          # fuera del rango 0 (pésimas) – 1000 (excelentes)
+    for (a, b), (e, v) in sorted(m.items()):          # outside the range 0 (terrible) - 1000 (excellent)
         x = _num(v)
         if x is None or not (sc.DIP_MIN <= x <= sc.DIP_MAX) or x != int(x):
             out.append({'level': 'error', 'id': s.s.eid(e),
@@ -1904,7 +1904,7 @@ def diplomacy_issues(s):
         seen.add(key)
         other = m.get((b, a))
         if other is None:
-            if _num(v) == 0:          # sin entrada equivale al valor por defecto (0): no es una discrepancia
+            if _num(v) == 0:          # no entry equals the default value (0): not a mismatch
                 continue
             out.append({'level': 'warning', 'id': s.s.eid(e),
                         'msg': 'Relación diplomática %s → %s = %s, pero %s no define la suya con %s: en el juego las cifras no coinciden.' % (a, b, v, b, a),
@@ -1923,8 +1923,8 @@ NATION_REFS = ('strOwner', 'strController', 'strTargetCountry', 'strFromCountry'
 
 
 def duplicate_issues(s):
-    """Entradas repetidas que impiden crear la partida: dos Player con el mismo nombre en gamestate.xml («Found duplicate
-    player named …»), el mismo archivo cargado dos veces en game.xml o un alias repetido en una vista."""
+    """Repeated entries that prevent creating the game: two Players with the same name in gamestate.xml («Found duplicate
+    player named …»), the same file loaded twice in game.xml or a repeated alias in a view."""
     out = []
     players = {}
     for p in s.all('Player', lambda f: f == 'gamestate.xml'):
@@ -1982,7 +1982,7 @@ def duplicate_issues(s):
 
 
 def remove_duplicates(s, remove=None, parent=None):
-    """Arreglo de duplicate_issues: borra los Player elegidos o los alias/archivos repetidos de un objeto de game.xml."""
+    """duplicate_issues fix: deletes the chosen Players or the repeated aliases/files of a game.xml object."""
     st = s.s
     n = 0
     for i in remove or []:
@@ -2008,8 +2008,8 @@ def remove_duplicates(s, remove=None, parent=None):
 
 
 def unknown_nation_issues(s):
-    """Referencias a naciones que no existen en el escenario (p. ej. «Cyrpus» por «Cyprus»): el juego las ignora o falla.
-    Propone la nación más parecida, o borrar la entrada si es una relación diplomática."""
+    """References to nations that do not exist in the scenario (e.g. «Cyrpus» for «Cyprus»): the game ignores them or fails.
+    Proposes the most similar nation, or deleting the entry if it is a diplomatic relation."""
     import difflib
     names = set(s.countries())
     if not names:
@@ -2050,7 +2050,7 @@ def _fmt_avg(x, y):
 
 
 def fix_diplomacy(s, items):
-    """items: [{'a','b','use': 'a'|'b'|'avg'}]. Deja las dos direcciones con la misma cifra (crea la que falte)."""
+    """items: [{'a','b','use': 'a'|'b'|'avg'}]. Makes both directions have the same figure (creates the missing one)."""
     st = s.s
     m = _dip_map(s)
     notes = []
@@ -2058,7 +2058,7 @@ def fix_diplomacy(s, items):
         a, b, use = it['a'], it['b'], it.get('use', 'a')
         ea, eb = m.get((a, b)), m.get((b, a))
         va, vb = (ea[1] if ea else None), (eb[1] if eb else None)
-        if it.get('value') is not None:                    # cifra elegida a mano (0 pésimas – 1000 excelentes)
+        if it.get('value') is not None:                    # figure chosen by hand (0 terrible - 1000 excellent)
             sv = str(it['value']).strip()
             if not re.fullmatch(r'\d+', sv) or not (sc.DIP_MIN <= int(sv) <= sc.DIP_MAX):
                 raise ValueError('la relación diplomática va de %d (pésimas) a %d (excelentes): «%s» no vale' % (sc.DIP_MIN, sc.DIP_MAX, it['value']))
@@ -2075,7 +2075,7 @@ def fix_diplomacy(s, items):
             if e is not None:
                 if e[1] != val:
                     st.set_prop(e[0], 'nValue', str(val))
-            else:           # falta ese sentido: se añade al jugador de x
+            else:           # that direction is missing: added to player x
                 pd = next((p for p in s.all('MEPlayerData') if prop(p, 'strOwner') == x), None)
                 if pd is None:
                     notes.append('AVISO: %s no tiene datos de jugador donde guardar su relación con %s' % (x, y))
@@ -2083,7 +2083,7 @@ def fix_diplomacy(s, items):
                 el = ET.Element('object', {'type': 'DipRelInitialValue', 'name': 'objDipRelInitialValues'})
                 ET.SubElement(el, 'property', {'name': 'strTargetCountry', 'value': y})
                 ET.SubElement(el, 'property', {'name': 'nValue', 'value': str(val)})
-                # dentro de su DipRelInitialValueList: suelto en MEPlayerData el juego no carga el player*.xml («Error creating game»)
+                # inside its DipRelInitialValueList: loose in MEPlayerData the game does not load player*.xml («Error creating game»)
                 lst = next((o for o in objs(pd) if o.get('type') == 'DipRelInitialValueList'), None)
                 if lst is None:
                     lst = ET.Element('object', {'type': 'DipRelInitialValueList', 'name': 'objDipRelInitialValueList'})
@@ -2095,13 +2095,13 @@ def fix_diplomacy(s, items):
 
 
 
-# ------------------------------------------------------------------ territorios anhelados (listas de regiones del jugador)
+# ------------------------------------------------------------------ desired territories (player region lists)
 def _player_data(s, country):
     return next((p for p in s.all('MEPlayerData') if prop(p, 'strOwner') == country), None)
 
 
 def _region_lists(pd):
-    """[(NamedParameterBlock, RegionListParameter)] de BasicRegionLists en los datos del jugador."""
+    """[(NamedParameterBlock, RegionListParameter)] of BasicRegionLists in the player data."""
     out = []
     for blk in objs(pd):
         if blk.get('type') == 'NamedParameterBlock' and prop(blk, 'strName') == 'BasicRegionLists':
@@ -2110,8 +2110,8 @@ def _region_lists(pd):
 
 
 def claims(s, country):
-    """Listas de regiones del jugador: «Historic» son los territorios anhelados (los que la IA quiere recuperar); las demás son
-    listas con nombre que usan los eventos y la IA (p. ej. GermanyDesiredUSSR1940)."""
+    """Player region lists: «Historic» are the desired territories (those the AI wants to recover); the others are
+    named lists used by events and the AI (e.g. GermanyDesiredUSSR1940)."""
     pd = _player_data(s, country)
     if pd is None:
         return {'player': False, 'lists': []}
@@ -2123,7 +2123,7 @@ def claims(s, country):
 
 
 def set_claims(s, country, listname, regions):
-    """Deja la lista «listname» del jugador con exactamente esas regiones (la crea, y el bloque BasicRegionLists, si hace falta)."""
+    """Sets the player list «listname» to exactly these regions (creates it, and the BasicRegionLists block, if needed)."""
     st = s.s
     pd = _player_data(s, country)
     if pd is None:
@@ -2168,8 +2168,8 @@ def ai_traits(s, country):
     return {'player': True, 'id': s.s.eid(pd), 'traits': {k: prop(pd, k) for k in AI_TRAITS}}
 
 
-# ---------------------------------------------------------------------------------------- renombrar un país
-# propiedades cuyo valor es el nombre interno de un país (en cualquier objeto); strName solo en los objetos que son el país
+# ---------------------------------------------------------------------------------------- rename a country
+# properties whose value is the internal name of a country (in any object); strName only in objects that are the country
 COUNTRY_PROPS = {'strOwner', 'strController', 'strTargetCountry', 'strHomelands', 'strFoggees', 'strINITCountryName', 'strFromCountry',
                  'strToCountry', 'strCountry', 'strCountryName', 'strTargetCountries', 'strINITAttackerCountryName', 'strINITDefenderCountryName',
                  'strWinningCountryName', 'strLosingCountryName', 'strWarTriggerCountriesA', 'strWarTriggerCountriesB', 'strWarTriggerCountryA',
@@ -2183,10 +2183,10 @@ def _slug(text):
 
 
 def rename_country(s, old, new, code=True, keep_shown=False):
-    """Cambia el nombre de un país. code=False: solo el nombre que se ve en el juego (texto de su SID).
-    code=True: también el nombre interno en todo el escenario (dueños, diplomacia, IA, eventos, alianzas, guerras, tratados,
-    modelos de unidades…), sus archivos country/player<País>.xml (se renombran al guardar) y sus SID de nombre.
-    keep_shown=True: el nombre que se ve en el juego no cambia (p. ej. «Myanmar» con nombre interno «Burma» como en vanilla)."""
+    """Renames a country. code=False: only the name shown in the game (its SID text).
+    code=True: also the internal name throughout the scenario (owners, diplomacy, AI, events, alliances, wars, treaties,
+    unit models...), its country/player<País>.xml files (renamed on save) and its name SIDs.
+    keep_shown=True: the name shown in the game does not change (e.g. «Myanmar» with internal name «Burma» as in vanilla)."""
     st = s.s
     new = (new or '').strip()
     countries = s.countries()
@@ -2222,7 +2222,7 @@ def rename_country(s, old, new, code=True, keep_shown=False):
                 expr = k in ('expRession', 'expWhere') and v and q_old in v
                 if not (hit or expr):
                     continue
-                if p in ext:          # datos compartidos de ScenarioDefaults: no se tocan (los usan otros escenarios)
+                if p in ext:          # shared ScenarioDefaults data: not touched (used by other scenarios)
                     outside += 1
                     continue
                 e.set('value', new if hit else v.replace(q_old, "'%s'" % new))
@@ -2231,7 +2231,7 @@ def rename_country(s, old, new, code=True, keep_shown=False):
     notes.append('%s → %s: %d referencias cambiadas' % (old, new, n))
     if outside:
         notes.append('AVISO: %d referencias a %s en archivos compartidos de ScenarioDefaults no se cambian (los usan otros escenarios)' % (outside, old))
-    # archivos country/player<País>.xml: se renombran (al guardar se escribe el nuevo y se borra el viejo) y game.xml los carga
+    # country/player<País>.xml files: renamed (on save the new one is written and the old one deleted) and game.xml loads them
     st.renamed = getattr(st, 'renamed', {})
     for pre in ('country', 'player'):
         op = os.path.abspath(os.path.join(s.dir, '%s%s.xml' % (pre, old)))
@@ -2247,7 +2247,7 @@ def rename_country(s, old, new, code=True, keep_shown=False):
                     g.set('fromFile', '%s%s.xml' % (pre, new))
                     st.touch(g)
             notes.append('%s%s.xml → %s%s.xml (al guardar)' % (pre, old, pre, new))
-    # SID del nombre: los nuevos con el texto de los viejos (el nombre pasa a ser el nuevo)
+    # name SID: the new ones with the text of the old ones (the name becomes the new one)
     for kind in SID_KINDS:
         so, sn = 'SID.Game.Country.%s.%s' % (kind, _slug(old)), 'SID.Game.Country.%s.%s' % (kind, _slug(new))
         txt = s.strings.get(so)
@@ -2257,7 +2257,7 @@ def rename_country(s, old, new, code=True, keep_shown=False):
                 txt = scenario_events._string(s, so)
             except Exception:
                 txt = None
-        if keep_shown:     # los SID nuevos con el mismo texto que se veía
+        if keep_shown:     # the new SIDs with the same text that was shown
             if txt or kind == 'Name':
                 notes += sc.set_region_string(s, sn, txt or old)
             continue

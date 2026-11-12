@@ -1,7 +1,7 @@
-"""Claves del changelog.json: se escribe en inglés y se lee en inglés o en español (los changelog antiguos).
+"""changelog.json keys: written in English and read in English or Spanish (old changelogs).
 
-El resto del código trabaja con las claves españolas de siempre (to_internal al leer); to_file las pasa a inglés al escribir.
-Solo se traducen claves de estructura; los nombres de región (claves de «centros», «equivalencias», «poblacion») no se tocan."""
+The rest of the code works with the usual Spanish keys (to_internal on read); to_file turns them into English on write.
+Only structural keys are translated; region names (keys of «centros», «equivalencias», «poblacion») are left untouched."""
 import json
 import os
 
@@ -17,7 +17,7 @@ NEW = {'nombre': 'name', 'texto': 'text', 'madre': 'mother', 'pais': 'owner', 't
        'terreno': 'terrain', 'mar': 'sea', 'poblacion': 'population_fractions', 'historicos': 'historic_countries',
        'poblacion_manual': 'manual_population', 'ciudad': 'city', 'nacion': 'nation', 'equivale': 'equivalent', 'fraccion': 'fraction',
        'poblacion_por_escenario': 'population_by_scenario', 'pais_por_escenario': 'owner_by_scenario'}
-# (claves de la entrada que contienen listas de objetos) -> tabla de sus claves
+# (entry keys holding lists of objects) -> table of their keys
 LISTS = {'traspasos': TRANSFER, 'renombradas': RENAMED, 'canales': CHANNEL, 'regiones_eliminadas': DELETED, 'regiones_nuevas': NEW}
 
 
@@ -39,8 +39,8 @@ def _convert(entry, entry_t, list_t):
 
 
 def to_file(cl):
-    # las equivalencias («equivale a región vanilla») se refieren siempre a World, el regionpack por defecto del juego: se dice en
-    # cada entrada que las tenga (también en los changelog antiguos, al volver a escribirlos)
+    # equivalences («equivale a región vanilla») always refer to World, the game's default regionpack: this is stated in
+    # every entry that has them (also in old changelogs, when rewriting them)
     for e in cl:
         if (e.get('equivalencias') or any(x.get('equivale') for x in e.get('regiones_nuevas', []) or [])) and not e.get('base_equivalencias'):
             e['base_equivalencias'] = 'World'

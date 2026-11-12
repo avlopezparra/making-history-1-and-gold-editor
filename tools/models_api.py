@@ -1,9 +1,9 @@
-"""API del visor/editor de modelos 3D (página /modelos).
+"""API of the 3D model viewer/editor (/modelos page).
 
-Escribir en el escenario solo con una acción explícita del usuario («Guardar en el escenario»): el .nif nuevo va a
-scenarios/<Esc>/ui/art/3D/Custom/<Sprite>.nif (más su .kf) y el Sprite del SpriteLib del escenario pasa a apuntar a
-«/../Modern Europe/system/ui/art/3D/Custom/<Sprite>.nif» (el juego busca esa ruta primero en el escenario). El cambio
-del SpriteLib queda en memoria hasta «Guardar» del editor de escenarios. Si ya existía el .nif, se respalda antes.
+Writing to the scenario only on an explicit user action («Guardar en el escenario»): the new .nif goes to
+scenarios/<Esc>/ui/art/3D/Custom/<Sprite>.nif (plus its .kf) and the Sprite in the scenario's SpriteLib is pointed to
+«/../Modern Europe/system/ui/art/3D/Custom/<Sprite>.nif» (the game looks for that path first in the scenario). The SpriteLib
+change stays in memory until the scenario editor's «Guardar». If the .nif already existed, it is backed up first.
 """
 import base64
 import io
@@ -25,7 +25,7 @@ _CACHE = {}
 
 def _allowed(path):
     p = os.path.normcase(os.path.abspath(path))
-    # carpeta de datos: MH_ROOT (en MHEditor.exe, __file__/.. es la carpeta del programa y no la de datos: se rechazaban los .nif)
+    # data folder: MH_ROOT (in MHEditor.exe, __file__/.. is the program folder, not the data one: .nif files were rejected)
     data = os.environ.get('MH_ROOT') or os.path.join(os.path.dirname(os.path.abspath(__file__)), '..')
     roots = [os.path.normcase(os.path.abspath(sc.GAME)), os.path.normcase(os.path.abspath(sc.SCEN_ROOT)),
              os.path.normcase(os.path.abspath(data))]
@@ -46,16 +46,16 @@ def load(path):
 
 
 def models(scen):
-    """Sprites de unidades del escenario con su .nif y origen."""
+    """Scenario unit sprites with their .nif and origin."""
     r = sprite_scale.sprites(scen)
     rows = [x for x in r['sprites'] if x['file'] != 'World.xml']
     own = {x['name'] for x in rows if x['where'] == 'scenario'}
-    rows = [x for x in rows if x['where'] == 'scenario' or x['name'] not in own]   # el SpriteLib del escenario manda
+    rows = [x for x in rows if x['where'] == 'scenario' or x['name'] not in own]   # the scenario's SpriteLib takes precedence
     return {'models': [{k: x[k] for k in ('id', 'name', 'kind', 'where', 'model', 'model_label', 'own_tex', 'nif')} for x in rows]}
 
 
 def kf_for(path):
-    """.kf junto al .nif; si el .nif es del escenario y no lo trae, el del juego en la misma ruta."""
+    """.kf next to the .nif; if the .nif is the scenario's and it does not ship one, the game's at the same path."""
     kf = os.path.splitext(path)[0] + '.kf'
     if os.path.exists(kf):
         return kf
@@ -113,7 +113,7 @@ def _safe(name):
 
 
 def _write_to_scenario(s, sprite_id, n, src_path):
-    """Guarda n como Custom/<Sprite>.nif en el escenario (con .kf) y apunta el Sprite ahí (en memoria)."""
+    """Saves n as Custom/<Sprite>.nif in the scenario (with .kf) and points the Sprite there (in memory)."""
     st = sc.STORE
     el = st.get(int(sprite_id))
     if el.get('type') != 'Sprite':
@@ -135,11 +135,11 @@ def _write_to_scenario(s, sprite_id, n, src_path):
             shutil.copy2(p, bk)
             notes.append('respaldo: %s' % bk)
     data = n.to_bytes()
-    N.Nif.parse(data)       # comprobación: se vuelve a leer
+    N.Nif.parse(data)       # check: read back
     with open(dst, 'wb') as f:
         f.write(data)
     notes.append('escrito %s' % os.path.relpath(dst, sc.SCEN_ROOT))
-    # .kf (animaciones Attack/Move/Idle) copiado al lado y AnimationData apuntando a él
+    # .kf (Attack/Move/Idle animations) copied alongside and AnimationData pointing to it
     src_kf = kf_for(src_path) or ''
     new_ref = '/../Modern Europe/system/' + rel
     if os.path.exists(src_kf) and os.path.normcase(src_kf) != os.path.normcase(os.path.splitext(dst)[0] + '.kf'):
@@ -154,7 +154,7 @@ def _write_to_scenario(s, sprite_id, n, src_path):
 
 
 def set_texture(s, p):
-    """p: {path, block, png, sprite_id?, embed?}. Sin sprite_id solo devuelve el .glb de vista previa."""
+    """p: {path, block, png, sprite_id?, embed?}. Without sprite_id it only returns the preview .glb."""
     path = _allowed(p['path'])
     n = N.Nif.load(path)
     img = _img(p['png'])
@@ -166,18 +166,18 @@ def set_texture(s, p):
 
 
 def find_blender():
-    """blender.exe: variable MH_BLENDER, PATH, o las carpetas de instalación habituales (instalador y Steam)."""
+    """blender.exe: MH_BLENDER variable, PATH, or the usual install folders (installer and Steam)."""
     import glob
     cands = [os.environ.get('MH_BLENDER'), shutil.which('blender')]
     for pat in (os.path.join(r'C:\Program Files', 'Blender Foundation', '*', 'blender.exe'),
                 os.path.join(r'C:\Program Files (x86)', 'Steam', 'steamapps', 'common', 'Blender', 'blender.exe'),
                 os.path.join(os.environ.get('LOCALAPPDATA', ''), 'Programs', 'Blender Foundation', '*', 'blender.exe')):
-        cands += sorted(glob.glob(pat), reverse=True)   # la versión más nueva primero
+        cands += sorted(glob.glob(pat), reverse=True)   # newest version first
     return next((c for c in cands if c and os.path.isfile(c)), None)
 
 
 def blend_to_glb(raw):
-    """.blend -> .glb con Blender en segundo plano (el formato .blend solo lo lee Blender)."""
+    """.blend -> .glb with Blender in the background (only Blender reads the .blend format)."""
     import subprocess
     import tempfile
     exe = find_blender()
@@ -236,7 +236,7 @@ def import_model(s, p):
 
 
 def save_spritelib(s):
-    """Guarda solo los SpriteLib*.xml del escenario cambiados por el visor (con respaldo, como «Guardar»)."""
+    """Saves only the scenario's SpriteLib*.xml changed by the viewer (with backup, like «Guardar»)."""
     st = sc.STORE
     paths = [p for p in s.paths if p in st.dirty and os.path.basename(p).startswith('SpriteLib')]
     if not paths:
@@ -245,9 +245,9 @@ def save_spritelib(s):
     return ['guardado: %s' % ', '.join(os.path.basename(x) for x in r['written'])]
 
 
-# ---------------------------------------------------------------- validación de unidades de tierra
-# Cada plantilla de tierra necesita una entrada en tres tablas de DisplayLibraries: sin la de UnitTemplatesLand
-# (y Combat) sale con un modelo genérico; sin la de UnitTemplatesLandDecals sale sin la base con la bandera (decal).
+# ---------------------------------------------------------------- land unit validation
+# Each land template needs an entry in three DisplayLibraries tables: without the UnitTemplatesLand one
+# (and Combat) it shows a generic model; without the UnitTemplatesLandDecals one it shows without the flag base (decal).
 LAND_TABLES = (('MKDTableUnitTemplatesLand.xml', 'modelo en el mapa'),
                ('MKDTableUnitTemplatesLandCombat.xml', 'modelo en combate'),
                ('MKDTableUnitTemplatesLandDecals.xml', 'decal (base con la bandera)'))
@@ -271,7 +271,7 @@ def _display_file(scen_dir, fname):
 
 
 def land_display_issues(scen_dir):
-    """Avisos: plantillas de tierra del escenario sin entrada en las tablas de modelo/decal, o que apuntan a un Sprite inexistente."""
+    """Warnings: scenario land templates without an entry in the model/decal tables, or pointing to a nonexistent Sprite."""
     import xml.etree.ElementTree as ET
     templates = {}
     for f in os.listdir(scen_dir):
@@ -285,8 +285,8 @@ def land_display_issues(scen_dir):
                     p = {e.get('name'): e.get('value') for e in o.findall('property')}
                     if p.get('eType') == 'UNIT_TYPE_ARMY' and p.get('strName'):
                         templates[p['strName']] = p.get('eUnitCategory')
-    # las plantillas del juego base ya traen sus entradas (tanques y vehículos llevan la bandera en su propio .nif):
-    # solo se revisan las plantillas nuevas del escenario
+    # the base game templates already have their entries (tanks and vehicles carry the flag in their own .nif):
+    # only the scenario's new templates are checked
     base = _xml_values(os.path.join(sc.GAME, 'Modern Europe', 'system', 'DisplayLibraries', 'SpriteMaps', LAND_TABLES[0][0]), 'strKey') or set()
     new = sorted(t for t in templates if t not in base)
     out = []
@@ -295,7 +295,7 @@ def land_display_issues(scen_dir):
         keys = p and _xml_values(p, 'strKey')
         if keys is None:
             continue
-        miss = [t for t in new  # el decal lo pide la infantería (sus modelos no traen NationLogo); los vehículos lo llevan en su .nif
+        miss = [t for t in new  # the decal is required by infantry (their models lack NationLogo); vehicles carry it in their .nif
                 if t not in keys and ('Decals' not in fname or templates[t] == 'UNIT_CATEGORY_INFANTRY')]
         if miss:
             out.append({'level': 'aviso', 'id': None, 'fix': None, 'templates': miss, 'table': fname,

@@ -1,6 +1,6 @@
-"""Comprobaciones del guardado del mapa: los errores de GEOS no salen crudos ni dejan nada a medias, las regiones nuevas que
-se pisan no rompen la malla, y la página nunca borra los cambios pendientes si el guardado falla.
-Uso: python check_save_robust.py <carpeta de un proyecto del editor>   (trabaja sobre una copia temporal; no toca el proyecto)"""
+"""Map save checks: GEOS errors do not come out raw nor leave anything half-done, overlapping new regions
+do not break the mesh, and the page never discards pending changes if the save fails.
+Usage: python check_save_robust.py <carpeta de un proyecto del editor>   (works on a temporary copy; does not touch the project)"""
 import hashlib, json, os, re, shutil, sys, tempfile
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -39,12 +39,12 @@ def new_op(name, poly, **kw):
 try:
     p = fresh()
     land = max((g.index for g in p.m['regions'] if g.u_type != ec.SEA), key=lambda r: G(p, r).area)
-    # 1. región nueva que rodea a otra y roza sus bordes (colección polígono + línea contra una malla aún vacía): antes, GEOSException
+    # 1. new region surrounding another and grazing its edges (polygon + line collection against a still empty mesh): previously, GEOSException
     try:
         p.save({'modified': {}, 'assigns': [new_op('ChkA', G(p, land).buffer(0.03))], 'topo': True}, quiet)
     except SystemExit:
-        pass                      # un rechazo explicado vale; lo que no vale es la excepción cruda de GEOS
-    # 2. si GEOS falla de verdad, sale un mensaje claro (SystemExit) y el mapa del proyecto queda byte a byte como estaba
+        pass                      # an explained rejection is fine; a raw GEOS exception is not
+    # 2. if GEOS really fails, a clear message comes out (SystemExit) and the project map stays byte for byte as it was
     p = fresh()
     before = digest(p)
     real = ec.Project._save_once
@@ -60,7 +60,7 @@ try:
     finally:
         ec.Project._save_once = real
     assert digest(p) == before, 'un guardado fallido cambió el mapa del proyecto'
-    # 3. dos regiones nuevas que se pisan en un mismo guardado: mallas sanas y sin solaparse (se la queda la primera)
+    # 3. two overlapping new regions in the same save: healthy, non-overlapping meshes (the first one keeps it)
     p = fresh()
     g = G(p, land)
     x0, y0, x1, y1 = g.bounds
@@ -73,7 +73,7 @@ try:
     n = {p.rname(r.index): r.index for r in p.m['regions']}
     assert G(p, n['ChkC']).intersection(G(p, n['ChkD'])).area < 1e-9, 'las regiones nuevas se solapan'
     assert p._mesh_valid(p.m, n['ChkC']) and p._mesh_valid(p.m, n['ChkD'])
-    # 3b. varias regiones nuevas que entre todas cubren una vieja entera: se guarda y la vieja se elimina (antes: «la malla quedaría rota»)
+    # 3b. several new regions that together cover an old one entirely: it saves and the old one is removed (previously: «the mesh would be broken»)
     p = fresh()
     g, old = G(p, land), p.rname(land)
     x0, y0, x1, y1 = g.bounds
@@ -85,11 +85,11 @@ try:
     p.reload()
     n = {p.rname(r.index): r.index for r in p.m['regions']}
     assert old not in n and all(p._mesh_valid(p.m, n['ChkT%d' % i]) for i in range(4))
-    # 4. la página: save() avisa siempre y solo borra los cambios pendientes cuando el servidor guardó
+    # 4. the page: save() always reports and only clears pending changes when the server saved
     page = open(os.path.join(HERE, 'editor', 'index.html'), encoding='utf-8').read()
     wrap = page[page.index('async function save() {'):page.index('async function saveRun() {')]
     run = page[page.index('async function saveRun() {'):]
-    run = run[:re.search(r'\n(async )?function ', run).start()]     # solo el cuerpo de saveRun
+    run = run[:re.search(r'\n(async )?function ', run).start()]     # only the body of saveRun
     assert 'catch (e)' in wrap and 'alert(' in wrap and re.search(r'finally \{[^}]*updatePending\(\)', wrap), 'save() puede fallar en silencio'
     assert re.search(r'if \(saveRun\.saved\) \{[^}]*clearEdits\(\)', wrap) and wrap.count('clearEdits()') == 1
     assert run.count('clearEdits()') == 1 and re.search(r'if \(!r\.errors \|\| !r\.errors\.length\) \{[^}]*clearEdits\(\)', run), \

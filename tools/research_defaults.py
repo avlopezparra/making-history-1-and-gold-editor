@@ -1,11 +1,11 @@
-"""Unidades (y demás producción) que un país puede fabricar desde el inicio.
+"""Units (and other production) a country can build from the start.
 
-Un país puede producir una unidad cuando ha completado el proyecto de investigación que la desbloquea
-(ResearchProjFactoryOutput > ResearchFactoryOutputAvailableData strFactoryOutputName). Dos sitios lo deciden:
-- para todos los países: bCompletedByDefault="true" en el proyecto (sharedDataResearch.xml). En el juego de serie solo
-  Militia, PreWarInfantry, MountedInfantry (Cavalry) y Corvettes; «The Modern World» completa 34.
-- para un país: ResearchProjectInitRef (strProjectName, eResearchState=RESEARCH_COMPLETED) en su player<País>.xml.
-Todo queda en memoria hasta «Guardar».
+A country can produce a unit when it has completed the research project that unlocks it
+(ResearchProjFactoryOutput > ResearchFactoryOutputAvailableData strFactoryOutputName). Two places decide it:
+- for all countries: bCompletedByDefault="true" in the project (sharedDataResearch.xml). In the stock game only
+  Militia, PreWarInfantry, MountedInfantry (Cavalry) and Corvettes; «The Modern World» completes 34.
+- for one country: ResearchProjectInitRef (strProjectName, eResearchState=RESEARCH_COMPLETED) in its player<País>.xml.
+Everything stays in memory until «Guardar».
 """
 import xml.etree.ElementTree as ET
 
@@ -47,7 +47,7 @@ def info(s, country=None):
 
 
 def set_default(s, on):
-    """bCompletedByDefault de todos los proyectos: 'on' = nombres que quedan completados para todos los países."""
+    """bCompletedByDefault of all projects: 'on' = names that are completed for all countries."""
     on = set(on)
     n = 0
     for e in _projects(s):
@@ -60,7 +60,7 @@ def set_default(s, on):
 
 
 def set_country(s, country, on):
-    """Proyectos completados al empezar para un país (ResearchProjectInitRef de su player<País>.xml)."""
+    """Projects completed at start for a country (ResearchProjectInitRef of its player<País>.xml)."""
     st = s.s
     pd = next((p for p in s.all('MEPlayerData') if prop(p, 'strOwner') == country), None)
     if pd is None:

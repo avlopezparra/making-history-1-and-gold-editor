@@ -1,15 +1,15 @@
-"""Lector y escritor de los binarios del mapa de Making History: The Calm and The Storm.
+"""Reader and writer of the map binaries of Making History: The Calm and The Storm.
 
-    regions.bin  - regiones: nombre, centro, vecinos, contorno
-    borders.brd  - polilineas de frontera + indice region -> (vecino, borde)
-    regions.nts  - malla de triangulos que se dibuja + indice region -> shapes
+    regions.bin  - regions: name, center, neighbors, outline
+    borders.brd  - border polylines + index region -> (neighbor, border)
+    regions.nts  - triangle mesh that is drawn + index region -> shapes
 
-Todo es little-endian. Los campos cuyo significado no se conoce se conservan tal cual
-(nombres "u*") para que leer y volver a escribir produzca exactamente los mismos bytes.
-Las coordenadas son float32 en grados: x = longitud, y = latitud.
+Everything is little-endian. Fields of unknown meaning are kept as-is
+(names "u*") so reading and writing back produces exactly the same bytes.
+Coordinates are float32 in degrees: x = longitude, y = latitude.
 
-Uso como libreria:
-    m = load_map(carpeta_xml)          # dict con 'regions', 'borders', 'nts'
+Usage as a library:
+    m = load_map(carpeta_xml)          # dict with 'regions', 'borders', 'nts'
     save_map(m, carpeta_salida)
 """
 import os
@@ -91,10 +91,10 @@ def flatten(pts):
 class Region:
     index: int
     name_raw: bytes
-    u_type: int          # 0..4, significado sin confirmar
-    u_a: int             # a == b en todo el mapa original
+    u_type: int          # 0..4, meaning unconfirmed
+    u_a: int             # a == b across the original map
     u_b: int
-    u_flag: int          # 1 = mar (todas las de mar), 2 = algunas islas, 0 = tierra. Un mar con 0 sale rojo en el juego y lo cierra al hacer clic
+    u_flag: int          # 1 = sea (all sea ones), 2 = some islands, 0 = land. A sea with 0 shows red in the game and crashes it on click
     cx: float
     cy: float
     u_z: int             # siempre 0
@@ -127,7 +127,7 @@ def write_regions_bin(regions):
         w.pack('3I', g.u_type, g.u_a, g.u_b)
         w.u32(len(g.name_raw))
         w.raw(g.name_raw)
-        # el mar siempre lleva 1 y la tierra nunca 1 (si no, el juego la pinta en rojo y se cierra al hacer clic en ella)
+        # sea always has 1 and land never 1 (otherwise the game paints it red and crashes when clicking it)
         flag = 1 if g.u_type == 0 else (0 if g.u_flag == 1 else g.u_flag)
         w.pack('I2fI', flag, g.cx, g.cy, g.u_z)
         w.u32(len(g.neighbors))
@@ -203,7 +203,7 @@ class Shape:
     index: int
     u_zero: int
     vertices: list       # [(x, y, z, nx, ny, nz), ...]
-    indices: list        # lista de triangulos (3 por triangulo)
+    indices: list        # triangle list (3 per triangle)
 
     def triangles(self):
         v = self.vertices
@@ -308,6 +308,6 @@ def save_map(m, folder):
 
 
 def region_shapes(m, region_index):
-    """Shapes de la malla que pertenecen a una region."""
+    """Mesh shapes belonging to a region."""
     t = m['shape_table'][region_index]
     return m['shapes'][t.first:t.last + 1]

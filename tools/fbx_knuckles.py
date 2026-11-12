@@ -1,10 +1,10 @@
-"""Knuckles del .fbx (esqueleto humanoide con piel + animación de puñetazo de Mixamo) -> .nif/.kf de Making History.
+"""Knuckles from the .fbx (skinned humanoid skeleton + Mixamo punch animation) -> Making History .nif/.kf.
 
     python tools/fbx_knuckles.py <ruta .zip o carpeta con source/*.fbx y textures/> [salida_dir]
 
-Usa como plantilla el tanque del juego (sus secuencias Idle/Move/Shoot se conservan y se añaden las pistas de los
-huesos, como en anim_knuckles.py). La piel se escribe como la infantería del juego: particiones de 4 huesos en tiras.
-Escribe <salida_dir>/Knuckles FBX.nif y .kf (no toca el juego).
+Uses the game's tank as template (its Idle/Move/Shoot sequences are kept and the bone tracks
+are added, as in anim_knuckles.py). The skin is written like the game's infantry: 4-bone partitions in strips.
+Writes <salida_dir>/Knuckles FBX.nif and .kf (does not touch the game).
 """
 import copy
 import io
@@ -22,11 +22,11 @@ import nif_mesh as M
 import anim_knuckles as AK
 
 NAME = 'Knuckles FBX'
-TICKS = 46186158000         # unidades de tiempo FBX por segundo
-HEIGHT_EXT = 25.0           # alto del modelo en unidades del .nif (como el otro Knuckles)
-WALK_LEG = 25               # grados que se adelanta la pierna al caminar
-WALK_KNEE = 30              # grados que dobla la rodilla
-WALK_ARM = 20               # grados que balancean los brazos
+TICKS = 46186158000         # FBX time units per second
+HEIGHT_EXT = 25.0           # model height in .nif units (like the other Knuckles)
+WALK_LEG = 25               # degrees the leg moves forward when walking
+WALK_KNEE = 30              # degrees the knee bends
+WALK_ARM = 20               # degrees the arms swing
 
 
 def euler(r):
@@ -76,7 +76,7 @@ class Fbx:
 
 
 def mesh_data(f, files):
-    """Malla 'Body' en el espacio del mundo FBX, con piel (índices de huesos = ids de modelos FBX)."""
+    """'Body' mesh in FBX world space, with skin (bone indices = FBX model ids)."""
     body = next(k for k, v in f.models.items() if v.props[2] == 'Mesh')
     geo = next(f.objs[c] for c in f.children_of(body, 'Geometry'))
     V = geo.find('Vertices').props[0].reshape(-1, 3)
@@ -87,7 +87,7 @@ def mesh_data(f, files):
     mats = geo.find('LayerElementMaterial').find('Materials').props[0]
     G = f.global_rest(body)
     Vw = (np.c_[V, np.ones(len(V))] @ G.T)[:, :3]
-    # piel: clusters (uno por hueso) -> 4 pesos mayores por vértice
+    # skin: clusters (one per bone) -> 4 largest weights per vertex
     skin = next(f.objs[c] for c in f.children_of(geo.props[0], 'Deformer') if f.objs[c].props[2] == 'Skin')
     infl = [[] for _ in range(len(V))]
     bones = []
@@ -112,7 +112,7 @@ def mesh_data(f, files):
                 if fn in files:
                     img = Image.open(io.BytesIO(files[fn])).convert('RGBA')
         tex_of.append(img)
-    # polígonos -> triángulos por material, con vértices por esquina (uv distinta)
+    # polygons -> triangles per material, with per-corner vertices (different uv)
     out = {}
     poly, corner0, pi = [], 0, 0
     for i, v in enumerate(PVI):
@@ -150,7 +150,7 @@ def mesh_data(f, files):
 
 
 def curves(f):
-    """{(modelo, 'R'|'T'): (tiempos s, valores Nx3)} de la única animación."""
+    """{(model, 'R'|'T'): (times s, Nx3 values)} of the only animation."""
     res = {}
     for cid, cn in f.objs.items():
         if cn.name != 'AnimationCurveNode':
@@ -193,15 +193,15 @@ def build(src, out_dir):
     par = M.parents(t)
     hull = M.find_node(t, 'Hull')
     Wh = M.world(t, hull, par, {})
-    # escala y ejes: el FBX es Y arriba como el juego; se escala para que mida HEIGHT_EXT y los pies queden en el suelo
+    # scale and axes: the FBX is Y-up like the game; scaled so it measures HEIGHT_EXT and the feet are on the ground
     allp = np.vstack([m['pos'] for m in meshes])
     ext = (allp.max(0) - allp.min(0))
     sc = HEIGHT_EXT / ext.max()
     conv = np.diag([sc, sc, sc, 1.0])
     conv[:3, 3] = -sc * np.array([(allp[:, 0].max() + allp[:, 0].min()) / 2, allp[:, 1].min(), (allp[:, 2].max() + allp[:, 2].min()) / 2])
     ground = M.world(t, M.find_node(t, 'Tank NonAccum'), par, {})
-    conv = ground @ conv        # en el espacio del mundo NIF, sobre el suelo de la unidad
-    # nodos: raíz FBX (conv) colgada de Hull, y cada hueso con su transformación local FBX
+    conv = ground @ conv        # in NIF world space, on the unit's ground
+    # nodes: FBX root (conv) hanging from Hull, and each bone with its local FBX transform
     proto = next(b for b in t.blocks if b['_type'] == 'NiNode' and M.name(b) == 'Parts')
 
     def mknode(name, mat, parent):
@@ -223,13 +223,13 @@ def build(src, out_dir):
     for k in limbs:
         if f.parent.get(k, 0) not in f.models:
             add_tree(k, kroot)
-    # malla: posiciones al mundo NIF; los huesos se buscan por nombre
+    # mesh: positions to NIF world; bones are looked up by name
     for m in meshes:
         m['pos'] = (np.c_[m['pos'], np.ones(len(m['pos']))] @ conv.T)[:, :3]
         sk = m['skin']
         m['skin'] = {'joints': [f.mname[b] for b in sk['bones']], 'ibm': [np.eye(4)] * len(sk['bones']),
                      'joint_world': [np.eye(4)] * len(sk['bones']), 'J': sk['J'], 'W': sk['W']}
-    for b in t.blocks:     # se quitan las mallas del tanque
+    for b in t.blocks:     # the tank meshes are removed
         pass
     r = M.import_meshes(t, meshes, keep=('__none__',), scale=1.0, default_parent='Hull')
     anim_nodes = [f.mname[k] for k in limbs]
@@ -254,7 +254,7 @@ def build_kf(t, f, limbs, out_dir):
     def quat(R):
         w = math.sqrt(max(0.0, 1 + R[0, 0] + R[1, 1] + R[2, 2])) / 2
         if w < 1e-4:
-            # giro de ~180°: por el eje mayor
+            # ~180° rotation: around the major axis
             i = int(np.argmax(np.diag(R)))
             q = np.zeros(4)
             q[i + 1] = math.sqrt(max(0.0, 1 + 2 * R[i, i] - np.trace(R))) / 2
@@ -272,7 +272,7 @@ def build_kf(t, f, limbs, out_dir):
     rest = {kk: local_of(f.props[kk]) for kk in limbs}
 
     def rot_axis(kk, axis_world, ang):
-        """giro local que equivale a girar 'ang' alrededor de un eje dado en el espacio del padre"""
+        """local rotation equivalent to rotating 'ang' around a given axis in parent space"""
         a = np.asarray(axis_world, float) / np.linalg.norm(axis_world)
         K = np.array([[0, -a[2], a[1]], [a[2], 0, -a[0]], [-a[1], a[0], 0]])
         return (np.eye(3) + math.sin(ang) * K + (1 - math.cos(ang)) * K @ K) @ unit(rest[kk][:3, :3])
@@ -280,7 +280,7 @@ def build_kf(t, f, limbs, out_dir):
     by_name = {v: kk for kk, v in names.items()}
 
     def side_axis(nm):
-        """eje izquierda-derecha del personaje expresado en el espacio del padre del hueso"""
+        """character's left-right axis expressed in the space of the bone's parent"""
         kk = by_name[nm]
         i = M.find_node(t, nm)
         Rp = M.world(t, par[i], par, {})[:3, :3]
@@ -289,7 +289,7 @@ def build_kf(t, f, limbs, out_dir):
 
     # pistas: {nombre: [(t, R3x3, T3 o None)]}
     seqs = {}
-    # Shoot: la animación del FBX (puñetazo), en bucle
+    # Shoot: the FBX animation (punch), looped
     dur = max(v[0].max() for v in cv.values())
     sh = {}
     for kk in limbs:
@@ -330,7 +330,7 @@ def build_kf(t, f, limbs, out_dir):
         mv[nm] = keys
     seqs['Move'] = (1.0, mv)
     seqs['Idle'] = (2.0, {})
-    # todas las secuencias controlan los mismos nodos; translación solo donde alguna la trae (la cadera), igual en todas
+    # every sequence controls the same nodes; translation only where some sequence has it (the hip), the same in all
     has_T = {nm for _, tr in seqs.values() for nm, keys in tr.items() if any(x[2] is not None for x in keys)}
     for sname, (d, tr) in seqs.items():
         for kk in limbs:

@@ -1,10 +1,10 @@
-"""Escala de los modelos 3D (fScale) de ciudades, recursos y unidades.
+"""Scale of the 3D models (fScale) of cities, resources and units.
 
-Los Sprite con fScale están en Modern Europe/system/DisplayLibraries/SpriteLibraries/: World.xml (ciudades, recursos,
-iconos) y SpriteLibLandUnits / SpriteLibAirUnits / SpriteLibSeaUnits.xml (unidades). Son archivos del juego (valen para
-todos los escenarios): los cambios quedan en memoria y solo se escriben con «Guardar en el juego», que anota en
-sprite_scales_changelog.json (carpeta de datos del editor) los valores de antes y de después; «Deshacer» vuelve a los de antes.
-Si el escenario trae sus propios SpriteLib*.xml en su DisplayLibraries, esos son del escenario y se guardan con «Guardar escenario».
+Sprites with fScale are in Modern Europe/system/DisplayLibraries/SpriteLibraries/: World.xml (cities, resources,
+icons) and SpriteLibLandUnits / SpriteLibAirUnits / SpriteLibSeaUnits.xml (units). They are game files (apply to
+all scenarios): changes stay in memory and are only written with «Guardar en el juego», which records in
+sprite_scales_changelog.json (editor data folder) the before and after values; «Deshacer» goes back to the before ones.
+If the scenario ships its own SpriteLib*.xml in its DisplayLibraries, those belong to the scenario and are saved with «Guardar escenario».
 """
 import json
 import os
@@ -30,7 +30,7 @@ def _log_path():
 
 def _paths(s=None):
     out = [(os.path.abspath(os.path.join(game_dir(), f)), 'game') for f in FILES if os.path.exists(os.path.join(game_dir(), f))]
-    if s is not None:      # SpriteLib*.xml propios del escenario (DisplayLibraries del escenario)
+    if s is not None:      # the scenario's own SpriteLib*.xml (scenario DisplayLibraries)
         out += [(p, 'scenario') for p in s.paths if os.path.basename(p).startswith('SpriteLib') and os.path.basename(p) != 'SpriteLibraries.xml']
     return out
 
@@ -51,7 +51,7 @@ def sprites(s=None):
 
 
 def set_scales(values):
-    """values: {id: fScale}. Solo en memoria."""
+    """values: {id: fScale}. In memory only."""
     st = sc.STORE
     n = 0
     for i, v in values.items():
@@ -76,7 +76,7 @@ def _read_log():
 
 
 def save_game():
-    """Escribe los SpriteLibraries del juego cambiados y anota el cambio (para «Deshacer»)."""
+    """Writes the changed game SpriteLibraries and records the change (for «Deshacer»)."""
     st = sc.STORE
     paths = [p for p, w in _paths() if p in st.dirty]
     if not paths:
@@ -100,7 +100,7 @@ def save_game():
 
 
 def undo_last():
-    """Vuelve a los valores de antes del último «Guardar en el juego» y lo escribe."""
+    """Goes back to the values before the last «Guardar en el juego» and writes them."""
     st = sc.STORE
     log = _read_log()
     if not log:

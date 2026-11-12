@@ -1,17 +1,17 @@
-"""Busca los textos en español que el usuario vería sin traducir con el editor en inglés y los que faltan en editor/i18n_en.json.
+"""Finds the Spanish texts the user would see untranslated with the editor in English and those missing from editor/i18n_en.json.
 
-Uso: python i18n_extract.py            -> JSON {texto: ""} con las entradas que faltan en i18n_en.json (para rellenarlas)
-     python i18n_extract.py --informe  -> lista por archivo y línea de los textos que saldrían en español
-     python i18n_extract.py --check    -> como --informe, y termina con código 1 si queda alguno
-     python i18n_extract.py --todos    -> JSON con todos los textos encontrados (traducidos o no)
+Usage: python i18n_extract.py            -> JSON {text: ""} with the entries missing from i18n_en.json (to fill in)
+     python i18n_extract.py --informe  -> list by file and line of the texts that would appear in Spanish
+     python i18n_extract.py --check    -> like --informe, and exits with code 1 if any remain
+     python i18n_extract.py --todos    -> JSON with all texts found (translated or not)
 
-Mira las páginas y scripts de tools/editor y los módulos de Python que carga editor_server.py. Cada texto se pasa por una
-copia de la traducción de i18n.js (texto exacto, patrones, frases con huecos {} y trozos de tres o más palabras); si le queda
-algún trozo en español, falta traducirlo:
-- texto fijo -> entrada exacta;
-- texto con datos (${...}, %s, {nombre}, 'a' + x + 'b' en Python) -> frase con huecos «{}» si algún trozo tiene menos de
-  tres palabras (los trozos cortos no se sustituyen dentro de textos con datos), o los trozos si todos son largos.
-En JavaScript, 'texto ' + x no se ve entero: se marca «concatenado» para pasarlo a `texto ${x}`.
+Looks at the pages and scripts in tools/editor and the Python modules loaded by editor_server.py. Each text is run through a
+copy of i18n.js's translation (exact text, patterns, phrases with {} holes and chunks of three or more words); if any
+Spanish chunk remains, it needs translating:
+- fixed text -> exact entry;
+- text with data (${...}, %s, {nombre}, 'a' + x + 'b' in Python) -> phrase with «{}» holes if some chunk has fewer than
+  three words (short chunks are not substituted inside texts with data), or the chunks if all are long.
+In JavaScript, 'texto ' + x is not seen whole: it is flagged «concatenado» to turn it into `texto ${x}`.
 """
 import ast
 import glob
@@ -23,7 +23,7 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 EDITOR = os.path.join(HERE, 'editor')
-SKIP_WEB = {'i18n.js', 'ai_chat.js'}            # el diccionario mismo; el chat de IA aún no se publica
+SKIP_WEB = {'i18n.js', 'ai_chat.js'}            # the dictionary itself; the AI chat is not published yet
 SKIP_PY = {'i18n_extract.py', 'ai_chat.py', 'scenario_i18n.py'}
 DICT = os.path.join(EDITOR, 'i18n_en.json')
 I18N_JS = os.path.join(EDITOR, 'i18n.js')
@@ -36,16 +36,16 @@ SPANISH = re.compile(r'[áéíóúñ¿¡«»]|\b(el|la|los|las|de|del|que|en|un|
                      r'refrescar|exportar|importar|instalar|validar|revertir|editar|elegir|copiar|pegar|deshacer|rehacer|cancelar|aceptar|buscar|mostrar|ocultar|'
                      r'sí|y|o|ya|más|menos|cada|solo|también|aquí|hay|tiene|puede|pasa|pasan|queda)\b', re.I)
 JUNK = re.compile(r'^[#/]|[\w-]=|</?(button|div|span|b|a|i|input|select|option|label|td|tr|th|table|br|p|code|h3|dialog|header|small|script|object|property)\b|-->|<!--|'
-                  r'^[a-z]+(-[a-z]+)+$|^\S*\w\[\S*$|^\S+\.(html|bin|json|xml|nif|tga|dds|txt|nuevo|geojson)$|%[YHMS]|SELECT \?|\$ErrorActionPreference')   # rutas, selectores, html, fechas strftime, código
+                  r'^[a-z]+(-[a-z]+)+$|^\S*\w\[\S*$|^\S+\.(html|bin|json|xml|nif|tga|dds|txt|nuevo|geojson)$|%[YHMS]|SELECT \?|\$ErrorActionPreference')   # routes, selectors, html, strftime dates, code
 ENGLISH = re.compile(r'\b(the|to|of|and|is|are|with|from|this|that|has|have|will|be|its|it|for|on|file|files|found|write|copy|not)\b', re.I)
 SP_WORDS = re.compile(r'[áéíóúñ¿¡]|\b(el|la|los|las|de|del|que|en|un|una|con|por|para|sin|al|se|es|y|o|ya|más|hay|tiene|puede)\b', re.I)
-IGNORE = {'El Salvador', 'corea del norte', 'corea del sur', 'No owner', 'rusia', 'polonia', 'terrestre', 'tipo', 'p. ej. Aysén'}   # + alias de propiedades GeoJSON     # datos (nombres de países, valor «No owner» del juego), no textos de la interfaz
+IGNORE = {'El Salvador', 'corea del norte', 'corea del sur', 'No owner', 'rusia', 'polonia', 'terrestre', 'tipo', 'p. ej. Aysén'}   # + GeoJSON property aliases     # data (country names, the game's «No owner» value), not interface texts
 SPLIT = re.compile(HOLE + r'|\$\{[^}]*\}|%[-0-9.]*[sdfr]|%\([a-z_]+\)[sdf]|\{[a-z_0-9]*(?:![rs])?(?::[^{}]*)?\}')
 STRIP = ' \t\n:;,.·|—-–()[]→?!¿¡«»'
 
 
 def _vocab():
-    """Palabras que solo salen en el lado español del diccionario («errores», «avisos»…): amplían SPANISH."""
+    """Words that only appear on the Spanish side of the dictionary («errores», «avisos»…): extend SPANISH."""
     try:
         d = json.load(open(DICT, encoding='utf-8'))
     except (OSError, ValueError):
@@ -62,7 +62,7 @@ def is_spanish(part):
 
 
 def pieces(text):
-    """Trozos fijos en español de un texto (sin los datos)."""
+    """Fixed Spanish chunks of a text (without the data)."""
     text = html.unescape(text)      # el navegador ve «<nombre>», no «&lt;nombre&gt;»
     for part in SPLIT.split(text):
         part = part.strip(STRIP)
@@ -73,7 +73,7 @@ def pieces(text):
 
 
 def norm(text):
-    """Como lo ve i18n.js: entidades HTML resueltas, espacios seguidos en uno (los saltos de línea se quedan), datos como HOLE."""
+    """As i18n.js sees it: HTML entities resolved, consecutive spaces into one (line breaks kept), data as HOLE."""
     t = re.sub(r'\s*\n\s*', NL, re.sub(r'[^\S\n]+', ' ', SPLIT.sub(HOLE, html.unescape(text)))).strip().replace('%%', '%')   # '… %d %%' % x -> «… 5 %»
     while HOLE + HOLE in t:
         t = t.replace(HOLE + HOLE, HOLE)
@@ -85,7 +85,7 @@ BS, NL = chr(92), chr(10)
 
 
 def js_literals(js):
-    """[(texto, posición, concatenado)] de las cadenas JS ('..', "..", `..` con HOLE donde va ${...}), sin comentarios."""
+    """[(text, position, concatenated)] of JS strings ('..', "..", `..` with HOLE where ${...} goes), without comments."""
     out, n = [], len(js)
 
     def plus_near(a, b):            # «'texto' + x» o «x + 'texto'»
@@ -159,7 +159,7 @@ REGEX_LIT = re.compile(r'(?<=[(,=:\[!&|?{};])\s*/(?![/*])(?:\\.|\[(?:\\.|[^\]])*
 
 
 def js_texts(body):
-    """Textos que llegan a la página desde una cadena JS: nodos de texto entre etiquetas y title/placeholder."""
+    """Texts reaching the page from a JS string: text nodes between tags and title/placeholder."""
     out = re.findall(r'(?:title|placeholder)="([^"]*)"', body)
     if '<' in body or '="' in body:
         body = re.sub(r'"[^"]*"|\b[a-z-]+=', ' ', body)
@@ -167,7 +167,7 @@ def js_texts(body):
 
 
 def bilingual(js, lits):
-    """Tramos del primer argumento de L(es, en) (imagenes.html, escenario_imagenes.js): el español lleva su inglés al lado."""
+    """Spans of the first argument of L(es, en) (imagenes.html, escenario_imagenes.js): the Spanish carries its English alongside."""
     ends, spans = {i: j for _t, i, _c, j in lits}, []
     for m in re.finditer(r'(?<![\w.$])L\(', js):
         i, depth = m.end(), 0
@@ -190,8 +190,8 @@ def bilingual(js, lits):
 
 
 def from_js(js, base_line=1):
-    """[(texto, línea, concatenado)]"""
-    js = REGEX_LIT.sub(lambda m: ' 0 ' + NL * m.group(0).count(NL), js)    # /[&<>"]/g… despistaría al lector (líneas intactas)
+    """[(text, line, concatenated)]"""
+    js = REGEX_LIT.sub(lambda m: ' 0 ' + NL * m.group(0).count(NL), js)    # /[&<>"]/g… would confuse the reader (lines intact)
     lits = js_literals(js)
     skip = bilingual(js, lits)
     res = []
@@ -218,8 +218,8 @@ def from_html(src):
 
 # ---------------------------------------------------------------- Python
 def from_py(src):
-    """[(texto, línea, False)] de las cadenas de un módulo: constantes, f-strings y 'a' + x + 'b' (sin docstrings, print(),
-    argparse, expresiones regulares, comparaciones ni claves de diccionario)."""
+    """[(text, line, False)] of a module's strings: constants, f-strings and 'a' + x + 'b' (without docstrings, print(),
+    argparse, regular expressions, comparisons or dict keys)."""
     tree = ast.parse(src)
     skip, res = set(), []
     for node in ast.walk(tree):
@@ -264,7 +264,7 @@ def from_py(src):
 
 
 def server_modules():
-    """Módulos de tools/ que carga editor_server.py (y los que cargan esos)."""
+    """tools/ modules loaded by editor_server.py (and those they load)."""
     seen, todo = set(), ['editor_server']
     while todo:
         m = todo.pop()
@@ -282,7 +282,7 @@ def server_modules():
     return sorted(os.path.join(HERE, m + '.py') for m in seen if m + '.py' not in SKIP_PY)
 
 
-# ---------------------------------------------------------------- copia de la traducción de i18n.js (tr)
+# ---------------------------------------------------------------- copy of i18n.js's translation (tr)
 JS_STR = r"'((?:\\.|[^'\\])*)'"
 
 
@@ -329,7 +329,7 @@ class Translator:
             return '<patrón>'
         for rx, en, loose in (self.shapes if shapes else []):
             m = rx.match(t)
-            if m and loose and (loose < len(t) / 4 or (self.phrase_re and len(''.join(self.phrase_re.findall(t))) > loose)):     # como en i18n.js
+            if m and loose and (loose < len(t) / 4 or (self.phrase_re and len(''.join(self.phrase_re.findall(t))) > loose)):     # as in i18n.js
                 continue
             if m:
                 g = [self.tr(x, depth + 1) for x in m.groups()]
@@ -344,10 +344,10 @@ class Translator:
         t = ' '.join(s.split())
         if not t or depth > 6:
             return t
-        multi = bool(re.search(r'[.?!…]\s|\n', s))          # varias frases o líneas: cada una por su lado (antes que las frases con huecos)
+        multi = bool(re.search(r'[.?!…]\s|\n', s))          # several sentences or lines: each on its own (before phrases with holes)
         r = self.whole(t, depth, not multi)
         if r is None and multi:
-            out, buf, hit = [], [], False         # frases seguidas sin traducción propia: juntas para las frases sueltas (como i18n.js)
+            out, buf, hit = [], [], False         # consecutive sentences without their own translation: joined for the loose sentences (like i18n.js)
             for p in sentences(s):
                 g = self.whole(p, depth)
                 if g is None:
@@ -368,18 +368,18 @@ class Translator:
 
 
 def sentences(t):
-    """Frases de un texto, como las corta i18n.js cuando el texto entero no tiene traducción."""
+    """Sentences of a text, as i18n.js splits them when the whole text has no translation."""
     return [' '.join(p.split()) for p in re.split(r'\s*\n\s*|(?<=[.?!…])\s+', t) if p.strip()]
 
 
 def scan():
-    """[(archivo, línea, texto con {}, trozos que quedan en español, concatenado)]"""
+    """[(file, line, text with {}, chunks still in Spanish, concatenated)]"""
     T = Translator()
     try:
         sys.path.insert(0, HERE)
-        import scenario_i18n                # los textos de scenario_events.py los traduce ya el servidor (scenario_i18n.L)
+        import scenario_i18n                # scenario_events.py texts are already translated by the server (scenario_i18n.L)
         server_en = scenario_i18n._en
-        # trozos con los que scenario_events compone frases («a ser de» -> «la región {} pasa a ser de {}»): valen si están en una de esas frases
+        # chunks scenario_events composes phrases with («a ser de» -> «la región {} pasa a ser de {}»): fine if they are in one of those phrases
         server_src = [es for es, _en in scenario_i18n.SHAPES + scenario_i18n.PHRASES]
     except Exception:
         server_en, server_src = (lambda s: s), []
@@ -391,14 +391,14 @@ def scan():
         items = from_html(src) if f.endswith('.html') else from_js(src) if f.endswith('.js') else from_py(src)
         for text, line, cat in items:
             t = norm(text)
-            sp = [x for p in pieces(t) for x in (q.strip(STRIP) for q in sentences(p)) if len(x) >= 3 and is_spanish(x)]   # por frase
-            if not sp or t in IGNORE or JUNK.search(t) or (ENGLISH.search(t) and not SP_WORDS.search(t)):    # rama inglesa ya escrita
+            sp = [x for p in pieces(t) for x in (q.strip(STRIP) for q in sentences(p)) if len(x) >= 3 and is_spanish(x)]   # per phrase
+            if not sp or t in IGNORE or JUNK.search(t) or (ENGLISH.search(t) and not SP_WORDS.search(t)):    # English branch already written
                 continue
             if t.startswith('Zona (oeste'):
-                continue        # LEEME.txt dentro del zip de la imagen de fondo (un archivo, no un aviso)
+                continue        # LEEME.txt inside the background image zip (a file, not a notice)
             if ' ' not in t and ('_' in t or re.search(r'\.[\w*]{2,4}$', t) or re.fullmatch(r'[a-z]+(-\x00)+', t) or (f.endswith('.py') and re.fullmatch(r'[a-z0-9{}\-]+', t))):
                 continue        # nombres de archivo y claves de datos («regiones_nuevas», «fondo_{}.png», 'madre' en Python)
-            sample = t.replace(HOLE, '⟨⟩')         # un dato que no se pega a las palabras de al lado
+            sample = t.replace(HOLE, '⟨⟩')         # a data value that does not stick to the neighboring words
             left = still_spanish(sp, T.tr(server_en(sample) if f.endswith('scenario_events.py') else sample))
             if f.endswith('scenario_events.py'):
                 left = [p for p in left if not any(p in es for es in server_src)]
@@ -414,7 +414,7 @@ SMALL = {'el', 'la', 'los', 'las', 'de', 'del', 'que', 'en', 'un', 'una', 'con',
 
 
 def spanish_run(text):
-    """Dos o más palabras españolas seguidas (lo que queda de una frase traducida solo a medias)."""
+    """Two or more consecutive Spanish words (what remains of a half-translated sentence)."""
     run = 0
     for w in re.findall(r'[^\W\d_]+', text):
         run = run + 1 if (w.lower() in SMALL or w.lower() in VOCAB) else 0
@@ -424,22 +424,22 @@ def spanish_run(text):
 
 
 def still_spanish(sp, got):
-    """Trozos en español que siguen tal cual (como palabras enteras) en la traducción, o con palabras españolas seguidas."""
+    """Spanish chunks that remain as-is (as whole words) in the translation, or with consecutive Spanish words."""
     left = [p for p in sp if re.search((r'(?<!\w)' if re.match(r'\w', p) else '') + re.escape(p) + (r'(?!\w)' if re.search(r'\w$', p) else ''), got)]
     return left or ([p for p in sp if spanish_run(p)] if spanish_run(got) else [])
 
 
 def entries(found, T):
-    """Entradas que faltan en i18n_en.json para lo encontrado."""
+    """Entries missing from i18n_en.json for what was found."""
     want = {}
     for _f, _l, t, _left, _cat in found:
         whole_t = ' '.join(t.split())
-        for s in (sentences(t) if '{}' in t or T.tr(whole_t) != whole_t else [whole_t]):    # una entrada por frase; el texto fijo sin nada traducido, entero
+        for s in (sentences(t) if '{}' in t or T.tr(whole_t) != whole_t else [whole_t]):    # one entry per phrase; fixed text with nothing translated, whole
             sp = still_spanish([' '.join(p.split()) for p in pieces(s)], T.tr(s.replace('{}', '⟨⟩')))
             if not sp:
                 continue
-            # todos los trozos en español de la frase largos (3 palabras o más): valen como frases sueltas; si no, la frase con huecos
-            if '{}' in s and all(len([w for w in p.split() if re.search(r'[^\W\d_]', w)]) >= 3 for p in pieces(s)):   # como cuenta i18n.js
+            # all Spanish chunks of the phrase long (3 words or more): they work as loose phrases; otherwise the phrase with holes
+            if '{}' in s and all(len([w for w in p.split() if re.search(r'[^\W\d_]', w)]) >= 3 for p in pieces(s)):   # as i18n.js counts
                 want.update((p, '') for p in sp)
             else:
                 want[s] = ''
@@ -459,7 +459,16 @@ def main():
             for l, t, cat in sorted(by[f]):
                 print('  %5d%s %s' % (l, ' [concatenado]' if cat else '', ' '.join(t.split())[:160]))
         print('// %d textos que saldrían en español' % len(found), file=sys.stderr)
-        if '--check' in sys.argv and found:
+        # the other languages (i18n_ru.json…) have the same keys as English
+        en = json.load(open(DICT, encoding='utf-8'))
+        other = 0
+        for p in sorted(glob.glob(os.path.join(EDITOR, 'i18n_*.json'))):
+            if os.path.abspath(p) != os.path.abspath(DICT):
+                tr = json.load(open(p, encoding='utf-8'))
+                miss = [k for k in en if en[k] and not tr.get(k)]
+                other += len(miss)
+                print('// %s: %d textos sin traducir%s' % (os.path.basename(p), len(miss), (': ' + ' | '.join(m[:60] for m in miss[:5])) if miss else ''), file=sys.stderr)
+        if '--check' in sys.argv and (found or other):
             sys.exit(1)
     else:
         want = entries(found, T)

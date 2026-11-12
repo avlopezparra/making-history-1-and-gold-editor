@@ -1,11 +1,11 @@
-"""MHEditor: los editores de Making History como programa de escritorio (ventana nativa WebView2).
+"""MHEditor: the Making History editors as a desktop program (native WebView2 window).
 
-Arranca el servidor de los editores dentro del mismo proceso (o usa uno que ya esté en marcha) y lo muestra en una
-ventana de Windows con menú para cambiar entre el editor de mapa, el de escenarios y el de imágenes.
-Empaquetado con PyInstaller como MHEditor.exe (ver build_exe.py).
+Starts the editors' server inside the same process (or uses one already running) and shows it in a
+Windows window with a menu to switch between the map, scenario and image editors.
+Packaged with PyInstaller as MHEditor.exe (see build_exe.py).
 
-Datos (proyectos, respaldos, registros): la carpeta making-history (MH_ROOT). Con el .exe se busca junto a él o en la
-carpeta superior; si no hay, se usa Documentos\\MHEditor.
+Data (projects, backups, logs): the making-history folder (MH_ROOT). With the .exe it is looked for next to it or in the
+parent folder; if none, Documentos\\MHEditor is used.
 """
 import os
 import socket
@@ -48,11 +48,13 @@ TEXTS = {
            'help': 'Ayuda', 'data': 'Carpeta de datos', 'ask': '¿Desea salir sin guardar los cambios?'},
     'en': {'editors': 'Editors', 'map': 'Map (regions)', 'scen': 'Scenarios', 'img': 'Images', 'models': '3D models', 'reload': 'Reload',
            'help': 'Help', 'data': 'Data folder', 'ask': 'Leave without saving the changes?'},
+    'ru': {'editors': 'Редакторы', 'map': 'Карта (регионы)', 'scen': 'Сценарии', 'img': 'Изображения', 'models': '3D-модели', 'reload': 'Обновить',
+           'help': 'Справка', 'data': 'Папка данных', 'ask': 'Выйти без сохранения изменений?'},
 }
 
 
 class Api:
-    """Llamado desde la pagina (pywebview.api): estado de «cambios sin guardar»."""
+    """Called from the page (pywebview.api): «unsaved changes» state."""
     dirty = False
 
     def set_dirty(self, value):
@@ -60,7 +62,7 @@ class Api:
 
 
 def ask(text):
-    """Cuadro de dialogo nativo de Windows Si/No (sirve desde cualquier hilo)."""
+    """Native Windows Yes/No dialog (works from any thread)."""
     import ctypes
     return ctypes.windll.user32.MessageBoxW(None, text, TITLE, 0x04 | 0x30 | 0x1000) == 6   # MB_YESNO|ICONWARNING|SYSTEMMODAL
 
@@ -78,13 +80,13 @@ def main():
     import webview
     if not server_up(PORT):
         threading.Thread(target=run_server, args=(PORT,), daemon=True).start()
-        for _ in range(240):          # cargar el mapa tarda unos segundos
+        for _ in range(240):          # loading the map takes a few seconds
             if server_up(PORT):
                 break
             time.sleep(0.25)
     base = 'http://localhost:%d' % PORT
-    webview.settings['ALLOW_DOWNLOADS'] = True        # exportar GeoJSON, imágenes de fondo, PNG…
-    try:        # identidad propia en la barra de tareas: sin esto Windows puede mostrar un icono genérico en caché
+    webview.settings['ALLOW_DOWNLOADS'] = True        # export GeoJSON, background images, PNG…
+    try:        # own identity in the taskbar: without this Windows may show a cached generic icon
         import ctypes
         ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID('avlopezparra.MHEditor')
     except Exception:
@@ -93,7 +95,7 @@ def main():
     T = TEXTS[lang()]
 
     def leave_ok():
-        # con cambios sin guardar se pregunta; si se acepta, la pagina no vuelve a preguntar (beforeunload)
+        # with unsaved changes it asks; if accepted, the page does not ask again (beforeunload)
         if not Api.dirty:
             return True
         if ask(TEXTS.get(lang(), TEXTS['es'])['ask']):
@@ -123,7 +125,7 @@ def main():
             MenuAction(T['data'], lambda: os.startfile(os.environ['MH_ROOT'])),
         ]),
     ]
-    # caché de la ventana (WebView2) con tope de 64 MB: sin él crecía a cientos de MB con los tiles del mapa
+    # window cache (WebView2) capped at 64 MB: without it, it grew to hundreds of MB with the map tiles
     os.environ.setdefault('WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS', '--disk-cache-size=67108864')
     webview.start(gui='edgechromium', menu=menu, private_mode=False,
                   storage_path=os.path.join(os.environ['MH_ROOT'], '_ventana_perfil'))

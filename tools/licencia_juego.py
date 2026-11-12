@@ -1,18 +1,18 @@
-"""Error «Invalid License Key» de Making History 1 / Gold (guía de Steam 645617172).
+"""«Invalid License Key» error of Making History 1 / Gold (Steam guide 645617172).
 
-El juego (32 bits, sin admin) lee el registro con la virtualización de UAC: los valores de
+The game (32-bit, no admin) reads the registry with UAC virtualization: the values in
 HKCU\\Software\\Classes\\VirtualStore\\MACHINE\\SOFTWARE\\WOW6432Node\\Muzzy Lane Software\\<clave>
-ganan sobre HKLM. Si ahí quedó una «License Key» (o un CustomerID) viejo o vacío, el juego no ve la clave buena
-que Steam escribe en HKLM y dice «Invalid License Key». La guía borra toda la carpeta; aquí solo se borran esos
-valores (el Locale que escribe idioma_juego.py se conserva) y antes se exporta la clave a un .reg de respaldo.
+win over HKLM. If an old or empty «License Key» (or CustomerID) was left there, the game does not see the good key
+Steam writes to HKLM and says «Invalid License Key». The guide deletes the whole folder; here only those
+values are deleted (the Locale written by idioma_juego.py is kept) and the key is first exported to a backup .reg.
 
-Arreglo permanente (permanente()): con un solo permiso de administrador da a los usuarios permiso de escritura en
-HKLM\\...\\Muzzy Lane Software, pasa a HKLM lo que el juego veía en VirtualStore (sin la licencia vieja) y borra la copia.
-Como el juego ya puede escribir en HKLM, Windows deja de virtualizar y no vuelve a aparecer una licencia tapada.
+Permanent fix (permanente()): with a single admin prompt it gives users write permission on
+HKLM\\...\\Muzzy Lane Software, moves to HKLM what the game saw in VirtualStore (without the old license) and deletes the copy.
+Since the game can now write to HKLM, Windows stops virtualizing and a hidden license never shows up again.
 
-Uso:  python licencia_juego.py            -> comprueba
-      python licencia_juego.py fix        -> corrige (con respaldo en making-history/backup_licencia_<juego>_<fecha>.reg)
-      python licencia_juego.py permanente -> arreglo permanente (pide admin; respaldo de HKLM y VirtualStore en .reg)
+Usage:  python licencia_juego.py            -> checks
+      python licencia_juego.py fix        -> fixes (with backup in making-history/backup_licencia_<juego>_<fecha>.reg)
+      python licencia_juego.py permanente -> permanent fix (asks for admin; backup of HKLM and VirtualStore in .reg)
 """
 import os
 import subprocess
@@ -23,7 +23,7 @@ import winreg
 import gamepaths
 from idioma_juego import KEYS, BASE, VSTORE
 
-LIC = ('license key', 'customerid')   # valores de licencia; los demás (Locale, carpetas) no tocan la licencia
+LIC = ('license key', 'customerid')   # license values; the others (Locale, folders) do not affect the license
 
 
 def _values(root, sub):
@@ -42,7 +42,7 @@ def _values(root, sub):
 
 
 def check():
-    """[{game, key, values: [nombres que tapan la licencia de HKLM]}] (sin mostrar la clave)."""
+    """[{game, key, values: [names hiding the HKLM license]}] (without showing the key)."""
     res = []
     for game, name in KEYS.items():
         vs = _values(winreg.HKEY_CURRENT_USER, VSTORE + '\\' + name) or {}
@@ -54,7 +54,7 @@ def check():
 
 
 def fix():
-    """Respalda la clave virtualizada y borra solo los valores de licencia que tapan HKLM. -> {fixed, backups}"""
+    """Backs up the virtualized key and deletes only the license values hiding HKLM. -> {fixed, backups}"""
     fixed, backups = [], []
     for p in check():
         sub = VSTORE + '\\' + p['key']
@@ -71,7 +71,7 @@ def fix():
 
 
 def writable():
-    """True si el usuario ya escribe en HKLM (arreglo permanente hecho: no hay virtualización)."""
+    """True if the user already writes to HKLM (permanent fix done: no virtualization)."""
     try:
         winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, BASE, 0, winreg.KEY_SET_VALUE | winreg.KEY_WOW64_64KEY).Close()
         return True
@@ -101,13 +101,13 @@ if (Test-Path $VS) { Remove-Item $VS -Recurse -Force }
 
 
 def script(lm='HKLM:\\' + BASE, vs='HKCU:\\' + VSTORE, who='S-1-5-32-545'):
-    """Texto del .ps1 del arreglo permanente (who: SID de Usuarios); las rutas se cambian en las pruebas."""
+    """Text of the permanent-fix .ps1 (who: Users SID); the paths are changed in tests."""
     bak = os.path.join(gamepaths.ROOT, 'backup_licencia_' + time.strftime('%Y%m%d_%H%M%S'))
     return PS % {'lm': lm, 'vs': vs, 'bak': bak, 'who': who}
 
 
-def permanente():
-    """Lanza el .ps1 con permiso de administrador (Windows lo pregunta). -> {script}"""
+def make_permanent():
+    """Runs the .ps1 with admin permission (Windows asks). -> {script}"""
     ps = os.path.join(gamepaths.ROOT, 'arreglo_licencia.ps1')
     open(ps, 'w', encoding='utf-8-sig').write(script())
     subprocess.Popen(['powershell', '-NoProfile', '-Command',
@@ -117,5 +117,5 @@ def permanente():
 
 if __name__ == '__main__':
     a = sys.argv[1:]
-    print(fix() if a == ['fix'] else permanente() if a == ['permanente'] else
+    print(fix() if a == ['fix'] else make_permanent() if a == ['permanente'] else
           (check() or 'sin problemas de licencia en VirtualStore', 'permanente: %s' % writable()))

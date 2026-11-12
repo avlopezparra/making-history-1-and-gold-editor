@@ -1,11 +1,11 @@
-"""Repara un regionpack cuyas regiones de tierra quedaron como mar (u_type 0) y, opcionalmente, mallas con contorno inválido.
+"""Repairs a regionpack whose land regions ended up as sea (u_type 0) and, optionally, meshes with an invalid outline.
 
-Uso (con el editor CERRADO; trabaja sobre la carpeta del PROYECTO, no sobre el juego; luego «Instalar» en el editor):
+Usage (with the editor CLOSED; works on the PROJECT folder, not on the game; then «Instalar» in the editor):
     python fix_region_types.py editor_proyecto_Probando3 [--mar REGEX] [--terreno N] [--solo-ver] [--mallas]
 
-Todas las regiones de mar cuyo nombre NO coincida con --mar (por defecto: Sea|Aguas|Ocean|Gulf|Bay|Strait|Channel|Lake|River|Mar |Golfo|Estrecho)
-pasan a tierra con el terreno indicado (1 llanura por defecto). Siempre gira a antihorario los triángulos en sentido
-horario (el juego no los dibuja ni deja elegir esas regiones) y pone a 0 el flag de costa de los bordes tierra-tierra y mar-mar. Con --mallas se vuelven a guardar con saneado las regiones cuyo contorno es inválido.
+All sea regions whose name does NOT match --mar (default: Sea|Aguas|Ocean|Gulf|Bay|Strait|Channel|Lake|River|Mar |Golfo|Estrecho)
+become land with the given terrain (1 plains by default). It always turns clockwise triangles counterclockwise
+(the game neither draws them nor lets those regions be selected) and sets the coast flag of land-land and sea-sea borders to 0. With --mallas regions with an invalid outline are re-saved with sanitizing.
 """
 import argparse
 import os
@@ -41,7 +41,7 @@ def main():
         print('convertidas a tierra:', len(r['done']), r['skipped'] or '')
     import mhmap
     import new_region
-    fix = new_region.normalize_map(P.m)       # triángulos antihorarios (si no, el juego no los dibuja ni deja elegir) y costas
+    fix = new_region.normalize_map(P.m)       # counterclockwise triangles (otherwise the game neither draws them nor lets them be selected) and coasts
     print('triángulos girados a antihorario: %d; tramos de costa corregidos: %d' % (fix['triangulos'], fix['costas']))
     if fix['triangulos'] or fix['costas']:
         mhmap.save_map(P.m, P.xml)

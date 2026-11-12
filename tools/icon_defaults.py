@@ -1,10 +1,10 @@
-"""Unidades e investigaciones sin imagen válida y su arreglo con el arte por defecto del juego.
+"""Units and research without a valid image and their fix with the game's default art.
 
-Plantilla de unidad: entrada en ui/UnitTemplateIconTable.xml (clave strTemplate, 4 medidas) cuyo archivo exista.
-Investigación: entrada strIconName en la librería Research_Project_Icon de ui/MediaPack.xml cuyo archivo exista.
-Sin escenario ui/ propio se usan las tablas de Modern Europe/system/UI. El «por defecto» es la imagen de la unidad
-base de la misma familia (ImprovedMotorizedInfantry -> MotorizedInfantry) o, si no hay, un dibujo del juego por
-palabras clave (artillería, bombardero, submarino...)."""
+Unit template: entry in ui/UnitTemplateIconTable.xml (key strTemplate, 4 sizes) whose file exists.
+Research: strIconName entry in the Research_Project_Icon library of ui/MediaPack.xml whose file exists.
+Without the scenario's own ui/ the Modern Europe/system/UI tables are used. The «default» is the image of the base unit
+of the same family (ImprovedMotorizedInfantry -> MotorizedInfantry) or, if none, a game drawing chosen by
+keywords (artillery, bomber, submarine...)."""
 import os
 import re
 import shutil
@@ -17,14 +17,14 @@ SIZES = ('6464', '4646', '3636', '2626')
 UNIT_DIR = '/../Modern Europe/system/ui/art/2D/global/unit-template-icons/'
 RES_DIR = '/../Modern Europe/system/ui/art/2D/MediaPack/Research/'
 PREFIX = re.compile(r'^(Early|Improved|Advanced|Modern|Basic|PreWar)')
-# familia sin nombre base propio: candidatas por nivel (Early, Improved, Advanced, Modern)
+# family without its own base name: candidates by tier (Early, Improved, Advanced, Modern)
 ALIAS = {'Infantry': (('PreWarInfantry',), ('SmallArmsInfantry', 'ImprovedSmallArms'), ('AdvancedWeaponsInfantry', 'AdvancedWeapons'),
                       ('AdvancedWeaponsInfantry', 'AdvancedWeapons')),
          'Tank': (('LightTank', 'LightTanks'), ('MediumTank', 'MediumTanks'), ('AdvancedTank', 'AdvancedTanks'), ('AdvancedTank', 'AdvancedTanks')),
          'Fighters': (('PreWarFighters',), ('ImprovedFighters',), ('AdvancedFighters',), ('AdvancedFighters',)),
          'Bombers': (('LightBombers',), ('MediumBombers',), ('HeavyBombers',), ('HeavyBombers',))}
 TIERS = ('Early', 'Improved', 'Advanced', 'Modern')
-# (palabras del nombre, icono de unidad, dibujo de investigación): la primera que encaje
+# (name words, unit icon, research drawing): the first that matches
 KEYWORDS = [
     (('intercontinental', 'iam', 'icbm'), 'ICBM.tga', 'icbm.tga'),
     (('missile', 'iram', 'rocketlab'), 'ballistic-missile.tga', 'balistic-missiles.tga'),
@@ -70,7 +70,7 @@ def _read(p):
 
 
 def _exists(scen, path):
-    """El juego busca primero en <escenario>/ui y luego en el contenido."""
+    """The game looks first in <escenario>/ui and then in the content."""
     p = path.replace('\\', '/')
     if p.startswith('/../'):
         rel = p[4:]
@@ -200,9 +200,9 @@ def _unit_block(key, paths, indent='\t\t'):
 
 
 def fix(scen, keys=None, backup_dir=None, writer=None, log=print):
-    """Aplica el arte por defecto a los problemas de analyze (todos o los de 'keys': [(kind, key)]).
-    Escribe ui/UnitTemplateIconTable.xml y ui/MediaPack.xml del escenario (los crea copiando los del juego si
-    faltan). backup_dir: carpeta donde copiar antes los originales; writer({ruta: bytes}) escribe en su lugar. Devuelve la lista de cambios."""
+    """Applies the default art to the problems from analyze (all or those in 'keys': [(kind, key)]).
+    Writes the scenario's ui/UnitTemplateIconTable.xml and ui/MediaPack.xml (creating them by copying the game's if
+    missing). backup_dir: folder to copy the originals to first; writer({path: bytes}) writes instead. Returns the list of changes."""
     probs = [p for p in analyze(scen) if p['default'] and (keys is None or (p['kind'], p['key']) in keys)]
     if not probs:
         return []
@@ -265,7 +265,7 @@ def fix(scen, keys=None, backup_dir=None, writer=None, log=print):
 
 
 def issues(scen):
-    """Avisos para el validador del editor de escenarios, con el arreglo «Usar la imagen por defecto»."""
+    """Warnings for the scenario editor validator, with the «Usar la imagen por defecto» fix."""
     out = []
     for p in analyze(scen):
         what = 'Unidad' if p['kind'] == 'unit' else 'Investigación'

@@ -1,17 +1,17 @@
-"""Exportar e importar un escenario como GeoJSON (coordenadas del juego = longitud/latitud).
+"""Export and import a scenario as GeoJSON (game coordinates = longitude/latitude).
 
-Capas (una FeatureCollection por archivo, cada objeto lleva "mh_type" para poder reimportarlo):
-  regiones_tierra.geojson   land_region   regiones_mar.geojson  sea_region (MultiPolygon de la malla del regionpack)
-  borders.geojson           border (líneas entre regiones vecinas)
+Layers (one FeatureCollection per file, each object carries "mh_type" so it can be reimported):
+  regiones_tierra.geojson   land_region   regiones_mar.geojson  sea_region (MultiPolygon of the regionpack mesh)
+  borders.geojson           border (lines between neighboring regions)
   ciudades.geojson          city
-  minerales.geojson         producer (o recursos_<Recurso>.geojson, uno por recurso)
+  minerales.geojson         producer (or recursos_<Recurso>.geojson, one per resource)
   unidades.geojson          army / air_force / fleet
-  changelog_comparado.json  regiones del mapa frente a World;  naciones.json  dueño y población por región
+  changelog_comparado.json  map regions against World;  naciones.json  owner and population per region
 
-Importar: ciudades, productores y unidades se emparejan por nombre (y dueño); se mueven a la región que contiene
-el punto, se actualizan sus propiedades y los que no existen se crean. Los objetos sin "mh_type" se devuelven para que el
-usuario elija qué son. Las regiones actualizan dueño, controlador, terreno, cultura y población por nombre; una región que
-no existe en el mapa se debe crear en el editor de mapa (Importar GeoJSON como región nueva).
+Import: cities, producers and units are matched by name (and owner); they move to the region containing
+the point, their properties are updated and those that do not exist are created. Objects without "mh_type" are returned so the
+user can choose what they are. Regions update owner, controller, terrain, culture and population by name; a region that
+does not exist in the map must be created in the map editor (Import GeoJSON as new region).
 """
 import copy
 import io
@@ -60,7 +60,7 @@ def _region_features(s, project, sea, colors=False, ncolors=False):
         terr = terrain_colors.terrain_of(project, s)
     out = []
     try:
-        eqs = project.equivalences()          # «equivale a región vanilla» del changelog (regiones de World)
+        eqs = project.equivalences()          # changelog «equivale a región vanilla» (World regions)
     except Exception:
         eqs = {}
     for g in project.m['regions']:
@@ -73,7 +73,7 @@ def _region_features(s, project, sea, colors=False, ncolors=False):
         r = data.get(name)
         props = {'mh_type': 'sea_region' if sea else 'land_region', 'name': name, 'map_name': g.name,
                  'center': [g.cx, g.cy], 'neighbors': sorted({project.rname(n) for n in g.neighbors if n != g.index})}
-        if eqs.get(name):        # equivalencia con el World vanilla: al volver a importar el archivo se recupera
+        if eqs.get(name):        # equivalence with vanilla World: recovered when the file is imported again
             props['vanilla_equivalent'] = list(eqs[name])
             props['equivalence_base'] = 'World'
         if r is not None:
@@ -83,9 +83,9 @@ def _region_features(s, project, sea, colors=False, ncolors=False):
                 props[k] = v
                 if k in ALIAS:
                     props[ALIAS[k]] = int(v) if k == 'nPopulation' and str(v).isdigit() else v
-        if ncol.get(props.get('strOwner')):      # estilo «simplestyle» (geojson.io, QGIS): color de la nación dueña
+        if ncol.get(props.get('strOwner')):      # «simplestyle» style (geojson.io, QGIS): color of the owning nation
             props.update({'fill': ncol[props['strOwner']], 'stroke': '#222222', 'fill-opacity': 0.6, 'stroke-width': 1})
-        if colors:     # tipo de terreno y su color (mar en celeste); los huecos sin región van en blanco en la leyenda
+        if colors:     # terrain type and its color (sea in light blue); gaps without a region go in white in the legend
             props['terrain'] = terr.get(name)
             props['color'] = terrain_colors.color_of(terr.get(name))
         out.append({'type': 'Feature', 'geometry': {'type': 'MultiPolygon', 'coordinates': main}, 'properties': props})
@@ -93,8 +93,8 @@ def _region_features(s, project, sea, colors=False, ncolors=False):
 
 
 def export(s, project, sel=None, minerals_split=False, base='World', lang='es', scen_name=None, colors=False, ncolors=False):
-    """{nombre de archivo: FeatureCollection o dict}. sel: conjunto de ALL_FILES a incluir (por defecto, todo lo posible; sin
-    escenario (s=None) se omiten los que lo necesitan)."""
+    """{file name: FeatureCollection or dict}. sel: set of ALL_FILES to include (by default, everything possible; without
+    a scenario (s=None) those needing it are skipped)."""
     import geojson_compare as gc
     P = prop
     sel = set(sel) if sel is not None else set(ALL_FILES)
@@ -157,7 +157,7 @@ def export(s, project, sel=None, minerals_split=False, base='World', lang='es', 
 
 
 def export_zip(s, project, sel=None, minerals_split=False, base='World', lang='es', scen_name=None, colors=False, ncolors=False, only=None):
-    """only: nombres de región (p. ej. la selección múltiple): solo las regiones y los elementos que caen en ellas."""
+    """only: region names (e.g. the multiple selection): only the regions and the items that fall in them."""
     buf = io.BytesIO()
     only = set(only) if only else None
     keep = lambda f: any((f.get('properties') or {}).get(k) in only for k in ('name', 'region', 'strName', 'strRegion'))
@@ -214,9 +214,9 @@ OWNER_KEYS = ('strOwner', 'owner', 'country', 'pais', 'país')
 
 
 def _analyze(s, idx, feats, types, land, owners):
-    """Por cada punto del GeoJSON: tipo, nombre, posición, región donde cae y dueño. Dueño de ciudades y recursos: el de la región;
-    de ejércitos y aviación: el del GeoJSON o, si no lo dice, el de la región de tierra donde llegan; de flotas: el del GeoJSON o el
-    que elija el usuario (owners). Devuelve ({indice: info}, [flotas sin dueño])."""
+    """For each GeoJSON point: type, name, position, region it falls in and owner. Owner of cities and resources: the region's;
+    of armies and air forces: the GeoJSON's or, if it does not say, that of the land region they land in; of fleets: the GeoJSON's or the
+    one the user chooses (owners). Returns ({index: info}, [fleets without owner])."""
     P = prop
     info, need = {}, []
     for i, f in enumerate(feats):
@@ -248,9 +248,9 @@ def _comp(units):
 
 
 def _duplicates(s, info):
-    """Puntos que parecen repetir algo que ya existe en el escenario (o a otro punto del mismo archivo): mismo tipo, muy cerca
-    (ciudades y recursos: otro nombre a menos de ~9 km; unidades: del mismo país, cerca o en la misma región y con la misma
-    composición). Un objeto con el mismo nombre no cuenta: ese se actualiza."""
+    """Points that seem to repeat something already in the scenario (or another point of the same file): same type, very close
+    (cities and resources: another name less than ~9 km away; units: same country, close or in the same region and with the same
+    composition). An object with the same name does not count: that one is updated."""
     P = prop
     st = s.s
     pool = {'city': [], 'producer': [], 'army': [], 'air_force': [], 'fleet': []}
@@ -282,7 +282,7 @@ def _duplicates(s, info):
                                      'from': b['from']}, 'replaceable': True, '_el': b['el']})
                 break
         else:
-            for j in sorted(info):                      # repetido dentro del mismo archivo (se compara con los anteriores)
+            for j in sorted(info):                      # repeated within the same file (compared with the previous ones)
                 if j >= i:
                     break
                 b = info[j]
@@ -299,10 +299,10 @@ def _duplicates(s, info):
 
 
 def import_fc(s, project, fc, types=None, index=None, opts=None):
-    """fc: FeatureCollection. types: {indice de feature: mh_type} para los que no lo traen.
-    opts: {'owners': {indice: país} (flotas sin país en el GeoJSON), 'dup': 'ask' | 'import' | 'skip', 'decisions': {indice: 'import'|'skip'}}.
-    Devuelve {'needs_type': [...]}, {'needs_owner': [...]}, {'duplicates': [...]} si hace falta una decisión del usuario
-    (no se cambia nada hasta tenerlas), o {'notes': [...], 'counts': {...}}."""
+    """fc: FeatureCollection. types: {feature index: mh_type} for those lacking it.
+    opts: {'owners': {index: country} (fleets without country in the GeoJSON), 'dup': 'ask' | 'import' | 'skip', 'decisions': {index: 'import'|'skip'}}.
+    Returns {'needs_type': [...]}, {'needs_owner': [...]}, {'duplicates': [...]} if a user decision is needed
+    (nothing changes until they are given), or {'notes': [...], 'counts': {...}}."""
     opts = opts or {}
     types = {int(k): v for k, v in (types or {}).items()}
     feats = fc.get('features') or []
@@ -326,7 +326,7 @@ def import_fc(s, project, fc, types=None, index=None, opts=None):
     skip, decisions = set(), {int(k): v for k, v in (opts.get('decisions') or {}).items()}
     dups = _duplicates(s, info)
     mode = opts.get('dup') or 'ask'
-    replace = {}                  # indice -> objeto existente que se sustituye por el del GeoJSON
+    replace = {}                  # index -> existing object replaced by the GeoJSON one
     if dups and mode == 'skip':
         skip = {d['index'] for d in dups}
     elif dups and mode == 'replace':
@@ -441,9 +441,9 @@ def import_fc(s, project, fc, types=None, index=None, opts=None):
 
 
 def close_gaps(geoms, max_area=0.05, eps=0.05):
-    """Huecos pequeños entre contornos importados (rendijas y agujeros de menos de max_area grados², típicos de un GeoJSON
-    dibujado a mano): cada uno se suma al contorno con el que más borde comparte. Devuelve las geometrías (GeoJSON) nuevas
-    y cuántos huecos se cerraron. Los huecos grandes (lagos, mares interiores) no se tocan."""
+    """Small gaps between imported outlines (slits and holes under max_area degrees², typical of a hand-drawn
+    GeoJSON): each one is added to the outline it shares the most edge with. Returns the new geometries (GeoJSON)
+    and how many gaps were closed. Large gaps (lakes, inland seas) are left alone."""
     from shapely.geometry import shape, mapping, Polygon
     from shapely.ops import unary_union
     from shapely import make_valid

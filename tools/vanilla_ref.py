@@ -1,9 +1,9 @@
-"""Copia «vanilla» de World como referencia (cómo es el juego sin modificar), aunque el usuario haya cambiado World.
+"""«Vanilla» copy of World as reference (what the unmodified game looks like), even if the user changed World.
 
-La carpeta backup/vanilla_World/ (xml/ con los tres binarios originales, map.xml y properties.xml) se arma desde backup/mapa_original
-(que el editor llena con el original de todo lo que toca) más los archivos «default game file» de World; las texturas
-originales de los tiles tocados están en backup/mapa_original/OperationalTerrain y el resto, sin tocar, en World/art.
-Es solo lectura: el editor nunca la modifica."""
+The backup/vanilla_World/ folder (xml/ with the three original binaries, map.xml and properties.xml) is assembled from backup/mapa_original
+(which the editor fills with the original of everything it touches) plus World's «default game file» files; the original
+textures of the touched tiles are in backup/mapa_original/OperationalTerrain and the rest, untouched, in World/art.
+It is read-only: the editor never modifies it."""
 import os
 import shutil
 
@@ -11,7 +11,7 @@ BINARIES = ('regions.bin', 'borders.brd', 'regions.nts')
 
 
 def ensure(orig_dir, world_dir, dest):
-    """Crea (o completa) la carpeta de referencia; devuelve su ruta o None si no hay originales."""
+    """Creates (or completes) the reference folder; returns its path or None if there are no originals."""
     xml = os.path.join(dest, 'xml')
     if not all(os.path.exists(os.path.join(orig_dir, b)) for b in BINARIES):
         return None
@@ -30,6 +30,6 @@ def ensure(orig_dir, world_dir, dest):
 
 
 def tile_path(name, orig_dir, world_dir):
-    """Textura original de un tile: la copia de seguridad si el editor la tocó; si no, la de World (sin tocar)."""
+    """Original texture of a tile: the backup if the editor touched it; otherwise World's (untouched)."""
     p = os.path.join(orig_dir, 'OperationalTerrain', name)
     return p if os.path.exists(p) else os.path.join(world_dir, 'art', 'OperationalTerrain', name)

@@ -1,11 +1,11 @@
-"""GeoJSON del mundo de MH2 listo para «Importar GeoJSON» del editor: tierra + mar + rios (como mar) y los lagos decorativos como huecos.
+"""GeoJSON of the MH2 world ready for the editor's «Importar GeoJSON»: land + sea + rivers (as sea) and the decorative lakes as holes.
 
     python mh2_world_geojson.py
-Salida (mh2/):
-  mh2_mundo.geojson           regiones de tierra y de mar (mh_type land_region / sea_region); los rios son sea_region (kind=river);
-                              los lagos decorativos NO tienen region: son huecos en la geometria (las regiones no los cubren)
-  mh2_lagos_vacios.geojson    los lagos decorativos como formas (mh_type=empty), solo de referencia
-Prioridad al solaparse: lago (hueco) > rio (mar) > region.
+Output (mh2/):
+  mh2_mundo.geojson           land and sea regions (mh_type land_region / sea_region); rivers are sea_region (kind=river);
+                              the decorative lakes have NO region: they are holes in the geometry (regions do not cover them)
+  mh2_lagos_vacios.geojson    the decorative lakes as shapes (mh_type=empty), reference only
+Priority when overlapping: lake (hole) > river (sea) > region.
 """
 import json, os, sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -46,7 +46,7 @@ def main():
     lakes = nst('DecorativeLakes.nst')
     rivers = nst('Rivers.nst')
     L = unary_union(list(lakes.values()))
-    # rios disjuntos entre si (de mayor a menor) y sin los lagos
+    # rivers disjoint from each other (largest to smallest) and without the lakes
     rv, seen = {}, None
     for k, g in sorted(rivers.items(), key=lambda kv: -kv[1].area):
         g = g.difference(L)

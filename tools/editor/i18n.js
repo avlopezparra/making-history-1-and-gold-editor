@@ -1,6 +1,6 @@
-// Idioma de los editores (español / inglés). Traduce los textos de la interfaz al vuelo:
-// textos fijos, títulos (tooltips), placeholders y lo que se va añadiendo a la página (MutationObserver).
-// Los textos que no estén en el diccionario se quedan en español.
+// Editors' language (Spanish / English). Translates interface texts on the fly:
+// static texts, titles (tooltips), placeholders and whatever gets added to the page (MutationObserver).
+// Texts not in the dictionary stay in Spanish.
 (() => {
   const EN = {
     'Editor de escenarios': 'Scenario editor', 'Editor de escenarios · Making History': 'Scenario editor · Making History',
@@ -79,74 +79,77 @@
     [/^Eventos con fecha y probabilidad \((\d+)\)$/, 'Dated events and their chance ($1)'],
   ];
   const lang = () => { try { return localStorage.getItem('mh-lang') || 'es'; } catch (e) { return 'es'; } };
-  // diccionario completo (i18n_en.json, generado con tools/i18n_extract.py): textos de la interfaz y mensajes del servidor
+  // full dictionary (i18n_en.json, generated with tools/i18n_extract.py): interface texts and server messages
   let PHRASE_RE = null, PHRASES = {}, SHAPES = [];
-  if (lang() === 'en') {
+  // a language other than English (Russian…): the dictionary and patterns above are English; everything comes from i18n_<lang>.json
+  const L = lang(), TR = L !== 'es';
+  if (TR && L !== 'en') { for (const k in EN) delete EN[k]; PATTERNS.length = 0; }
+  if (TR) {
     try {
-      const x = new XMLHttpRequest(); x.open('GET', '/i18n_en.json', false); x.send();
+      const x = new XMLHttpRequest(); x.open('GET', '/i18n_' + L + '.json', false); x.send();
       if (x.status === 200) {
         const ext = JSON.parse(x.responseText);
         const isShape = k => k.includes('{}');
         for (const [k, v] of Object.entries(ext)) if (v && !isShape(k) && !(k in EN)) EN[k] = v;
-        // frases (tres o más palabras) que se sustituyen también dentro de textos con datos variables;
-        // con menos palabras saldrían mezclas («vuelve a the region»)
+        // phrases (three or more words) also replaced inside texts with variable data;
+        // with fewer words you'd get mixes («vuelve a the region»)
         const keys = Object.keys(ext).filter(k => ext[k] && !isShape(k) && k.trim().split(/\s+/).length >= 3).sort((a, b) => b.length - a.length);
         keys.forEach(k => { PHRASES[k] = ext[k]; });
         const escRe = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        // límite de palabra solo donde la frase empieza/termina en letra o número («(texto)» o «texto:» también encajan)
+        // word boundary only where the phrase starts/ends with a letter or digit («(texto)» or «texto:» also match)
         const W = /[\p{L}\p{N}]/u;
         const bound = k => (W.test(k[0]) ? '(?<![\\p{L}\\p{N}])' : '') + escRe(k) + (W.test(k[k.length - 1]) ? '(?![\\p{L}\\p{N}])' : '');
         if (keys.length) PHRASE_RE = new RegExp(keys.map(bound).join('|'), 'gu');
-        // frases con huecos «{}» para los datos, como SHAPES de scenario_i18n.py («Ciudad {} creada en {}» -> «City {} created in {}»;
-        // en la traducción, {1} {2}… si cambia el orden). Las de más texto fijo primero, y las que empiezan y acaban en texto fijo
-        // antes que las que tienen un hueco en un extremo. [trozo fijo más largo (filtro rápido), expresión, traducción]
+        // phrases with «{}» slots for data, like SHAPES in scenario_i18n.py («Ciudad {} creada en {}» -> «City {} created in {}»;
+        // in the translation, {1} {2}… if the order changes). Those with more fixed text first, and those starting and ending in fixed text
+        // before those with a slot at one end. [longest fixed piece (quick filter), expression, translation]
         const fixed = k => k.replace(/\{\}/g, '').length, ends = k => k.startsWith('{}') + k.endsWith('{}');
         SHAPES = Object.keys(ext).filter(k => ext[k] && isShape(k)).sort((a, b) => ends(a) - ends(b) || fixed(b) - fixed(a))
-          .map(k => [k.split('{}').reduce((a, b) => (b.length > a.length ? b : a), ''), new RegExp('^' + k.split('{}').map(escRe).join('(.*?)') + '$', 's'), ext[k],   // hueco vacío vale (`${x ? ' (…)' : ''}`)
+          .map(k => [k.split('{}').reduce((a, b) => (b.length > a.length ? b : a), ''), new RegExp('^' + k.split('{}').map(escRe).join('(.*?)') + '$', 's'), ext[k],   // an empty slot is fine (`${x ? ' (…)' : ''}`)
             ends(k) === 2 ? fixed(k) : 0]);
       }
     } catch (e) {}
   }
-  // un texto entero (espacios ya normalizados): exacto, con signo final, patrones o frase con huecos; null si no hay
+  // a whole text (spaces already normalized): exact, with final punctuation, patterns or phrase with slots; null if none
   const whole = (t, shapes = true) => {
     if (EN[t]) return EN[t];
-    const m = t.match(/^(.+?)( [▲▼+↗]|[.:…]+)$/);   // cabeceras ordenables, campos añadibles, enlaces, punto final
+    const m = t.match(/^(.+?)( [▲▼+↗]|[.:…]+)$/);   // sortable headers, addable fields, links, final period
     if (m && EN[m[1]]) return EN[m[1]] + m[2];
-    const b = t.match(/^([•·→–—-] )(.+)$/);        // elementos de lista en los avisos («• Región X: …»)
+    const b = t.match(/^([•·→–—-] )(.+)$/);        // list items in warnings («• Región X: …»)
     if (b) { const q = whole(b[2], shapes); if (q != null) return b[1] + q; }
     for (const [re, to] of PATTERNS) if (re.test(t)) return t.replace(re, to);
     if (shapes) for (const [needle, re, to, loose] of SHAPES) {
       if (!t.includes(needle)) continue;
       const g = t.match(re); if (!g) continue;
-      // con huecos en los dos extremos («{} regiones {}»), cede si las frases conocidas cubren más texto («Faltan regiones del mapa: …»)
+      // with slots at both ends («{} regiones {}»), yields if known phrases cover more text («Faltan regiones del mapa: …»)
       if (loose && (loose < t.length / 4 || (PHRASE_RE && (t.match(PHRASE_RE) || []).join('').length > loose))) continue;
-      const v = g.slice(1).map(x => tr(x)); let i = 0;       // los datos se traducen a su vez («histórica de X»)
+      const v = g.slice(1).map(x => tr(x)); let i = 0;       // the data is translated in turn («histórica de X»)
       return to.replace(/\{(\d*)\}/g, (_, n) => (n ? v[n - 1] : v[i++]) ?? '');
     }
     return null;
   };
-  // palabras sueltas sin ambigüedad que quedan entre trozos ya traducidos («. Clic: …», «… Falta «Guardar».»)
+  // unambiguous single words left between already translated pieces («. Clic: …», «… Falta «Guardar».»)
   const words = x => x.replace(/(?<![\p{L}])Clic(?![\p{L}])/gu, 'Click').replace(/Falta «Guardar»\.?/g, 'Remember to «Save».')
-    .replace(/\(desde ([^()]+)\)/g, '(from $1)').replace(/\(controla ([^()]+)\)/g, '(controlled by $1)');   // dentro de listas («A (desde B), C»)
+    .replace(/\(desde ([^()]+)\)/g, '(from $1)').replace(/\(controla ([^()]+)\)/g, '(controlled by $1)');   // inside lists («A (desde B), C»)
   const phrases = x => (PHRASE_RE ? x.replace(PHRASE_RE, k => PHRASES[k] || k) : x);
   const tr = s => {
     if (!s) return s;
     const t0 = s.trim(); if (!t0) return s;
-    // Los informes del servidor combinan un encabezado con errores que tienen su propia traducción.
+    // Server reports combine a header with errors that have their own translation.
     const errorPrefix = t0.match(/^(No se guardó|Error):\s*([\s\S]+)$/);
     if (errorPrefix) {
       const heading = errorPrefix[1] === 'No se guardó' ? 'Not saved' : 'Error';
       const details = errorPrefix[2].split('\n').map(line => tr(line)).join('\n');
-      // si el detalle no tiene traducción propia, sigue el camino normal: hay entradas del diccionario con el encabezado incluido
+      // if the detail has no own translation, take the normal path: some dictionary entries include the header
       if (details !== errorPrefix[2]) return s.replace(t0, () => heading + ': ' + details);
     }
-    const t = t0.replace(/\s+/g, ' ');            // textos partidos en varias líneas en el HTML
-    // varias frases o líneas ('…' + x + '…', avisos con listas): cada una por su lado, con sus saltos de línea; las frases con
-    // huecos se prueban antes por frase que con el texto entero (un hueco se tragaría las frases siguientes)
+    const t = t0.replace(/\s+/g, ' ');            // texts split over several lines in the HTML
+    // several sentences or lines ('…' + x + '…', warnings with lists): each on its own, with its line breaks; sentences with
+    // slots are tried per sentence before the whole text (a slot would swallow the following sentences)
     const multi = /[.?!…]\s|\n/.test(t0);
     let r = whole(t, !multi);
     if (r == null && multi) {
-      // las frases sin traducción propia que van seguidas se juntan antes de pasar las frases sueltas (alguna abarca dos frases)
+      // consecutive sentences without their own translation are joined before trying single sentences (some span two sentences)
       let hit = false, out = '', buf = '';
       const flush = () => { if (buf) { const a = phrases(buf), c = buf.replace(/\s+/g, ' '); out += a !== buf || !PHRASE_RE ? a : phrases(c) !== c ? phrases(c) : buf; } buf = ''; };
       for (const p of t0.split(/(\s*\n\s*|(?<=[.?!…])\s+)/)) {
@@ -159,15 +162,15 @@
     if (r == null) r = phrases(t);
     return s.replace(t0, words(r));
   };
-  window.mhTr = s => (lang() === 'en' ? tr(s) : s);   // para textos que se ponen sin pasar por el DOM observado
-  if (lang() === 'en') {   // ventanas del navegador (confirmar / avisos / preguntar)
+  window.mhTr = s => (TR ? tr(s) : s);   // for texts set without going through the observed DOM
+  if (TR) {   // browser dialogs (confirm / alert / prompt)
     const c = window.confirm.bind(window), a = window.alert.bind(window), p = window.prompt.bind(window);
     window.confirm = m => c(tr(String(m ?? '')));
     window.alert = m => a(tr(String(m ?? '')));
     window.prompt = (m, d) => p(tr(String(m ?? '')), d);
   }
   function walk(root) {
-    if (lang() !== 'en') return;
+    if (!TR) return;
     const it = document.createTreeWalker(root, NodeFilter.SHOW_TEXT | NodeFilter.SHOW_ELEMENT);
     let n = root;
     while (n) {
@@ -179,8 +182,8 @@
       n = it.nextNode();
     }
   }
-  // ---- modo oscuro: por defecto el del sistema; si el usuario lo cambia, se recuerda (mh-theme = light | dark).
-  // Las reglas @media (prefers-color-scheme: dark) de la página pasan a un <style> propio que se activa o no sin recargar
+  // ---- dark mode: system default; if the user changes it, it is remembered (mh-theme = light | dark).
+  // The page's @media (prefers-color-scheme: dark) rules move to an own <style> toggled without reloading
   // (recargar el editor de escenarios descarta lo no guardado).
   const DARKQ = window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)') : null;
   let darkStyle = null;
@@ -204,7 +207,7 @@
     const d = isDark(); darkStyle.disabled = !d;
     document.documentElement.style.colorScheme = d ? 'dark' : 'light';
     document.documentElement.dataset.theme = d ? 'dark' : 'light';
-    for (const b of document.querySelectorAll('.mhThemeBtn')) { b.textContent = d ? '☀' : '☾'; b.title = lang() === 'en' ? (d ? 'Light mode' : 'Dark mode') : (d ? 'Modo claro' : 'Modo oscuro'); }
+    for (const b of document.querySelectorAll('.mhThemeBtn')) { b.textContent = d ? '☀' : '☾'; b.title = window.mhTr(d ? 'Modo claro' : 'Modo oscuro'); }
   }
   window.MH_APPLY_THEME = applyTheme;
   if (DARKQ && DARKQ.addEventListener) DARKQ.addEventListener('change', () => { if (!themePref()) applyTheme(); });
@@ -219,11 +222,11 @@
     };
     after.after(b); applyTheme();
   }
-  try { applyTheme(); } catch (e) {}      // en cuanto se carga (las hojas de estilo del <head> ya están)
+  try { applyTheme(); } catch (e) {}      // as soon as it loads (the <head> stylesheets are already there)
   function selector() {
     const sel = document.createElement('select');
     sel.title = 'Idioma del editor / Editor language';
-    sel.innerHTML = '<option value="es">Español</option><option value="en">English</option>';
+    sel.innerHTML = '<option value="es">Español</option><option value="en">English</option><option value="ru">Русский</option>';
     sel.value = lang();
     sel.onchange = async () => {
       try { localStorage.setItem('mh-lang', sel.value); } catch (e) {}
@@ -231,7 +234,7 @@
       location.reload();
     };
     const bar = document.getElementById('bar');
-    const langSlot = document.getElementById('langSlot');     // sitio propio de la página (editor de regiones: a la derecha de Créditos y Fondo)
+    const langSlot = document.getElementById('langSlot');     // page's own slot (regions editor: to the right of Créditos and Fondo)
     if (langSlot) langSlot.appendChild(sel); else if (bar) { sel.style.marginLeft = 'auto'; bar.appendChild(sel); }
     if (bar) {
       const slot = document.getElementById('creditsSlot');
@@ -241,7 +244,7 @@
       box.style.cssText = slot ? 'display:flex;flex-direction:column;gap:2px;margin-left:6px' : 'display:inline-flex;gap:6px;align-items:center';
       if (slot) box.append(discord(), hub(), updBtn()); else box.append(hub(), discord(), updBtn());
       (slot || bar).appendChild(box);
-      if (slot) {     // los tres apilados no más altos que el botón «Ver / propiedad» de la barra
+      if (slot) {     // the three stacked no taller than the bar's «Ver / propiedad» button
         const fit = () => {
           const ref = document.getElementById('viewBtn') || document.querySelector('.tool'); if (!ref || !ref.offsetHeight) return;
           box.style.height = ref.offsetHeight + 'px'; box.style.gap = '1px';
@@ -252,14 +255,14 @@
       }
       themeToggle(sel);
       setTimeout(() => checkUpdates(false), 1500);
-    }   // #creditsSlot: sitio propio de la página (p. ej. junto a Topología)
+    }   // #creditsSlot: page's own slot (e.g. next to Topología)
     else { Object.assign(sel.style, { position: 'fixed', right: '8px', bottom: '8px', zIndex: 9999 }); document.body.appendChild(sel); }
   }
-  // créditos, Discord (novedades y actualizaciones) y dónde avisar de errores
-  const VERSION = '3.6';
+  // credits, Discord (news and updates) and where to report bugs
+  const VERSION = '3.7';
   const DISCORD = 'https://discord.com/invite/gFJyCjWEnr', BUGS = 'alopezcl@protonmail.com',
     UPDATES = 'https://github.com/avlopezparra/making-history-1-and-gold-editor/releases/', HUB = 'https://gamebanana.com/games/6530';
-  // botón «Join Discord» aparte, en el morado de Discord
+  // separate «Join Discord» button, in Discord purple
   const pill = (txt, bg, fg) => { const a = document.createElement('a'); a.textContent = txt;
     a.style.cssText = `background:${bg};color:${fg};border-radius:6px;padding:3px 9px;font:600 11px system-ui,sans-serif;text-decoration:none;white-space:nowrap;cursor:pointer;text-align:center`; return a; };
   function hub() {      // GameBanana, en amarillo
@@ -270,7 +273,7 @@
     const en = lang() === 'en', a = pill(en ? 'Check for updates' : 'Buscar actualización', '#2f6f3e', '#fff');
     a.href = '#'; a.onclick = e => { e.preventDefault(); checkUpdates(true); }; return a;
   }
-  // actualizaciones: última versión publicada en GitHub; aviso una vez por versión («no volver a mostrar»)
+  // updates: latest release on GitHub; notice once per version («no volver a mostrar»)
   const newer = (a, b) => { const p = x => String(x).replace(/^v/i, '').split('.').map(n => parseInt(n, 10) || 0);
     const x = p(a), y = p(b); for (let i = 0; i < Math.max(x.length, y.length); i++) { if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) > (y[i] || 0); } return false; };
   async function checkUpdates(manual) {
@@ -350,15 +353,15 @@
   function start() {
     document.documentElement.lang = lang();
     selector();
-    if (lang() !== 'en') return;
+    if (!TR) return;
     document.title = tr(document.title);
     walk(document.body);
     new MutationObserver(ms => { for (const m of ms) { if (m.type === 'characterData') walk(m.target); else m.addedNodes.forEach(x => walk(x)); } })
       .observe(document.body, { childList: true, subtree: true, characterData: true });
   }
   window.MH_LANG = lang; window.MH_TR = tr;
-  // ---- registro de diagnóstico (MHEditor.log, POST /api/log): errores de JavaScript, console.error/warn, avisos (alert y report(…, 'err'))
-  // y los pasos del usuario (botones pulsados) para ver qué llevó al error. Se manda en lotes; nunca el contenido de los campos de texto.
+  // ---- diagnostic log (MHEditor.log, POST /api/log): JavaScript errors, console.error/warn, warnings (alert and report(…, 'err'))
+  // and the user's steps (buttons pressed) to see what led to the error. Sent in batches; never the content of text fields.
   (() => {
     const page = (location.pathname.replace(/^\//, '') || 'map').replace(/\.html$/, '');
     let queue = [], timer = null, last = '', sending = false;
@@ -370,19 +373,19 @@
     };
     const put = (level, msg, stack) => {
       msg = String(msg ?? '').slice(0, 1500);
-      if (level !== 'info' && msg === last) return; last = msg;             // el mismo error en bucle, una vez
+      if (level !== 'info' && msg === last) return; last = msg;             // the same error in a loop, once
       queue.push({ page, level, action: window.mhLastAction || '', msg, stack: stack ? String(stack).slice(0, 3000) : undefined, ts: new Date().toISOString() });
       if (queue.length > 200) queue = queue.slice(-200);
       if (!timer) timer = setTimeout(flush, level === 'error' ? 300 : 2000);
     };
-    window.mhLog = (action, msg) => { window.mhLastAction = action; put('info', msg || action); };      // pasos con nombre desde el código
+    window.mhLog = (action, msg) => { window.mhLastAction = action; put('info', msg || action); };      // named steps from code
     window.addEventListener('error', e => put('error', e.message + (e.filename ? ` @ ${e.filename.split('/').pop()}:${e.lineno}` : ''), e.error && e.error.stack));
     window.addEventListener('unhandledrejection', e => put('error', 'unhandled promise: ' + (e.reason && e.reason.message || e.reason), e.reason && e.reason.stack));
     for (const k of ['error', 'warn']) { const f = console[k].bind(console); console[k] = (...a) => { put(k, a.map(x => x && x.stack || (typeof x === 'object' ? JSON.stringify(x) : x)).join(' ')); f(...a); }; }
     const al = window.alert, cf = window.confirm;
     window.alert = m => { put('warn', 'alert: ' + m); return al(m); };
     window.confirm = m => { const r = cf(m); put('info', `confirm (${r ? 'OK' : 'Cancel'}): ` + String(m).slice(0, 300)); return r; };
-    // pasos: cada botón o elemento de menú pulsado (texto o title), y los avisos de error de la barra de estado del editor de regiones
+    // steps: each button or menu item pressed (text or title), and the regions editor's status bar error warnings
     document.addEventListener('click', e => {
       const b = e.target.closest && e.target.closest('button, [role=button], .tool, a[href="#"], summary, label.tool');
       if (!b) return;
@@ -390,14 +393,14 @@
       window.mhLastAction = name; put('info', 'click ' + name);
     }, true);
     document.addEventListener('change', e => {
-      const s = e.target; if (!s || s.tagName !== 'SELECT' || !s.id) return;       // abrir regionpack / escenario / juego…
+      const s = e.target; if (!s || s.tagName !== 'SELECT' || !s.id) return;       // open regionpack / scenario / game…
       window.mhLastAction = '#' + s.id; put('info', `select #${s.id} = ${String(s.value).slice(0, 80)}`);
     }, true);
-    window.mhLogErr = m => put('error', m);          // avisos de error propios de la página (report(…, 'err') del editor de regiones)
+    window.mhLogErr = m => put('error', m);          // the page's own error warnings (report(…, 'err') of the regions editor)
     window.addEventListener('load', () => put('info', 'page loaded (' + lang() + ')'));
     window.addEventListener('pagehide', flush);
   })();
-  // dentro de MHEditor.exe: el programa necesita saber si hay cambios sin guardar para avisar al cerrar
+  // inside MHEditor.exe: the program needs to know if there are unsaved changes to warn on close
   setInterval(() => { try { if (window.pywebview && window.pywebview.api) window.pywebview.api.set_dirty(!!(window.mhDirty && window.mhDirty())); } catch (e) {} }, 1000);
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start); else start();
 })();

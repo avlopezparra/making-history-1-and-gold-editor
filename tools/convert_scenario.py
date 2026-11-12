@@ -1,25 +1,25 @@
-"""Convierte un escenario de Making History entre MH1 (The Calm and The Storm) y Gold, en una copia.
+"""Converts a Making History scenario between MH1 (The Calm and The Storm) and Gold, into a copy.
 
-Sigue la guia de janito (https://steamcommunity.com/sharedfiles/filedetails/?id=2134617379) y la amplia:
+Follows janito's guide (https://steamcommunity.com/sharedfiles/filedetails/?id=2134617379) and extends it:
 
-1. Datos compartidos (sharedData*.xml) y tablas de sprites (DisplayLibraries\\MKD*.xml) del escenario: fusion a tres
-   bandas (xmlmerge) entre el archivo por defecto del juego de origen, la copia del escenario y el del destino.
-   Resultado: lo del destino (unidades nuevas de Gold, sus investigaciones, producción y sprites, valores de Gold)
-   + lo que el autor cambio en su escenario (unidades propias, costes, eventos quitados...).
-   Con «solo_unidades» se fusionan unicamente sharedDataUnitTemplates.xml y sharedDataUnitTemplateSprites.xml
-   (lo que dice la guia) y las tablas de sprites.
-2. Investigacion inicial de cada jugador: si un pais tiene completado un proyecto que en el destino requiere otro
-   proyecto nuevo (LightBombers -> EarlyBombers), se marca tambien el nuevo; opcionalmente, los nuevos cuyos
-   requisitos ya estan completos (MotorizedInfantry2/3, MechanizedInfantry2/3). Se quitan los proyectos que el
-   destino no tiene.
-3. Unidades de plantillas que no existen en el destino (de Gold a MH1): se cambian por la equivalente.
-4. Partisans: Gold los trae de serie; el evento de MH1 (sharedDataPartisans.xml) se desregistra al pasar a Gold.
-5. Colores (opcional): los de Gold son menos saturados. Tabla color a color sacada de los escenarios que existen
-   en los dos juegos; si un color no esta en la tabla, aproximacion lineal ajustada a esos pares.
-6. Infraestructura (opcional, «auto»): TransportationLevel nCost y nMaintenanceCost / 10 en sharedData.xml si el
-   escenario tiene mucha mas poblacion que los del juego y los costes no estan ya rebajados.
+1. Shared data (sharedData*.xml) and sprite tables (DisplayLibraries\\MKD*.xml) of the scenario: three-way
+   merge (xmlmerge) between the source game's default file, the scenario's copy and the target's.
+   Result: the target's content (new Gold units, their research, production and sprites, Gold values)
+   + what the author changed in the scenario (own units, costs, removed events...).
+   With «solo_unidades» only sharedDataUnitTemplates.xml and sharedDataUnitTemplateSprites.xml are merged
+   (what the guide says) plus the sprite tables.
+2. Initial research of each player: if a country has completed a project that in the target requires another
+   new project (LightBombers -> EarlyBombers), the new one is marked too; optionally, the new ones whose
+   prerequisites are already complete (MotorizedInfantry2/3, MechanizedInfantry2/3). Projects the
+   target lacks are removed.
+3. Units of templates that do not exist in the target (Gold to MH1): replaced by the equivalent.
+4. Partisans: Gold has them built in; the MH1 event (sharedDataPartisans.xml) is unregistered when moving to Gold.
+5. Colors (optional): Gold's are less saturated. Color-to-color table taken from the scenarios that exist
+   in both games; if a color is not in the table, a linear approximation fitted to those pairs.
+6. Infrastructure (optional, «auto»): TransportationLevel nCost and nMaintenanceCost / 10 in sharedData.xml if the
+   scenario has much more population than the game's and the costs are not already lowered.
 
-Uso: python convert_scenario.py "<carpeta escenario>" --a gold [--salida <carpeta>] [--colores] [--infra auto|si|no]
+Usage: python convert_scenario.py "<carpeta escenario>" --a gold [--salida <carpeta>] [--colores] [--infra auto|si|no]
 """
 import argparse
 import json
@@ -37,18 +37,18 @@ import gamepaths  # noqa: E402
 import xmlmerge  # noqa: E402
 
 UNITS_ONLY = ('sharedDataUnitTemplates.xml', 'sharedDataUnitTemplateSprites.xml')
-# plantilla sin equivalente en el destino -> la mas parecida (de Gold a MH1)
+# template without equivalent in the target -> the most similar one (Gold to MH1)
 FALLBACK = {'MotorizedInfantry2': 'MotorizedInfantry', 'MotorizedInfantry3': 'MotorizedInfantry',
             'MechanizedInfantry2': 'MechanizedInfantry', 'MechanizedInfantry3': 'MechanizedInfantry',
             'EarlyBombers': 'LightBombers', 'EarlyCruiser': 'BattleCruiser', 'EarlySubmarine': 'ElectricDieselSubmarine',
             'Partisans': 'Militia'}
-# escenarios oficiales: referencia de colores (los que estan en los dos juegos) y de poblacion (los del juego de destino);
-# no se usan los del usuario, que pueden ser conversiones hechas con esta misma herramienta
+# official scenarios: reference for colors (those in both games) and population (those of the target game);
+# the user's are not used, as they may be conversions made with this same tool
 OFFICIAL_BOTH = ('Conclusion of the War', 'Steps to a Global War', 'The End of Diplomacy', 'The Limits of Peace',
                  'The Politics of Appeasement', 'The World at War', 'Tutorial')
 OFFICIAL = {'mh1': OFFICIAL_BOTH, 'gold': OFFICIAL_BOTH + ('Blitzkrieg', 'Clash of Continents', 'Rise of the Reich', 'Southern Star')}
 IMAGE_EXT = {'.tga', '.bmp', '.png', '.dds', '.jpg', '.jpeg', '.pdn', '.db'}
-POP_FACTOR = 1.5      # «mucha poblacion»: mas de 1,5 veces la del escenario mas poblado del juego de destino
+POP_FACTOR = 1.5      # «a lot of population»: more than 1.5 times that of the most populated scenario of the target game
 
 
 def sys_dir(game):
@@ -56,7 +56,7 @@ def sys_dir(game):
 
 
 def default_for(rel, game):
-    """Archivo por defecto del juego que corresponde a un archivo del escenario (o None)."""
+    """Game default file matching a scenario file (or None)."""
     parts = rel.replace('\\', '/').split('/')
     if len(parts) == 1 and parts[0].lower().startswith('shareddata'):
         return os.path.join(sys_dir(game), 'ScenarioDefaults', parts[0])
@@ -106,8 +106,8 @@ UPGRADE_GOLD_RE = re.compile(r'([ \t]*)<property name="nLandAttackHitBonusPct" v
 
 
 def fix_unit_upgrades(path, dst_game):
-    """Gold parte nLandHitBonusPct (UnitUpgrade de MH1) en nLandAttackHitBonusPct + nLandDefenseHitBonusPct con el mismo
-    valor; con la propiedad del otro juego no carga ("is not defined in type UnitUpgrade"). Devuelve cuantas cambio."""
+    """Gold splits nLandHitBonusPct (MH1 UnitUpgrade) into nLandAttackHitBonusPct + nLandDefenseHitBonusPct with the same
+    value; with the other game's property it does not load ("is not defined in type UnitUpgrade"). Returns how many it changed."""
     t = read(path)
     nl = '\r\n' if '\r\n' in t[:4000] else '\n'
     if dst_game == 'gold':
@@ -124,9 +124,9 @@ PROJ_RE = re.compile(r'([ \t]*)<object type="ResearchProj(?!ectPreReq)\w*"[^>]*>
 
 
 def fix_default_prereqs(path):
-    """Si un proyecto es bCompletedByDefault, sus requisitos tambien deben serlo: si no, el juego no inicia
-    ("didn't ever have their pre-reqs met"). Pasa al fusionar un escenario MH1 con requisitos nuevos de Gold
-    (LightBombers -> EarlyBombers). Devuelve los proyectos marcados."""
+    """If a project is bCompletedByDefault, its prerequisites must be too: otherwise the game does not start
+    ("didn't ever have their pre-reqs met"). Happens when merging an MH1 scenario with new Gold prerequisites
+    (LightBombers -> EarlyBombers). Returns the projects marked."""
     t = read(path)
     root = ET.parse(path).getroot()
     g, default = {}, set()
@@ -154,7 +154,7 @@ REF_RE = re.compile(r'([ \t]*)<object type="ResearchProjectInitRef"[^>]*>\s*?(?:
 
 
 def fix_player_research(path, g_dst, g_src, complete_new):
-    """Anade los proyectos nuevos implicados y quita los que no existen. Devuelve (anadidos, quitados)."""
+    """Adds the implied new projects and removes those that do not exist. Returns (added, removed)."""
     t = read(path)
     blocks = list(REF_RE.finditer(t))
     if not blocks and not complete_new:
@@ -192,7 +192,7 @@ def fix_player_research(path, g_dst, g_src, complete_new):
         if blocks:
             ind = blocks[-1].group(1)
             pos = blocks[-1].end()
-        else:   # sin investigacion: tras la apertura del objeto raiz del jugador
+        else:   # no research: after the opening of the player's root object
             m = re.search(r'<object type="MEPlayerData"[^>]*>\r?\n', t) or re.search(r'<object [^>]*>\r?\n', t)
             ind, pos = '\t\t', m.end()
         ins = ''.join('%s<object type="ResearchProjectInitRef" name="objInitResearchRefs">%s%s\t<property name="strProjectName" '
@@ -219,7 +219,7 @@ def gamestate_colors(scen_dir):
 
 
 def color_model(src, dst, exclude=()):
-    """(tabla color->color, matriz 4x3 RGB lineal) a partir de los escenarios que existen en los dos juegos."""
+    """(color->color table, linear RGB 4x3 matrix) from the scenarios that exist in both games."""
     import numpy as np
     pairs = Counter()
     rs, rd = gamepaths.scen_root(src), gamepaths.scen_root(dst)
@@ -310,8 +310,8 @@ def registered_files(scen_dir):
 
 def convert(src_dir, dst_game, out_dir=None, src_game=None, colors=False, infra='auto', units_only=False,
             complete_new=True, remove_partisan_event=True, skip_images=False, regionpack='auto', log=print):
-    """regionpack: 'auto' lo convierte si falta en el destino; 'nuevo' lo convierte siempre con otro nombre
-    («<pack> <juego>») y el escenario pasa a usarlo; 'no' no lo toca."""
+    """regionpack: 'auto' converts it if missing in the target; 'nuevo' always converts it under another name
+    («<pack> <juego>») and the scenario switches to it; 'no' leaves it alone."""
     src_dir = os.path.abspath(src_dir)
     src_game = src_game or gamepaths.detect(src_dir)
     if src_game is None:
@@ -330,8 +330,8 @@ def convert(src_dir, dst_game, out_dir=None, src_game=None, colors=False, infra=
     skipped = Counter()
 
     def ignore(d, names):
-        # sin imagenes: no se copian las de las subcarpetas (ui/: banderas, retratos...), solo las del raiz
-        # (Title.tga, Button.tga... que usa el menu de escenarios)
+        # without images: those in subfolders (ui/: flags, portraits...) are not copied, only the root ones
+        # (Title.tga, Button.tga... used by the scenario menu)
         if not skip_images or os.path.abspath(d) == src_dir:
             return []
         out = [n for n in names if os.path.splitext(n)[1].lower() in IMAGE_EXT and os.path.isfile(os.path.join(d, n))]
@@ -356,10 +356,10 @@ def convert(src_dir, dst_game, out_dir=None, src_game=None, colors=False, infra=
         cb = xmlmerge.canon(xmlmerge.parse(base).getroot()) if base and os.path.exists(base) else None
         ct = xmlmerge.canon(xmlmerge.parse(theirs).getroot())
         if cb == ct:
-            continue       # el archivo por defecto es igual en los dos juegos
+            continue       # the default file is the same in both games
         co = xmlmerge.canon(xmlmerge.parse(ours).getroot())
         if co == ct:
-            continue       # el escenario ya tiene lo del destino
+            continue       # the scenario already has the target's content
         if co == cb:
             shutil.copy2(theirs, ours)
             rep['archivos'].append({'archivo': rel, 'accion': 'copiado del destino (el escenario no lo había cambiado)'})
@@ -375,7 +375,7 @@ def convert(src_dir, dst_game, out_dir=None, src_game=None, colors=False, infra=
             if n:
                 rep['notas'].append('mejoras de unidad (UnitUpgrade): %d nLandHitBonusPct adaptados a %s en %s' % (n, gamepaths.GAMES[dst_game]['short'], f))
 
-    # 2. investigacion de los jugadores
+    # 2. player research
     def research_file(game_or_dir):
         p = os.path.join(game_or_dir, 'sharedDataResearch.xml')
         return p if os.path.exists(p) else None
@@ -395,7 +395,7 @@ def convert(src_dir, dst_game, out_dir=None, src_game=None, colors=False, infra=
             tot_rem.update(rem)
     rep['investigacion'] = {'anadidos': dict(tot_add), 'quitados': dict(tot_rem)}
 
-    # 3. plantillas de unidades que no existen en el destino
+    # 3. unit templates that do not exist in the target
     tf = os.path.join(out_dir, 'sharedDataUnitTemplates.xml')
     if not os.path.exists(tf):
         tf = os.path.join(sys_dir(dst_game), 'ScenarioDefaults', 'sharedDataUnitTemplates.xml')
@@ -481,7 +481,7 @@ def convert(src_dir, dst_game, out_dir=None, src_game=None, colors=False, infra=
         rep['notas'].append('el regionpack %s no existe en %s: hay que copiarlo (con las texturas de ese juego)'
                             % (pack, gamepaths.GAMES[dst_game]['short']))
 
-    # informe (fuera de la carpeta del escenario)
+    # report (outside the scenario folder)
     d = os.path.join(gamepaths.ROOT, 'backup', 'conversiones')
     os.makedirs(d, exist_ok=True)
     rp = os.path.join(d, '%s - %s a %s - %s.json' % (name, src_game, dst_game, time.strftime('%Y%m%d-%H%M%S')))
@@ -497,7 +497,7 @@ def map_of(scen_dir):
 
 
 def retarget_map(scen_dir, old, new):
-    """El escenario pasa a usar el regionpack «new» en vez de «old» (strMapName y rutas de Maps/ en scenario.xml)."""
+    """The scenario switches to regionpack «new» instead of «old» (strMapName and Maps/ paths in scenario.xml)."""
     sx = os.path.join(scen_dir, 'scenario.xml')
     t = read(sx)
     t = t.replace('name="strMapName" value="%s"' % old, 'name="strMapName" value="%s"' % new)

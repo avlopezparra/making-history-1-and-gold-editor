@@ -1,16 +1,16 @@
-"""Fusion a tres bandas de XML del juego (objetos <object> con <property>).
+"""Three-way merge of game XML (<object> objects with <property>).
 
-  base    el archivo por defecto del juego de origen (p. ej. ScenarioDefaults de MH1)
-  ours    la copia del escenario (con los cambios propios del autor)
-  theirs  el archivo por defecto del juego de destino (p. ej. ScenarioDefaults de Gold)
+  base    the source game's default file (e.g. MH1 ScenarioDefaults)
+  ours    the scenario's copy (with the author's own changes)
+  theirs  the target game's default file (e.g. Gold ScenarioDefaults)
 
-Resultado = theirs + los cambios del escenario respecto a base: valores cambiados, objetos anadidos (unidades
-propias...) y objetos quitados. Lo que el escenario no toco adopta el valor del destino.
+Result = theirs + the scenario's changes relative to base: changed values, added objects (own
+units...) and removed objects. What the scenario did not touch takes the target's value.
 
-Identidad de un objeto: tipo + atributo name + la primera propiedad clave (strName, strKey...) + n.o de aparicion.
-Propiedades repetidas (strCapabilities, strTemplateNames...) se tratan como listas ordenadas.
-Conflictos (escenario y destino cambian lo mismo de forma distinta): gana el escenario en valores; si los dos
-anaden un objeto con la misma clave, gana el destino (es una unidad de serie del juego de destino).
+Object identity: type + name attribute + the first key property (strName, strKey...) + occurrence no.
+Repeated properties (strCapabilities, strTemplateNames...) are treated as ordered lists.
+Conflicts (scenario and target change the same thing differently): the scenario wins for values; if both
+add an object with the same key, the target wins (it is a stock unit of the target game).
 """
 import copy
 import os
@@ -35,7 +35,7 @@ def is_prop(c):
 
 
 def pval(p):
-    """Valor completo de una propiedad (value, inheritFrom, computeFrom...)."""
+    """Full value of a property (value, inheritFrom, computeFrom...)."""
     return tuple(sorted((k, v) for k, v in p.attrib.items() if k != 'name'))
 
 
@@ -47,7 +47,7 @@ def okey(o):
 
 
 def keyed(children):
-    """[(clave con n.o de aparicion, objeto)]"""
+    """[(key with occurrence no., object)]"""
     seen = Counter()
     out = []
     for c in children:
@@ -74,7 +74,7 @@ def props(el):
 
 
 def merge_list(b, o, t):
-    """Lista ordenada: la del destino, quitando lo que el escenario quito y anadiendo lo que anadio."""
+    """Ordered list: the target's, removing what the scenario removed and adding what it added."""
     removed = Counter(b) - Counter(o)
     added = Counter(o) - Counter(b)
     res = []
@@ -97,10 +97,10 @@ class Merger:
     def __init__(self):
         self.notes = []
         self.stats = Counter()
-        self.added = []          # objetos nuevos del destino (para escalar sus valores como el escenario)
+        self.added = []          # new objects of the target (to scale their values like the scenario)
 
     def merge(self, b, o, t, path=()):
-        """Elemento fusionado (nuevo). b puede ser None (anadido a la vez en escenario y destino)."""
+        """Merged element (new). b may be None (added at once in scenario and target)."""
         path = list(path)
         cb, co, ct = canon(b), canon(o), canon(t)
         if co == cb:
@@ -121,7 +121,7 @@ class Merger:
             elif vt == vb or vt == vo:
                 newp[name] = vo
             elif not vo:
-                newp[name] = vt      # el escenario no trae la propiedad (p. ej. guardado por una version anterior)
+                newp[name] = vt      # the scenario lacks the property (e.g. saved by an earlier version)
             elif len(vb) <= 1 and len(vo) <= 1 and len(vt) <= 1:
                 newp[name] = vo
                 self.stats['conflictos'] += 1
@@ -129,7 +129,7 @@ class Merger:
                     '/'.join(path), name, _v(vo), _v(vb), _v(vt)))
             else:
                 newp[name] = merge_list(vb, vo, vt)
-        # ---- objetos hijos: orden del destino, con los del escenario insertados tras su predecesor
+        # ---- child objects: target order, with the scenario's inserted after their predecessor
         tkeys = dict(keyed(list(t)))
         bkeys = dict(keyed(list(b))) if b is not None else {}
         okeys = keyed(list(o))
@@ -138,14 +138,14 @@ class Merger:
         for k, tc in keyed(list(t)):
             if k in odict:
                 children.append((k, self.merge(bkeys.get(k), odict[k], tc, path + [self._name(k)])))
-            elif k in bkeys:     # el escenario lo quito
+            elif k in bkeys:     # the scenario removed it
                 if canon(bkeys[k]) == canon(tc):
                     self.stats['quitados'] += 1
                     self.notes.append('quitado (el escenario no lo tiene): %s' % self._lab(path, k))
                     continue
                 children.append((k, copy.deepcopy(tc)))
                 self.notes.append('el escenario quitó %s, pero el destino lo cambió: se conserva' % self._lab(path, k))
-            else:                # nuevo en el destino
+            else:                # new in the target
                 self.stats['nuevos_destino'] += 1
                 if not path or len(path) < 3:
                     self.notes.append('nuevo del destino: %s' % self._lab(path, k))
@@ -167,8 +167,8 @@ class Merger:
             pos = ck.index(prev) + 1 if prev is not None else 0
             children.insert(pos, (k, copy.deepcopy(oc)))
             ck.insert(pos, k)
-        # ---- emision: se recorre el destino (conserva comentarios); las propiedades de un nombre van juntas
-        # en el sitio de la primera; cada objeto del destino se emite precedido de los propios que van antes
+        # ---- emission: walks the target (keeps comments); properties of one name go together
+        # at the place of the first; each target object is emitted preceded by the own ones that go before it
         emitted = set()
         last_prop = -1
         queue = list(children)
@@ -210,7 +210,7 @@ class Merger:
 
 
 def ratios(b, o, out=None):
-    """{(tipo de objeto, propiedad): [valor escenario / valor origen]} de los objetos que existen en los dos."""
+    """{(object type, property): [scenario value / source value]} of objects that exist in both."""
     out = {} if out is None else out
     if b is None or o is None:
         return out
@@ -229,8 +229,8 @@ def ratios(b, o, out=None):
 
 
 def scale_added(m, b, o, min_samples=5, agree=0.8):
-    """Si el escenario multiplica una propiedad por el mismo factor en casi todos los objetos de un tipo (p. ej.
-    nMaintenanceCost de las unidades / 10), aplica ese factor a los objetos nuevos del destino de ese tipo."""
+    """If the scenario multiplies a property by the same factor in nearly all objects of a type (e.g.
+    units' nMaintenanceCost / 10), applies that factor to the target's new objects of that type."""
     factors = {}
     for (typ, n), rs in ratios(b, o).items():
         if len(rs) < min_samples:
@@ -276,9 +276,9 @@ def merge_files(base_path, ours_path, theirs_path):
 
 
 def write(tree, path, like=None):
-    """Escribe con tabuladores y la cabecera del juego (la etiqueta raiz y CRLF como en el archivo 'like')."""
+    """Writes with tabs and the game's header (root tag and CRLF as in the 'like' file)."""
     ET.indent(tree, space='\t')
-    data = ET.tostring(tree.getroot(), encoding='unicode').replace(' />', '/>')   # como los XML del juego
+    data = ET.tostring(tree.getroot(), encoding='unicode').replace(' />', '/>')   # like the game's XML
     if like:
         raw = open(like, 'rb').read()
         m_old = re.search(r'<objects?\b[^>]*>', raw.decode('utf-8', 'replace'))

@@ -1,11 +1,11 @@
-"""Fija el limite oriental del estrecho de Magallanes: recta Punta Dungeness - Cabo del Espiritu Santo.
+"""Sets the eastern limit of the Strait of Magellan: straight line Punta Dungeness - Cabo del Espiritu Santo.
 
-Los extremos son los vertices exactos donde se juntan Patagonia, Magallanes y Argentine Sea a cada lado
-de la boca (donde la frontera terrestre chileno-argentina toca la costa). Todo el mar de Argentine Sea al
-oeste de esa recta pasa a Strait of Magellan. Si despues Patagonia tocara el estrecho, se avisa.
+The ends are the exact vertices where Patagonia, Magallanes and Argentine Sea meet on each side
+of the mouth (where the Chile-Argentina land border touches the coast). All the Argentine Sea water
+west of that line goes to Strait of Magellan. If Patagonia then touched the strait, a warning is given.
 
-Uso: python strait_limit.py <xml mapa> <salida>
-Escribe regions.bin, borders.brd, regions.nts y cambios.json (lineas para paint_changes.py).
+Usage: python strait_limit.py <xml mapa> <salida>
+Writes regions.bin, borders.brd, regions.nts and cambios.json (lines for paint_changes.py).
 """
 import json
 import math
@@ -23,8 +23,8 @@ from transfer import apply_transfers, boundary_edges  # noqa: E402
 LAND_A, LAND_B, OUTER, INNER = 'Patagonia', 'Magallanes', 'Argentine Sea', 'Strait of Magellan'
 NORTH_APPROX = (-68.43, -52.39)   # Punta Dungeness
 SOUTH_APPROX = (-68.61, -52.66)   # Cabo del Espiritu Santo
-INSIDE = (-69.0, -52.5)           # un punto de agua dentro del estrecho
-BAND = 0.012                      # grados (~1,3 km) de costa argentina que pasa a Chile
+INSIDE = (-69.0, -52.5)           # a water point inside the strait
+BAND = 0.012                      # degrees (~1.3 km) of Argentine coast that goes to Chile
 
 
 def main(src, out):
@@ -49,14 +49,14 @@ def main(src, out):
     print('Dungeness: %.4f, %.4f (a %.3f grados del aproximado)' % (j1[0], j1[1], math.dist(j1, NORTH_APPROX)))
     print('Espiritu Santo: %.4f, %.4f (a %.3f grados del aproximado)' % (j2[0], j2[1], math.dist(j2, SOUTH_APPROX)))
 
-    # recta prolongada un poco hacia tierra para que corte el mar de lado a lado
+    # line extended a bit toward land so it cuts the sea from side to side
     dx, dy = j2[0] - j1[0], j2[1] - j1[1]
     L = math.hypot(dx, dy)
     ext = 0.05 / L
     cutter = LineString([(j1[0] - dx * ext, j1[1] - dy * ext), (j2[0] + dx * ext, j2[1] + dy * ext)])
     outer = P(by[OUTER])
     pieces = [p for p in split(outer, cutter).geoms if p.area > 1e-9]
-    # pieza(s) del lado del estrecho (mismo lado que INSIDE) que tocan Strait of Magellan
+    # piece(s) on the strait side (same side as INSIDE) touching Strait of Magellan
     side = lambda p: (p.representative_point().x - j1[0]) * dy - (p.representative_point().y - j1[1]) * dx
     moved = [p for p in pieces if side(p) * ((INSIDE[0] - j1[0]) * dy - (INSIDE[1] - j1[1]) * dx) > 0
              and p.intersects(P(by[INNER]).buffer(1e-6))]
@@ -66,7 +66,7 @@ def main(src, out):
     print('%s -> %s: %d pieza(s), %.4f grados2' % (OUTER, INNER, len(moved), area))
     transfers = [(p, by[OUTER], by[INNER]) for p in moved]
 
-    # la costa argentina que da a ese mar pasa a Chile (franja de BAND grados), para que Argentina no toque el estrecho
+    # the Argentine coast facing that sea goes to Chile (strip of BAND degrees), so Argentina does not touch the strait
     water = unary_union(moved)
     coast = P(by[LAND_A]).boundary.intersection(water.buffer(1e-6))
     coast_lines = [g for g in getattr(coast, 'geoms', [coast]) if g.geom_type in ('LineString', 'MultiLineString') and g.length > 1e-6]

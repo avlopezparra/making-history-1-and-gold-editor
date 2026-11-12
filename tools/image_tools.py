@@ -1,13 +1,13 @@
-"""Herramientas de imagen para escenarios de Making History (pagina /imagenes del editor).
+"""Image tools for Making History scenarios (the editor's /imagenes page).
 
-- Lectura/escritura TGA exacta (tipo 2 sin comprimir o 10 RLE, 24/32 bits, orientacion abajo/arriba).
-- Titulo y botones del escenario (Title.tga, Button.tga, ButtonOver.tga).
-- Juego completo de banderas de un pais (ui/art/2D/countries/<Pais>/) a partir de una bandera y,
-  opcionalmente, una escarapela/emblema y la foto del lider.
-- Iconos de unidades (UnitTemplateIconTable), productos de fabrica (FactoryOutputIconTable) e imagen
-  de investigacion (MediaPack.xml, Research_Project_Icon), en las 4 medidas del juego.
+- Exact TGA read/write (type 2 uncompressed or 10 RLE, 24/32 bits, bottom/top orientation).
+- Scenario title and buttons (Title.tga, Button.tga, ButtonOver.tga).
+- Full set of a country's flags (ui/art/2D/countries/<Pais>/) from a flag and,
+  optionally, a roundel/emblem and the leader's photo.
+- Unit icons (UnitTemplateIconTable), factory products (FactoryOutputIconTable) and research
+  image (MediaPack.xml, Research_Project_Icon), in the game's 4 sizes.
 
-Medidas tomadas de los 293 paises de The Modern World (ver EDITOR.md, seccion Imagenes).
+Sizes taken from the 293 countries of The Modern World (see EDITOR.md, Imagenes section).
 """
 import base64
 import io
@@ -22,20 +22,20 @@ from PIL import Image, ImageDraw, ImageFilter, ImageChops
 import scenario_core
 
 def content_ui():
-    """Carpeta UI del contenido del juego elegido (MH1 o Gold)."""
+    """UI folder of the chosen game's content (MH1 or Gold)."""
     return os.path.join(scenario_core.GAME, 'Modern Europe', 'system', 'UI')
 
 
 # ------------------------------------------------------------------------------------------- TGA
 def tga_format(path):
-    """Formato de un TGA: tipo (2 sin comprimir, 10 RLE), bits, descriptor, medidas."""
+    """TGA format: type (2 uncompressed, 10 RLE), bits, descriptor, size."""
     h = open(path, 'rb').read(18)
     w, hh, bpp, desc = struct.unpack('<HHBB', h[12:18])
     return {'type': h[2], 'bpp': bpp, 'desc': desc, 'w': w, 'h': hh, 'idlen': h[0]}
 
 
 def _rle_row(row, px):
-    """Codifica una fila (bytes) en paquetes RLE de TGA."""
+    """Encodes a row (bytes) into TGA RLE packets."""
     n = len(row) // px
     out = bytearray()
     i = 0
@@ -48,7 +48,7 @@ def _rle_row(row, px):
             out += row[i * px:(i + 1) * px]
             i = j
             continue
-        j = i + 1    # paquete literal hasta la proxima repeticion
+        j = i + 1    # literal packet up to the next repetition
         while j < n and j - i < 128 and not (j + 1 < n and row[j * px:(j + 1) * px] == row[(j + 1) * px:(j + 2) * px]):
             j += 1
         out.append(j - i - 1)
@@ -58,7 +58,7 @@ def _rle_row(row, px):
 
 
 def tga_bytes(img, fmt):
-    """Imagen PIL -> bytes TGA con el formato dado (type 2/10, bpp 24/32, desc orientacion+alfa)."""
+    """PIL image -> TGA bytes in the given format (type 2/10, bpp 24/32, desc orientation+alpha)."""
     bpp = fmt.get('bpp', 32)
     rle = fmt.get('type', 10) in (10, 11)
     top = bool(fmt.get('desc', 8) & 0x20)
@@ -77,7 +77,7 @@ def tga_bytes(img, fmt):
 
 
 def encode(img, name, fmt=None):
-    """Bytes del archivo segun su extension (tga con formato, bmp 24 bits, png)."""
+    """File bytes by extension (tga with format, 24-bit bmp, png)."""
     ext = name.lower().rsplit('.', 1)[-1]
     if ext == 'tga':
         return tga_bytes(img, fmt or {'type': 10, 'bpp': 32, 'desc': 8})
@@ -107,7 +107,7 @@ def to_data_url(img):
 
 def png_bytes(path, maxside=None, crop=False):
     img = Image.open(path).convert('RGBA')
-    if crop:    # miniatura: sin el margen transparente
+    if crop:    # thumbnail: without the transparent margin
         bb = img.getchannel('A').point(lambda v: 255 if v > 16 else 0).getbbox()
         if bb:
             img = img.crop(bb)
@@ -134,8 +134,8 @@ def safe_name(s):
 
 
 def plantilla_dir():
-    """Plantilla de escenario que va con el editor (tools/editor/plantilla_escenario; en el .exe, _MEIPASS/editor/...).
-    Title.tga, Button.tga, ButtonOver.tga en la raiz; banderas/retrato modelo en _imagenes/countries/Plantilla/ (no se copian)."""
+    """Scenario template shipped with the editor (tools/editor/plantilla_escenario; in the .exe, _MEIPASS/editor/...).
+    Title.tga, Button.tga, ButtonOver.tga at the root; model flags/portrait in _imagenes/countries/Plantilla/ (not copied)."""
     import sys
     for base in (getattr(sys, '_MEIPASS', None), os.path.dirname(os.path.abspath(__file__))):
         d = os.path.join(base, 'editor', 'plantilla_escenario') if base else None
@@ -145,7 +145,7 @@ def plantilla_dir():
 
 
 def resolve_rel(rel):
-    """Ruta relativa a la carpeta de escenarios -> absoluta (@ui/: contenido del juego; @tpl/: plantilla del editor)."""
+    """Path relative to the scenarios folder -> absolute (@ui/: game content; @tpl/: editor template)."""
     if rel.startswith('@ui/'):
         base = content_ui()
         rel = rel[4:]
@@ -161,7 +161,7 @@ def resolve_rel(rel):
 
 
 def write_files(files, label):
-    """Escribe {ruta_absoluta: bytes}. Antes guarda el original (solo la primera vez) y la version previa."""
+    """Writes {absolute_path: bytes}. First saves the original (only the first time) and the previous version."""
     stamp = time.strftime('%Y%m%d-%H%M%S')
     root = os.path.abspath(scenario_core.SCEN_ROOT)
     done = []
@@ -181,7 +181,7 @@ def write_files(files, label):
             new = os.path.join(scenario_core.BACKUP_ROOT, 'historial', stamp + '-' + label, 'nuevos.txt')
             os.makedirs(os.path.dirname(new), exist_ok=True)
             with open(new, 'a', encoding='utf-8') as f:
-                f.write(rel + '\n')     # archivos que no existian: para poder quitarlos a mano
+                f.write(rel + '\n')     # files that did not exist: so they can be removed by hand
         os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path, 'wb') as f:
             f.write(data)
@@ -221,7 +221,7 @@ def write_title(scen, f, data_url):
 
 
 # ------------------------------------------------------------------------------------- banderas
-# (nombre, tamano del lienzo, rectangulo de la bandera, sombra) medido en los paises de The Modern World
+# (name, canvas size, flag rectangle, shadow) measured on The Modern World countries
 FLAG_RECTS = [
     ('262-134-flag-shadow.tga', (512, 256), (3, 3, 259, 131), True),
     ('flag-68-34-shadow.tga', (128, 64), (4, 4, 72, 38), True),
@@ -242,7 +242,7 @@ FLAG_ORDER = ['3DFlag.tga', 'big-flag.bmp', 'flag-256-128.bmp', 'multichat_flag.
               'diplomatic-flag.tga', 'diplomatic-flag-over.tga', 'flag-16-16.tga', 'flag-19-19.tga',
               'decal.tga', 'decal-64-64.tga', 'decal-64-64-bw.tga', 'decal-64-64-bw-over.tga', 'decal-42-42.tga',
               '1919DecalWShadow.tga', 'leader-lobby.tga']
-# formato del 3DFlag: 24 bits sin alfa; leader-lobby: sin comprimir; el resto RLE 32 bits
+# 3DFlag format: 24 bits without alpha; leader-lobby: uncompressed; the rest RLE 32 bits
 FLAG_FMT = {'3DFlag.tga': {'type': 10, 'bpp': 24, 'desc': 0}, 'leader-lobby.tga': {'type': 2, 'bpp': 32, 'desc': 8}}
 DEFAULT_FMT = {'type': 10, 'bpp': 32, 'desc': 8}
 
@@ -250,7 +250,7 @@ _SHADOWS = {}
 
 
 def shadow_alpha(name, size, rect):
-    """Alfa de la sombra: la mas frecuente entre los paises existentes (o una generada si no hay)."""
+    """Shadow alpha: the most frequent among existing countries (or a generated one if there are none)."""
     key = name
     if key in _SHADOWS:
         return _SHADOWS[key]
@@ -273,7 +273,7 @@ def shadow_alpha(name, size, rect):
             break
     if cnt:
         a = Image.frombytes('L', size, cnt.most_common(1)[0][0])
-    else:   # sin ejemplos: sombra difusa de 3-4 px
+    else:   # no examples: soft 3-4 px shadow
         a = Image.new('L', size, 0)
         x0, y0, x1, y1 = rect
         ImageDraw.Draw(a).rectangle((x0 + 1, y0 + 1, x1 + 1, y1 + 1), fill=150)
@@ -283,13 +283,13 @@ def shadow_alpha(name, size, rect):
 
 
 def remove_background(img, tol=28):
-    """Quita el fondo uniforme (color de las esquinas) de una imagen sin transparencia."""
+    """Removes the uniform background (corner color) of an image without transparency."""
     img = img.convert('RGBA')
     px = img.load()
     w, h = img.size
     corners = [px[0, 0], px[w - 1, 0], px[0, h - 1], px[w - 1, h - 1]]
     if any(c[3] < 250 for c in corners):
-        return img      # ya tiene transparencia
+        return img      # already has transparency
     bg = max(set(corners), key=corners.count)
     from collections import deque
     seen = bytearray(w * h)
@@ -348,10 +348,10 @@ FLAG_FITS = ('centro', 'bordes', 'izquierda', 'estirar')
 
 
 def fit_flag(img, mode='centro', aspect=2.0):
-    """Lleva una bandera de otra proporcion a la del juego (2:1).
-    centro: recorta al centro · bordes: estira la primera y la ultima columna (o fila) de pixeles hasta rellenar ·
-    izquierda: la bandera pegada a la izquierda y se rellena repitiendo su ultima columna (banderas tipo Chile) ·
-    estirar: deforma la imagen hasta 2:1."""
+    """Brings a flag of another ratio to the game's (2:1).
+    centro: crops to the center · bordes: stretches the first and last pixel column (or row) to fill ·
+    izquierda: the flag stuck to the left, filled by repeating its last column (Chile-style flags) ·
+    estirar: distorts the image to 2:1."""
     w, h = img.size
     if mode == 'estirar' or abs(w / h - aspect) < 0.01:
         return img
@@ -384,12 +384,12 @@ def fit_flag(img, mode='centro', aspect=2.0):
 
 
 def flag_set(flag, decal=None, shape='escudo', removebg=True, leader=None, crop='centro', only=None, fit_mode='centro', decal_crop=None):
-    """Genera {archivo: imagen} con todos los archivos de la carpeta de un pais.
+    """Generates {file: image} with all the files of a country's folder.
 
-    crop: como entra la bandera en los huecos casi cuadrados (diplomatic, flag-16/19, 48h-64w, multichat):
-    'estirar' (lo mas comun en el juego), 'asta' (recorte desde el lado del asta) o 'centro'.
-    only: None (todo), 'flag' (sin escarapelas ni lider) o 'decal' (solo escarapelas; flag puede faltar).
-    fit_mode: como pasar la bandera a 2:1 (fit_flag)."""
+    crop: how the flag fits the nearly square slots (diplomatic, flag-16/19, 48h-64w, multichat):
+    'estirar' (most common in the game), 'asta' (crop from the hoist side) or 'centro'.
+    only: None (everything), 'flag' (without roundels or leader) or 'decal' (roundels only; flag may be missing).
+    fit_mode: how to bring the flag to 2:1 (fit_flag)."""
     if only == 'decal':
         if decal is None:
             raise ValueError('falta la imagen de la escarapela')
@@ -397,7 +397,7 @@ def flag_set(flag, decal=None, shape='escudo', removebg=True, leader=None, crop=
     flag = flag.convert('RGBA')
     bg = Image.new('RGBA', flag.size, (255, 255, 255, 255))
     bg.alpha_composite(flag)
-    flag = fit_flag(bg.convert('RGB'), fit_mode or 'centro')        # las banderas son opacas
+    flag = fit_flag(bg.convert('RGB'), fit_mode or 'centro')        # flags are opaque
     big = flag.resize((512, 256), Image.LANCZOS) if flag.width < 512 else flag.resize((flag.width, flag.width // 2), Image.LANCZOS)
     rs = lambda w, h: big.resize((w, h), Image.LANCZOS)
 
@@ -408,7 +408,7 @@ def flag_set(flag, decal=None, shape='escudo', removebg=True, leader=None, crop=
         x0 = 0 if crop == 'asta' else (big.width - cw) // 2
         return big.crop((x0, 0, x0 + cw, big.height)).resize((w, h), Image.LANCZOS)
     out = {}
-    out['3DFlag.tga'] = rs(128, 64).transpose(Image.FLIP_TOP_BOTTOM)    # el juego la lee al reves
+    out['3DFlag.tga'] = rs(128, 64).transpose(Image.FLIP_TOP_BOTTOM)    # the game reads it upside down
     for name, size in FLAG_FULL:
         out[name] = rs(*size)
     for name, size, rect, shadow in FLAG_RECTS:
@@ -436,7 +436,7 @@ def flag_set(flag, decal=None, shape='escudo', removebg=True, leader=None, crop=
 
 
 def decal_set(decal, removebg=True, crop=None):
-    """crop: None = la imagen entera; 'circulo' / 'escudo' / 'cuadrado' = recorte cuadrado del centro con esa forma (p. ej. una bandera)."""
+    """crop: None = the whole image; 'circulo' / 'escudo' / 'cuadrado' = square center crop with that shape (e.g. a flag)."""
     if crop:
         d = decal.convert('RGBA')
         c = min(d.size)
@@ -448,7 +448,7 @@ def decal_set(decal, removebg=True, crop=None):
 
 
 def decal_files(d60):
-    """Los 6 archivos de escarapela a partir de la escarapela de 60x60."""
+    """The 6 roundel files from the 60x60 roundel."""
     out = {}
     dec = Image.new('RGBA', (64, 64), (0, 0, 0, 0))
     dec.alpha_composite(d60, (2, 2))
@@ -476,7 +476,7 @@ def leader_lobby(photo, flag, removebg=True):
         k = min(W / p.width, (H - 30) / p.height)
         p = p.resize((max(1, round(p.width * k)), max(1, round(p.height * k))), Image.LANCZOS)
         card.alpha_composite(p, ((W - p.width) // 2, H - p.height))
-    else:   # foto opaca: recortar para llenar
+    else:   # opaque photo: crop to fill
         k = max(W / p.width, H / p.height)
         p = p.resize((round(p.width * k), round(p.height * k)), Image.LANCZOS)
         card = p.crop(((p.width - W) // 2, 0, (p.width - W) // 2 + W, H))
@@ -516,7 +516,7 @@ _FLAGNAMES = {}
 
 
 def flag_folder(scen, country):
-    """Carpeta de banderas de un pais: strFlagName de su Player en gamestate.xml (o el nombre del pais)."""
+    """A country's flag folder: strFlagName of its Player in gamestate.xml (or the country name)."""
     gs = os.path.join(scen_dir(scen), 'gamestate.xml')
     key = (gs, os.path.getmtime(gs) if os.path.exists(gs) else 0)
     if key not in _FLAGNAMES:
@@ -534,7 +534,7 @@ def flag_folder(scen, country):
 
 
 def _country_flagname(scen, country):
-    """strFlagName del MECountry de country<País>.xml (puede tener espacios y no coincidir con el país)."""
+    """strFlagName of the MECountry in country<País>.xml (may have spaces and not match the country)."""
     f = os.path.join(scen_dir(scen), 'country%s.xml' % country)
     if not os.path.exists(f):
         return None
@@ -544,9 +544,9 @@ def _country_flagname(scen, country):
 
 
 def flag_dir(scen, country, files=('flag-16-16.tga', 'flag-19-19.tga')):
-    """Carpeta con la bandera de un país: strFlagName de su Player (gamestate.xml), el de su country<País>.xml o su nombre,
-    en la carpeta del escenario (ui/art/2D/countries) o, si no está, en la del juego (Modern Europe/system/ui/art/2D/countries,
-    donde están las de los países del juego, p. ej. «iceland»). None si no hay bandera."""
+    """Folder with a country's flag: strFlagName of its Player (gamestate.xml), the one in its country<País>.xml or its name,
+    in the scenario folder (ui/art/2D/countries) or, if not there, in the game's (Modern Europe/system/ui/art/2D/countries,
+    where the game countries' ones are, e.g. «iceland»). None if there is no flag."""
     names = []
     for n in (flag_folder(scen, country), _country_flagname(scen, country), country):
         if n and n not in names:
@@ -564,13 +564,13 @@ def flag_dir(scen, country, files=('flag-16-16.tga', 'flag-19-19.tga')):
 
 
 def flag_png(scen, name, files=('flag-16-16.tga', 'flag-19-19.tga', 'diplomatic-flag.tga', 'flag-68-34.tga')):
-    """PNG de la bandera pequena de un pais (o None si no tiene carpeta)."""
+    """PNG of a country's small flag (or None if it has no folder)."""
     d = flag_dir(scen, name, files) or os.path.join(countries_dir(scen), safe_name(flag_folder(scen, name)))
     for f in files:
         p = os.path.join(d, f)
         if os.path.exists(p):
             img = Image.open(p).convert('RGBA')
-            bb = img.getchannel('A').point(lambda v: 255 if v > 200 else 0).getbbox()   # sin la sombra
+            bb = img.getchannel('A').point(lambda v: 255 if v > 200 else 0).getbbox()   # without the shadow
             if bb:
                 img = img.crop(bb)
             b = io.BytesIO()
@@ -629,7 +629,7 @@ def icon_set(img, removebg=False, pad=0):
     out = {}
     for folder, n, canvas in ICON_SIZES:
         c = Image.new('RGBA', (canvas, canvas), (0, 0, 0, 0))
-        c.alpha_composite(fit(img, n, round(pad * n / 64)), (0, 0))     # arriba a la izquierda, como los originales
+        c.alpha_composite(fit(img, n, round(pad * n / 64)), (0, 0))     # top left, like the originals
         out[folder] = c
     return out
 
@@ -645,7 +645,7 @@ def research_image(img, size, removebg=False):
 
 
 def _xml_objects(path, typ):
-    """[(strName, strIconName)] de los objetos del tipo dado en un XML (lectura sencilla)."""
+    """[(strName, strIconName)] of the objects of the given type in an XML (simple read)."""
     if not os.path.exists(path):
         return []
     x = open(path, encoding='utf-8', errors='replace').read()
@@ -672,7 +672,7 @@ def _table_entries(path, kind):
 
 
 def icon_path_to_rel(scen, v):
-    """Valor fileIcon6464 de la tabla -> ruta del archivo (escenario primero, contenido despues)."""
+    """fileIcon6464 value from the table -> file path (scenario first, content after)."""
     if not v:
         return None
     v = v.replace('\\', '/')
@@ -690,7 +690,7 @@ def icon_path_to_rel(scen, v):
 
 
 def research_entries(scen):
-    """{strName: filePath} de la biblioteca Research_Project_Icon (MediaPack del escenario o del juego)."""
+    """{strName: filePath} from the Research_Project_Icon library (scenario's or game's MediaPack)."""
     for mp in (os.path.join(scen_dir(scen), 'ui', 'MediaPack.xml'), os.path.join(content_ui(), 'MediaPack.xml')):
         if os.path.exists(mp):
             x = open(mp, encoding='utf-8', errors='replace').read()
@@ -716,7 +716,7 @@ def icons_info(scen):
                      'items': [{'name': n, 'icon': ic, 'registered': n in ent, 'file': ent.get(n),
                                 'rel': icon_path_to_rel(scen, ent.get(n))} for n, ic in items]}
     units_by = {x['name']: x for x in res['unit']['items']}
-    for x in res['output']['items']:    # los productos que son unidades usan el icono de su UnitTemplate
+    for x in res['output']['items']:    # products that are units use their UnitTemplate's icon
         u = units_by.get(x['name'])
         if not x['registered'] and u and u['rel']:
             x['rel'], x['via'] = u['rel'], 'unit'
@@ -729,7 +729,7 @@ def icons_info(scen):
 
 
 def _insert_entry(path, kind, name, filebase, label):
-    """Anade (o actualiza) la entrada de iconos en la tabla del escenario. Devuelve el texto nuevo."""
+    """Adds (or updates) the icon entry in the scenario's table. Returns the new text."""
     _, typ, objname, key = TABLES[kind]
     x = open(path, 'rb').read().decode('utf-8')
     nl = '\r\n' if '\r\n' in x[:4000] else '\n'
@@ -756,7 +756,7 @@ def _insert_entry(path, kind, name, filebase, label):
 
 
 def _matching_close(x, start):
-    """Indice del </object> que cierra el <object> que empieza en start."""
+    """Index of the </object> closing the <object> that starts at start."""
     depth = 0
     for m in re.finditer(r'<object\b[^>]*?(/?)>|</object>', x[start:]):
         if m.group(0).startswith('</'):
@@ -874,7 +874,7 @@ def icon_write(p):
 
 
 def fetch_url(url, limit=15 * 1024 * 1024):
-    """Descarga una imagen de una URL (http/https) que da el usuario y la devuelve como data URL."""
+    """Downloads an image from a URL (http/https) given by the user and returns it as a data URL."""
     import urllib.request
     from urllib.parse import urlparse
     u = urlparse((url or '').strip())
@@ -896,7 +896,7 @@ def fetch_url(url, limit=15 * 1024 * 1024):
 
 
 def nation_status(scen):
-    """{nacion: {'color': bool, 'flag': bool, 'folder': carpeta de su bandera}} de los Player de gamestate.xml."""
+    """{nation: {'color': bool, 'flag': bool, 'folder': its flag folder}} from the Players in gamestate.xml."""
     gs = os.path.join(scen_dir(scen), 'gamestate.xml')
     out = {}
     if not os.path.exists(gs):
@@ -928,12 +928,12 @@ def nation_status(scen):
     return out
 
 
-# ------------------------------------------------------------------------------------------ retrato del lobby por capas
-# Como el leader-lobby.psd de The Modern World: marco (leader-lobby referential) de 273x305 arriba a la izquierda de un
-# lienzo 512x512, la bandera en su hueco blanco, un monumento abajo a la izquierda y el líder a la derecha, delante.
+# ------------------------------------------------------------------------------------------ layered lobby portrait
+# Like The Modern World's leader-lobby.psd: frame (leader-lobby referential) of 273x305 at the top left of a
+# 512x512 canvas, the flag in its white slot, a monument at the bottom left and the leader on the right, in front.
 LOBBY_FLAG = (7, 58, 263, 186)
 LOBBY_MON = (0, 140, 190, 305)          # se apoya abajo a la izquierda
-LOBBY_LEAD = (125, 90, 273, 520)        # se apoya arriba a la derecha; lo que baja de 305 se corta
+LOBBY_LEAD = (125, 90, 273, 520)        # rests at the top right; whatever goes below 305 is cut
 
 
 def lobby_frame():
@@ -947,7 +947,7 @@ def lobby_frame():
 
 
 def big_flag(scen, country):
-    """La bandera más grande del país (3DFlag vuelta a su sitio, si no diplomatic-flag / flag-68-34)."""
+    """The country's largest flag (3DFlag flipped back, otherwise diplomatic-flag / flag-68-34)."""
     d = flag_dir(scen, country, ('3DFlag.tga', 'diplomatic-flag.tga', 'flag-68-34.tga'))
     for f in ('3DFlag.tga', 'diplomatic-flag.tga', 'flag-68-34.tga'):
         p = d and os.path.join(d, f)
@@ -961,7 +961,7 @@ def big_flag(scen, country):
 
 
 def _fit_box(img, box, scale, align):
-    """Escala img para caber en box (por scale) y la coloca: align 'bl' abajo-izquierda, 'tr' arriba-derecha."""
+    """Scales img to fit in box (by scale) and places it: align 'bl' bottom-left, 'tr' top-right."""
     x0, y0, x1, y1 = box
     k = min((x1 - x0) / img.width, (y1 - y0) / img.height) * scale
     img = img.resize((max(1, round(img.width * k)), max(1, round(img.height * k))), Image.LANCZOS)
@@ -971,7 +971,7 @@ def _fit_box(img, box, scale, align):
 
 def leader_lobby_layers(flag=None, monument=None, leader=None, mon_scale=1.0, lead_scale=1.0,
                         mon_removebg=False, lead_removebg=False, dx=0, dy=0):
-    """Compone el retrato del lobby (512x512) a partir de las capas; cualquiera puede faltar."""
+    """Composes the lobby portrait (512x512) from the layers; any of them may be missing."""
     frame = lobby_frame()
     card = frame.copy()
     if flag is not None:
@@ -988,7 +988,7 @@ def leader_lobby_layers(flag=None, monument=None, leader=None, mon_scale=1.0, le
         layer = Image.new('RGBA', card.size, (0, 0, 0, 0))
         layer.paste(img, (pos[0] + off[0], pos[1] + off[1]))
         card.alpha_composite(layer)
-    # solo la zona del marco (273x305 arriba a la izquierda); fuera, transparente
+    # only the frame area (273x305 at the top left); outside, transparent
     out = Image.new('RGBA', card.size, (0, 0, 0, 0))
     out.paste(card, (0, 0), frame.getchannel('A'))
     return out

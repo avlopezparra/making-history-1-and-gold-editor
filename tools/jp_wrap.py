@@ -1,9 +1,9 @@
-"""Mete U+200A (espacio finisimo, ancho 0 en fuentes_jp) entre caracteres japoneses de locale/jp.
+"""Inserts U+200A (hair space, zero width in fuentes_jp) between Japanese characters of locale/jp.
 
-El motor de texto (fonts.dll) solo parte lineas en caracteres iswspace; el japones no tiene espacios y las
-descripciones largas se salian de la caja. U+200A es iswspace y en nuestras fuentes no ocupa ancho.
-Respeta el kinsoku basico: no corta antes de 、。」）ー etc. ni despues de 「（.
-Uso: python jp_wrap.py <carpeta_jp_origen> <carpeta_destino>
+The text engine (fonts.dll) only breaks lines at iswspace characters; Japanese has no spaces and
+long descriptions overflowed the box. U+200A is iswspace and takes no width in our fonts.
+Respects basic kinsoku: does not break before 、。」）ー etc. nor after 「（.
+Usage: python jp_wrap.py <carpeta_jp_origen> <carpeta_destino>
 """
 import os
 import re
@@ -27,7 +27,7 @@ def wrap(text):
 
 
 def wrap_xml(xml):
-    # solo dentro de value="..." (nunca ids ni etiquetas)
+    # only inside value="..." (never ids or tags)
     return re.sub(r'(value=")([^"]*)(")', lambda m: m.group(1) + wrap(m.group(2)) + m.group(3), xml)
 
 

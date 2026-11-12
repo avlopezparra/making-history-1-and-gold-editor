@@ -1,6 +1,6 @@
-"""Parser de borders.brd (Making History). Hipotesis:
-  u32 nBordes; por borde: u32 region, u8 flag, u32 nPuntos, (f32 x, f32 y)[nPuntos]
-Uso: python -I parse_borders.py borders.brd regions.csv"""
+"""borders.brd parser (Making History). Hypothesis:
+  u32 nBordes; per border: u32 region, u8 flag, u32 nPuntos, (f32 x, f32 y)[nPuntos]
+Usage: python -I parse_borders.py borders.brd regions.csv"""
 import struct, sys, collections, csv
 d = open(sys.argv[1], 'rb').read()
 names = [r['name'] for r in csv.DictReader(open(sys.argv[2], encoding='utf-8'))]

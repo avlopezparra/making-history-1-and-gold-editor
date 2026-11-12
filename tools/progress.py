@@ -1,14 +1,14 @@
-"""Avance de la acción en curso del servidor, para la barra de carga de los editores (GET /api/progress).
+"""Progress of the server's current action, for the editors' loading bar (GET /api/progress).
 
-begin() al empezar una petición que cambia algo, step(pct, texto) en sus etapas y end() al terminar.
-part(a, b) da una función step para una sub-tarea que ocupa del a % al b % (p. ej. un escenario de varios).
+begin() when starting a request that changes something, step(pct, text) at its stages and end() when done.
+part(a, b) gives a step function for a sub-task spanning a % to b % (e.g. one scenario of several).
 """
 import threading
 import time
 
 _LOCK = threading.Lock()
 STATE = {'active': False, 'pct': 0, 'label': '', 'since': 0.0, 'real': False}
-_DEPTH = [0]   # peticiones a la vez: el avance se reinicia solo al empezar la primera y acaba con la última
+_DEPTH = [0]   # concurrent requests: progress resets only when the first starts and ends with the last
 
 
 def begin(label=''):
@@ -19,7 +19,7 @@ def begin(label=''):
 
 
 def step(pct, label=None):
-    """Avance real (0-100); nunca retrocede dentro de la misma acción."""
+    """Real progress (0-100); never goes back within the same action."""
     with _LOCK:
         STATE['pct'] = max(STATE['pct'], min(100, int(pct)))
         STATE['real'] = True
@@ -28,7 +28,7 @@ def step(pct, label=None):
 
 
 def part(a, b):
-    """step(i, n, texto) que reparte la sub-tarea i de n entre a % y b %."""
+    """step(i, n, text) that maps sub-task i of n between a % and b %."""
     def f(i, n, label=None):
         step(a + (b - a) * (i / float(n) if n else 1), label)
     return f

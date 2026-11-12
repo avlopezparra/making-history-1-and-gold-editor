@@ -1,8 +1,8 @@
-"""Creación masiva de unidades (ejércitos, fuerzas aéreas y flotas) para muchos países a la vez, en el editor de escenarios.
+"""Bulk creation of units (armies, air forces and fleets) for many countries at once, in the scenario editor.
 
-plan() calcula qué se crearía (país, tipo, región, posición y unidades) sin tocar nada; apply() lo crea en memoria con
-las mismas funciones que «Añadir ejército / fuerza aérea / flota»; undo() quita lo que creó el último apply(). El
-escenario solo se escribe con «Guardar», como siempre.
+plan() computes what would be created (country, type, region, position and units) without touching anything; apply() creates it in memory with
+the same functions as «Añadir ejército / fuerza aérea / flota»; undo() removes what the last apply() created. The
+scenario is only written with «Guardar», as always.
 """
 import math
 import random
@@ -11,11 +11,11 @@ import scenario_core as sc
 from scenario_core import prop, objs
 
 KINDS = {'land': ('Army', 'UNIT_TYPE_ARMY'), 'air': ('AirForce', 'UNIT_TYPE_AIR_FORCE'), 'navy': ('Fleet', 'UNIT_TYPE_NAVY')}
-# «Ejército base»: unidades por tipo de país (playable > major > minor)
+# «Ejército base»: units per country type (playable > major > minor)
 BASE = {'playable': {'land': 12, 'air': 4, 'navy': 4}, 'major': {'land': 8, 'air': 3, 'navy': 3}, 'minor': {'land': 3, 'air': 1, 'navy': 1}}
-CAP = {'land': 40, 'air': 16, 'navy': 16}     # tope del ejército base aleatorio
-MIN_GAP = 0.6                                  # separación mínima (grados) entre pilas, ciudades y unidades de la región
-_last = []                                     # ids creados por el último apply() (para deshacer)
+CAP = {'land': 40, 'air': 16, 'navy': 16}     # cap of the random base army
+MIN_GAP = 0.6                                  # minimum separation (degrees) between stacks, cities and the region's units
+_last = []                                     # ids created by the last apply() (for undo)
 
 
 def tier(c):
@@ -26,8 +26,8 @@ def tier(c):
 
 
 def targets(s, sel):
-    """Países con territorio según sel: {'countries': [...]} y/o {'tiers': ['playable', 'major', 'minor']} (se combinan con «o»);
-    {'all': true} o nada = todos."""
+    """Countries with territory per sel: {'countries': [...]} and/or {'tiers': ['playable', 'major', 'minor']} (combined with «or»);
+    {'all': true} or nothing = all."""
     landed = {prop(r, 'strOwner') for r in s.regions(sea=False)}
     cs = s.countries()
     names, tiers = set(sel.get('countries') or []), set(sel.get('tiers') or [])
@@ -41,7 +41,7 @@ def targets(s, sel):
 
 
 def _allowed(s, country):
-    """{kind: [plantillas]} que el país puede tener: las que no dependen de una investigación, o cuya investigación completó."""
+    """{kind: [templates]} the country may have: those not depending on research, or whose research is complete."""
     research = {prop(p, 'strName') for p in s.all_prefix('ResearchProj')}
     done = set()
     pd = next((p for p in s.all('MEPlayerData') if prop(p, 'strOwner') == country), None)
@@ -87,7 +87,7 @@ def _usage(s):
 
 
 def _pick(s, country, kind, allowed, use):
-    """Hasta dos plantillas para el ejército base: las que el país ya usa, si no las más usadas del escenario (permitidas)."""
+    """Up to two templates for the base army: those the country already uses, otherwise the scenario's most used (allowed)."""
     t = KINDS[kind][0]
     mine = []
     for g in s.all(t):
@@ -108,7 +108,7 @@ def _split(n, parts):
 
 
 def _split_units(units, parts):
-    """Reparte la lista de unidades en 'parts' pilas parecidas (cada tipo se reparte entre las pilas)."""
+    """Splits the unit list into 'parts' similar stacks (each type is spread among the stacks)."""
     out = [[] for _ in range(parts)]
     for u in units:
         for i, n in enumerate(_split(int(u['n']), parts)):
@@ -134,7 +134,7 @@ def _occupied(s):
 
 
 def _spot(geom, taken, rnd):
-    """Punto dentro del polígono, lejos de 'taken'; si no hay sitio, el más alejado de los probados."""
+    """Point inside the polygon, far from 'taken'; if there is no room, the farthest of those tried."""
     from shapely.geometry import Point
     x0, y0, x1, y1 = geom.bounds
     best, bd = None, -1
@@ -157,11 +157,11 @@ def _spot(geom, taken, rnd):
 
 
 def plan(s, sel, mode='custom', units=None, seed=None, navy_seas=None, lacking=False):
-    """Lo que se crearía. mode 'custom': units={'land': [{'type', 'n'}], 'air': [...], 'navy': [...]} para cada país;
-    'base': BASE según el tipo de país; 'random': mezcla aleatoria escalada por población (topes CAP).
-    navy_seas: {país: región de mar} para elegir dónde va su flota. lacking: cada rama (tierra, aire, mar) solo para los
-    países que no tienen ninguna unidad de esa rama («dar fuerzas a los que no tienen»).
-    Devuelve {'items': [...], 'skipped': [...]}."""
+    """What would be created. mode 'custom': units={'land': [{'type', 'n'}], 'air': [...], 'navy': [...]} for each country;
+    'base': BASE by country type; 'random': random mix scaled by population (CAP limits).
+    navy_seas: {country: sea region} to choose where its fleet goes. lacking: each branch (land, air, sea) only for
+    countries that have no unit of that branch («give forces to those who have none»).
+    Returns {'items': [...], 'skipped': [...]}."""
     has = {k: {prop(g, 'strOwner') for g in s.all(t)} for k, (t, _) in KINDS.items()} if lacking else {}
     import scenario_layers as sl
     rnd = random.Random(seed)
@@ -200,7 +200,7 @@ def plan(s, sel, mode='custom', units=None, seed=None, navy_seas=None, lacking=F
                     want[k] = [{'type': ts[0], 'n': n - n // 3}] + ([{'type': ts[1], 'n': n // 3}] if len(ts) > 1 and n // 3 else [])
         for k in has:
             if c in has[k]:
-                want[k] = []                # ya tiene esa rama
+                want[k] = []                # already has that branch
         if lacking and not any(want.values()):
             continue
         mine = sorted((r for r in land.values() if prop(r, 'strOwner') == c),
@@ -209,7 +209,7 @@ def plan(s, sel, mode='custom', units=None, seed=None, navy_seas=None, lacking=F
         if not names:
             skipped.append({'country': c, 'why': 'sus regiones no están en el mapa'})
             continue
-        # ejército: varias pilas en regiones distintas (hasta 3, o menos si tiene pocas regiones)
+        # army: several stacks in different regions (up to 3, or fewer if it has few regions)
         land_total = sum(int(u['n']) for u in want.get('land', []))
         if land_total:
             for i, chunk in enumerate(_split_units(want['land'], min(3, len(names), land_total))):
@@ -245,7 +245,7 @@ def plan(s, sel, mode='custom', units=None, seed=None, navy_seas=None, lacking=F
 
 
 def apply(s, items):
-    """Crea en memoria lo planeado (falta «Guardar»). Devuelve notas; recuerda los ids para undo()."""
+    """Creates the plan in memory («Guardar» still needed). Returns notes; remembers the ids for undo()."""
     import scenario_layers as sl
     import scenario_create as scr
     st = s.s
@@ -268,8 +268,68 @@ def apply(s, items):
     return ['%d grupos creados (%d unidades) en %d países' % (len(made), total, len({it['country'] for it in items}))]
 
 
+def _referenced(s):
+    """Names of groups mentioned by some event or object (e.g. a condition's strValue): those are never removed."""
+    groups = [g for t, _ in KINDS.values() for g in s.all(t)]
+    names = {prop(g, 'strName') for g in groups}
+    own = {id(p) for g in groups for p in g if p.tag == 'property' and p.get('name') == 'strName'}
+    return {e.get('value') for doc in s.s.docs.values() for e in doc.getroot().iter('property')
+            if e.get('value') in names and id(e) not in own and e.get('name') not in ('strOwner', 'strRegion', 'strCity')}
+
+
+def _size(g):
+    return sum(int(prop(o, 'nNumber') or 0) for o in objs(g) if o.get('type') == 'UnitSummary')
+
+
+def stacks(s):
+    """Groups of the same country and type in the same place: same region, city and position (or no position: then the game
+    draws them all at the same point). Each stack is merged into one group: the one an event names or, otherwise, the largest."""
+    ref = _referenced(s)
+    out = []
+    for kind, (t, _) in KINDS.items():
+        piles = {}
+        for g in s.all(t):
+            key = (prop(g, 'strOwner'), prop(g, 'strRegion'), prop(g, 'strCity') or '', (prop(g, 'vecPosition') or '').replace(' ', ''))
+            piles.setdefault(key, []).append(g)
+        for (owner, region, _c, _p), gs in piles.items():
+            gs.sort(key=lambda g: (prop(g, 'strName') not in ref, -_size(g)))
+            merge = [g for g in gs[1:] if prop(g, 'strName') not in ref]
+            if merge:
+                out.append({'kind': kind, 'country': owner, 'region': region, 'keep': s.s.eid(gs[0]), 'keep_name': prop(gs[0], 'strName'),
+                            'merge': [s.s.eid(g) for g in merge], 'merge_names': [prop(g, 'strName') for g in merge],
+                            'units': sum(_size(g) for g in [gs[0]] + merge)})
+    return out
+
+
+def merge_stacks(s, piles):
+    """Merges each stack from stacks() into its group: sums units of the same type and removes the other groups (in memory)."""
+    st = s.s
+    groups = units = 0
+    for p in piles:
+        keep = st.get(p['keep'])
+        if keep is None:
+            continue
+        lines = {prop(o, 'strName'): o for o in objs(keep) if o.get('type') == 'UnitSummary'}
+        for eid in p['merge']:
+            g = st.get(eid)
+            if g is None:
+                continue
+            for o in [o for o in objs(g) if o.get('type') == 'UnitSummary']:
+                n, t = int(prop(o, 'nNumber') or 0), prop(o, 'strName')
+                units += n
+                if t in lines:
+                    st.set_prop(lines[t], 'nNumber', str(int(prop(lines[t], 'nNumber') or 0) + n))
+                else:
+                    st.remove(o)
+                    st.attach(o, keep)
+                    lines[t] = o
+            st.remove(g)
+            groups += 1
+    return ['%d grupos juntados con el que estaba en el mismo sitio (%d unidades)' % (groups, units)]
+
+
 def undo(s):
-    """Quita lo que creó el último apply() (si sigue en memoria)."""
+    """Removes what the last apply() created (if still in memory)."""
     st = s.s
     n = 0
     for eid in _last:

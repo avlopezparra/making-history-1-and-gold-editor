@@ -1,7 +1,7 @@
-"""Colores por tipo de terreno para exportar el mapa (imagen y GeoJSON).
+"""Colors per terrain type for exporting the map (image and GeoJSON).
 
-Cada región de tierra lleva el color de su terreno (el del escenario si se indica uno; si no, el que codifica el propio mapa:
-1 llanura, 2 colinas, 3 montañas, 4 desierto); el mar va en celeste y lo que no es ninguna región (los huecos, «empty») en blanco.
+Each land region takes the color of its terrain (the scenario's if one is given; otherwise the one the map itself encodes:
+1 plains, 2 hills, 3 mountains, 4 desert); sea is light blue and what is no region (holes, «empty») white.
 """
 from PIL import Image, ImageDraw
 
@@ -10,12 +10,12 @@ from fix_texture import SIZE, TILE_DEG
 TERRAIN_COLORS = {'Plains': '#a3e635', 'Hills': '#ca8a04', 'Mountains': '#78716c', 'Forest': '#15803d', 'Jungle': '#065f46',
                   'Desert': '#fcd34d', 'Tundra': '#d1d5db'}
 SEA_COLOR = '#87ceeb'          # celeste
-EMPTY_COLOR = '#ffffff'        # sin región (hueco): blanco
+EMPTY_COLOR = '#ffffff'        # no region (hole): white
 BY_TYPE = {1: 'Plains', 2: 'Hills', 3: 'Mountains', 4: 'Desert'}
 
 
 def terrain_of(project, scen=None):
-    """{nombre de región: terreno o 'Sea'} (con el terreno del escenario si se pasa)."""
+    """{region name: terrain or 'Sea'} (with the scenario's terrain if given)."""
     from transfer import SEA
     import scenario_core as sc
     sct = {}
@@ -42,7 +42,7 @@ def _area(ring):
 
 
 def terrain_layer(project, bbox, level, scen=None):
-    """Imagen RGB de la zona (mismo tamaño y zona que la exportación del fondo) con cada región del color de su terreno."""
+    """RGB image of the area (same size and area as the background export) with each region in its terrain color."""
     x0, y0, x1, y1 = bbox
     s = SIZE >> level
     ppd = s / TILE_DEG
@@ -56,7 +56,7 @@ def terrain_layer(project, bbox, level, scen=None):
         if not main:
             continue
         items.append((sum(_area(p[0]) for p in main), project.rname(g.index), main))
-    items.sort(key=lambda t: -t[0])                  # las grandes primero: las pequeñas se pintan encima de sus huecos
+    items.sort(key=lambda t: -t[0])                  # large ones first: small ones are painted on top of their holes
     px = lambda ring: [((x - x0) * ppd, (y1 - y) * ppd) for x, y in ring]
     for _a, name, main in items:
         col = color_of(terr.get(name))

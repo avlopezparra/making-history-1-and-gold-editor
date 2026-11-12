@@ -1,14 +1,14 @@
-"""Imagenes del juego editables desde el editor de escenarios: cada «recurso grafico» (icono de ideologia, recurso,
-terreno, produccion, unidad, portada de una nacion, titulo y botones del escenario, cualquier imagen de la UI) con
-todas sus variantes (medidas), la version propia del escenario si la hay y la del juego si no.
+"""Game images editable from the scenario editor: each «graphic asset» (ideology icon, resource,
+terrain, production, unit, a nation's cover, scenario title and buttons, any UI image) with
+all its variants (sizes), the scenario's own version if present and the game's otherwise.
 
-El juego busca las imagenes de la UI primero en <escenario>/ui/ y luego en Modern Europe/system/UI/ (asi personaliza
-The Modern World su interfaz). Las rutas salen de los computeFrom de los XML de la UI del juego, p. ej.
+The game looks for UI images first in <escenario>/ui/ and then in Modern Europe/system/UI/ (that is how
+The Modern World customizes its interface). The paths come from the computeFrom of the game's UI XML, e.g.
   icons/government-type-icon/<GovTypeTemplate.strIconName>-icon.tga, resources/<Resource>_64_64.tga,
   Terrain/<strTerrain>-small.tga, UI2DSlideoutIndustrialProduction/<FactoryOutput.strIconName>.tga,
   UI2DPopUpMilitaryUnits/unit-icons/<UnitTemplate.strIconName>.tga, UI2DPolicyArea/Domestic/national-info-bg-<strFlagName>.tga.
-Al importar, cada variante imita a la existente (la del escenario o la del juego): mismo lienzo, misma zona ocupada
-(margenes transparentes), mismo formato (TGA RLE o no, 24/32 bits, BMP).
+On import, each variant imitates the existing one (the scenario's or the game's): same canvas, same occupied area
+(transparent margins), same format (TGA RLE or not, 24/32 bits, BMP).
 """
 import io
 import os
@@ -23,7 +23,7 @@ import scenario_core
 
 IMG_EXT = ('.tga', '.bmp', '.png')
 
-# tipo -> [(carpeta bajo UI/, patron, 'prefijo' | 'exacto')]; {k} = clave del objeto en minusculas
+# type -> [(folder under UI/, pattern, 'prefijo' | 'exacto')]; {k} = object key in lowercase
 KINDS = {
     'ideology': {'label': 'Ideología', 'parts': [('art/2D/icons/government-type-icon', '{k}-icon', 'prefijo'),
                                                   ('art/2D/UI2DSpecialFeedback', 'liberation-{k}', 'exacto'),
@@ -36,7 +36,7 @@ KINDS = {
     'production': {'label': 'Producción (panel de industria)', 'parts': [('art/2D/UI2DSlideoutIndustrialProduction', '{k}', 'exacto')]},
     'uniticon': {'label': 'Unidad (ventana de unidades)', 'parts': [('art/2D/UI2DPopUpMilitaryUnits/unit-icons', '{k}', 'exacto')]},
 }
-# variantes de referencia cuando un objeto nuevo no tiene ninguna imagen (se copian sus medidas y formato)
+# reference variants when a new object has no image at all (their sizes and format are copied)
 REFERENCE = {'ideology': 'democratic', 'resource': 'coal', 'terrain': 'plains', 'production': 'infantry', 'uniticon': 'infantry'}
 
 
@@ -57,27 +57,27 @@ def _match(stem, pat, mode):
 
 
 def template_dir():
-    """Plantilla que va con el editor (no depende de ningun escenario instalado)."""
+    """Template shipped with the editor (does not depend on any installed scenario)."""
     return T.plantilla_dir()
 
 
 def _template_rel(rel):
-    """Ruta de la plantilla para una imagen: las de un pais usan la carpeta countries/Plantilla."""
+    """Template path for an image: a country's use the countries/Plantilla folder."""
     parts = rel.replace('\\', '/').split('/')
     if len(parts) > 4 and parts[:3] == ['art', '2D', 'countries']:
         parts[3] = 'Plantilla'
-    return '/'.join(parts[2:]) if parts[:2] == ['art', '2D'] else '/'.join(parts)      # bajo _imagenes/ (sin art/2D)
+    return '/'.join(parts[2:]) if parts[:2] == ['art', '2D'] else '/'.join(parts)      # under _imagenes/ (without art/2D)
 
 
 def _variant(scen, rel):
-    """Una variante: ruta bajo UI/, archivo propio del escenario y del juego (con su formato y medidas)."""
+    """One variant: path under UI/, the scenario's own file and the game's (with its format and sizes)."""
     own = os.path.join(T.scen_dir(scen), 'ui', rel)
     dflt = os.path.join(T.content_ui(), rel)
     v = {'rel': rel.replace('\\', '/'), 'file': os.path.basename(rel), 'own': os.path.isfile(own), 'default': os.path.isfile(dflt)}
     td = template_dir()
     trel = _template_rel(v['rel'])
     if not v['own'] and td and os.path.isfile(os.path.join(td, '_imagenes', *trel.split('/'))):
-        v['template'] = '@tpl/_imagenes/' + trel   # se imita la plantilla del editor (fuera de ui/: no se copia a escenarios nuevos)
+        v['template'] = '@tpl/_imagenes/' + trel   # imitates the editor template (outside ui/: not copied to new scenarios)
         v['from_template'] = True
     src = own if v['own'] else dflt if v['default'] else None
     if src:
@@ -91,7 +91,7 @@ def _variant(scen, rel):
 
 
 def find_variants(scen, kind, key):
-    """Archivos de un objeto: union de los del escenario y los del juego (sin distinguir mayusculas)."""
+    """Files of an object: union of the scenario's and the game's (case-insensitive)."""
     k = key.lower()
     seen = {}
     for folder, pat, mode in KINDS[kind]['parts']:
@@ -105,7 +105,7 @@ def find_variants(scen, kind, key):
 
 
 def reference_variants(scen, kind, key):
-    """Para un objeto sin imagenes: las de un objeto de referencia, renombradas (medidas y formato a imitar)."""
+    """For an object without images: those of a reference object, renamed (sizes and format to imitate)."""
     ref = REFERENCE.get(kind)
     out = []
     for v in find_variants(scen, kind, ref) if ref else []:
@@ -124,7 +124,7 @@ def nation_groups(scen, country):
     v = _variant(scen, rel)
     if not v['own'] and not v['default']:
         v['template'] = '@ui/art/2D/UI2DPolicyArea/Domestic/national-info-bg.tga'
-        v['generic'] = True      # el juego usa la portada generica
+        v['generic'] = True      # the game uses the generic cover
     lead = _variant(scen, 'art/2D/countries/%s/leader-lobby.tga' % flag)
     if not lead['own'] and not lead['default']:
         lead['synthetic'] = 'leader-lobby'
@@ -178,8 +178,8 @@ def scenario_display_name(scen):
 
 # ------------------------------------------------------------------------------------- imitacion
 def _template(scen, v):
-    """Imagen y formato a imitar para una variante (propia, del juego o de referencia)."""
-    src = (v.get('src') if v.get('own') else None) or v.get('template') or v.get('src')   # propia > plantilla del editor > juego
+    """Image and format to imitate for a variant (own, game's or reference)."""
+    src = (v.get('src') if v.get('own') else None) or v.get('template') or v.get('src')   # own > editor template > game
     if src:
         p = T.resolve_rel(src)
         fmt = T.tga_format(p) if p.lower().endswith('.tga') else {}
@@ -192,7 +192,7 @@ def _template(scen, v):
 
 
 def imitate(tpl, img, removebg=False):
-    """La imagen nueva con el lienzo, la zona ocupada y la transparencia de la plantilla."""
+    """The new image with the template's canvas, occupied area and transparency."""
     W, H = tpl.size
     a = tpl.getchannel('A')
     img = img.convert('RGBA')
@@ -204,8 +204,8 @@ def imitate(tpl, img, removebg=False):
     out = Image.new('RGBA', (W, H), (0, 0, 0, 0))
     hist = inner.histogram()
     solid = sum(hist[250:]) / max(1, bw * bh)
-    if solid >= 0.85 and (bw * bh) > 0.2 * W * H:      # imagen (portada, boton, bandera) casi opaca dentro del lienzo:
-        pic = _cover(img, bw, bh)                       # cubre la zona y conserva los bordes suaves del original
+    if solid >= 0.85 and (bw * bh) > 0.2 * W * H:      # image (cover, button, flag) almost opaque within the canvas:
+        pic = _cover(img, bw, bh)                       # covers the area and keeps the soft edges of the original
         pa = pic.getchannel('A')
         pic.putalpha(Image.fromarray(np.minimum(np.asarray(pa), np.asarray(inner))))
         out.paste(pic, bb[:2])
@@ -229,7 +229,7 @@ def _cover(img, w, h):
 
 
 def brighten(img, pct=8):
-    """Version «con el cursor encima»: brillo +pct (escala -100..100, como los editores de imagen; +8 = +20 de 255)."""
+    """«Mouse over» version: brightness +pct (scale -100..100, like image editors; +8 = +20 of 255)."""
     r, g, b, a = img.convert('RGBA').split()
     add = round(255 * pct / 100)
     rgb = Image.merge('RGB', (r, g, b)).point(lambda v: min(255, v + add))
@@ -237,7 +237,7 @@ def brighten(img, pct=8):
 
 
 def text_title(text, size=(1024, 64), font='georgiab.ttf', color='#ffffff', outline='#000000'):
-    """Title.tga a partir del nombre del escenario: texto con contorno y sombra, alineado a la izquierda."""
+    """Title.tga from the scenario name: text with outline and shadow, left-aligned."""
     W, H = size
     out = Image.new('RGBA', (W, H), (0, 0, 0, 0))
     fp = os.path.join(os.environ.get('WINDIR', r'C:\Windows'), 'Fonts', font)
@@ -269,7 +269,7 @@ def _target(scen, v):
 
 
 def build(p):
-    """{ruta: (imagen, formato, archivo)} para la importacion pedida (sin escribir)."""
+    """{path: (image, format, file)} for the requested import (without writing)."""
     scen, kind, name = p['scen'], p['kind'], p.get('name') or ''
     inf = info(scen, kind, name)
     img = T.from_data_url(p.get('img'))
@@ -317,7 +317,7 @@ def _scen_template(scen, v):
     if v.get('src'):
         p = T.resolve_rel(v['src'])
         return Image.open(p).convert('RGBA'), T.tga_format(p)
-    td = template_dir()                          # escenario sin el archivo: la plantilla del editor, uno del juego u otro
+    td = template_dir()                          # scenario without the file: the editor template, one from the game or another
     if td and os.path.isfile(os.path.join(td, v['file'])):
         q = os.path.join(td, v['file'])
         return Image.open(q).convert('RGBA'), T.tga_format(q)
@@ -361,7 +361,7 @@ def write(p):
 
 
 def export_png(scen, kind, name, group=None):
-    """PNG de la variante mas grande (para editarla fuera y volver a importarla)."""
+    """PNG of the largest variant (to edit it outside and import it again)."""
     inf = info(scen, kind, name)
     best = None
     for g in inf['groups']:
@@ -370,7 +370,7 @@ def export_png(scen, kind, name, group=None):
         for v in g['variants']:
             if v.get('src') and (best is None or (v.get('w') or 0) * (v.get('h') or 0) > (best.get('w') or 0) * (best.get('h') or 0)):
                 best = v
-    if best is None and kind == 'scenario':     # escenario sin Title/Button: plantilla para editar y volver a importar
+    if best is None and kind == 'scenario':     # scenario without Title/Button: template to edit and import again
         g = next((g for g in inf['groups'] if not group or g['key'] == group), None)
         if g is None:
             raise ValueError('no hay imagen que exportar')
@@ -400,7 +400,7 @@ def _props(path, typ, key):
 
 
 def catalog(scen):
-    """Todos los tipos de imagen del escenario con sus objetos (clave) y si tienen version propia."""
+    """All image types of the scenario with their objects (key) and whether they have their own version."""
     d = T.scen_dir(scen)
     sd = lambda f: os.path.join(d, f)
     res = []
@@ -419,7 +419,7 @@ def catalog(scen):
         for k in keys:
             vs = find_variants(scen, kind, k)
             if not vs and kind == 'resource':
-                continue        # productos de tipo recurso sin imagen propia (p. ej. Industrial Food)
+                continue        # resource-type products without their own image (e.g. Industrial Food)
             items.append({'name': k, 'n': len(vs), 'own': sum(1 for v in vs if v['own']),
                           'thumb': next((v['src'] for v in sorted(vs, key=lambda v: -(v.get('w') or 0)) if v.get('src')), None)})
         res.append({'kind': kind, 'title': title, 'items': items})
@@ -427,7 +427,7 @@ def catalog(scen):
 
 
 def ui_list(scen, rel=''):
-    """Carpetas e imagenes de la UI (del juego y del escenario), marcando las personalizadas en el escenario."""
+    """UI folders and images (game and scenario), marking those customized in the scenario."""
     rel = rel.replace('\\', '/').strip('/')
     if '..' in rel.split('/'):
         raise ValueError('ruta no valida')
@@ -448,7 +448,7 @@ def ui_list(scen, rel=''):
 
 
 def ui_own(scen):
-    """Imagenes de la UI que el escenario personaliza (su carpeta ui/art), sin las banderas de paises."""
+    """UI images the scenario customizes (its ui/art folder), without the country flags."""
     base = os.path.join(T.scen_dir(scen), 'ui')
     out = []
     for root, ds, fs in os.walk(os.path.join(base, 'art')):

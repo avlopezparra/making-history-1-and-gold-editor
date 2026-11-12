@@ -1,11 +1,11 @@
-"""Restaura la imagen de fondo (OperationalTerrain) desde el regionpack por defecto donde no hay una frontera dibujada.
+"""Restores the background image (OperationalTerrain) from the default regionpack where no border is drawn.
 
-Caso típico: al borrar una región o rehacerla, el editor borra la línea vieja y deja el fondo «rellenado» (se nota que había una línea).
-Si en el fondo original no había línea ahí, se recupera tal como era. No se toca:
-  · lo que tiene una frontera encima en el mapa actual (se conserva);
-  · lo que tiene una frontera dibujada en la imagen original aunque el mapa actual ya no la tenga (traería la línea de vuelta);
-  · lo que cambió de tierra a mar o al revés (islas nuevas con su halo, costas movidas).
-Solo mira los tiles que el proyecto ya había modificado."""
+Typical case: when deleting or redoing a region, the editor erases the old line and leaves the background «filled» (you can tell there was a line).
+If the original background had no line there, it is restored as it was. Left untouched:
+  · anything with a border on top in the current map (kept);
+  · anything with a border drawn in the original image even if the current map no longer has it (would bring the line back);
+  · anything that changed from land to sea or vice versa (new islands with their halo, moved coasts).
+Only looks at tiles the project had already modified."""
 import os
 
 from PIL import Image, ImageDraw, ImageFilter
@@ -17,14 +17,14 @@ from fix_texture import decode, splice, tile_name, write_mips, SIZE, MIPS
 
 
 def _have(tiles_dir, name, ref_tile):
-    """El archivo del proyecto si existe; si no, el de referencia."""
+    """The project's file if it exists; otherwise the reference one."""
     p = os.path.join(tiles_dir, name)
     return p if os.path.exists(p) else ref_tile(name)
 from paint_changes import TILE_DEG, tile_bounds, SEA_LINE_COLOR, S as SUPER
 from fix_texture import LINE_WIDTH, LINE_BLUR, LINE_COLOR
 
-LINE_R = 0.12        # grados alrededor de una frontera que se respetan (el borrado ensancha ±0.1)
-COAST_R = 0.3        # alrededor de lo que cambió de tierra a mar: costas e islas nuevas con su halo
+LINE_R = 0.12        # degrees around a border that are respected (erasing widens by ±0.1)
+COAST_R = 0.3        # around what changed from land to sea: new coasts and islands with their halo
 
 
 def _lines(m, bounds):
@@ -40,7 +40,7 @@ def _lines(m, bounds):
 
 
 def _bbox(m, r, cache):
-    """Caja de una región a partir de los vértices de sus triángulos (mucho más barato que fundirlos)."""
+    """Bounding box of a region from its triangle vertices (much cheaper than merging them)."""
     k = ('bb', r)
     if k not in cache:
         xs, ys = [], []
@@ -75,7 +75,7 @@ def _land(m, bounds, cache):
 
 
 def _border_masks(m, bounds, to_px):
-    """Máscaras (tierra, mar) a 1024 px de todas las fronteras actuales que pasan por el tile (las costas no se pintan)."""
+    """(land, sea) masks at 1024 px of all current borders crossing the tile (coasts are not painted)."""
     R = m['regions']
     x0, y0, x1, y1 = bounds
     out = []
@@ -105,7 +105,7 @@ def _border_masks(m, bounds, to_px):
 
 
 def _paint(img, masks, size):
-    """Pinta las fronteras (máscaras a 1024 px) sobre una imagen de lado 'size' (el tile o un mipmap)."""
+    """Paints the borders (masks at 1024 px) on an image of side 'size' (the tile or a mipmap)."""
     for color, lm in masks:
         mk = lm if size == SIZE else lm.resize((size, size), Image.BOX)
         img = Image.composite(Image.new('RGBA', (size, size), color + (255,)), img, mk)
@@ -113,8 +113,8 @@ def _paint(img, masks, size):
 
 
 def _stale_mips(path):
-    """True si los mipmaps del tile tienen trazos oscuros que su nivel 0 no tiene (líneas viejas que solo se ven de lejos).
-    Solo cuenta zonas lisas del nivel 0: junto a las líneas actuales la compresión DXT da diferencias que no son restos."""
+    """True if the tile's mipmaps have dark strokes its level 0 lacks (old lines only visible from afar).
+    Only counts smooth areas of level 0: next to current lines DXT compression gives differences that are not leftovers."""
     import numpy as np
     l0 = decode(open(path, 'rb').read(), SIZE).convert('L')
     n = 0
@@ -128,14 +128,14 @@ def _stale_mips(path):
         flat = a - np.asarray(sh.filter(ImageFilter.MinFilter(5))).astype(int) < 12
         m = np.asarray(decode(open(mp, 'rb').read(), s).convert('L')).astype(int)
         n += int(((a - m > 25) & flat).sum())
-    return n > 20           # World original: 0; WorldModern Irak-Irán: 41..939; recién rehechos: 0..5
+    return n > 20           # original World: 0; WorldModern Iraq-Iran: 41..939; freshly redone: 0..5
 
 
 def restore(cur_map, ref_map, tiles_dir, ref_tile, only_bbox=None, log=print, repaint=True, map_tile=None):
-    """cur_map / ref_map: mapas cargados (mhmap) del proyecto y del regionpack por defecto. tiles_dir: tiles modificados del proyecto.
-    ref_tile(name) -> ruta del tile original. only_bbox (x0, y0, x1, y1) limita la zona. Devuelve [(tile, porcentaje_restaurado)].
-    map_tile(name) -> ruta del tile en la carpeta del mapa: los tiles que el proyecto no tiene pero cuyos mipmaps traen líneas viejas
-    (p. ej. un regionpack instalado antes del arreglo) se copian al proyecto y se arreglan también."""
+    """cur_map / ref_map: loaded maps (mhmap) of the project and of the default regionpack. tiles_dir: modified project tiles.
+    ref_tile(name) -> path of the original tile. only_bbox (x0, y0, x1, y1) limits the area. Returns [(tile, percent_restored)].
+    map_tile(name) -> path of the tile in the map folder: tiles the project lacks but whose mipmaps carry old lines
+    (e.g. a regionpack installed before the fix) are copied to the project and fixed too."""
     import shutil
     from shapely.ops import unary_union
     cc, cr = {}, {}
@@ -183,18 +183,18 @@ def restore(cur_map, ref_map, tiles_dir, ref_tile, only_bbox=None, log=print, re
             for h in g.interiors:
                 d.polygon([to_px(*p) for p in h.coords], fill=0)
         mask = prot.point(lambda v: 0 if v else 255)                        # 255 = se restaura
-        mask = mask.filter(ImageFilter.MinFilter(3))                       # un píxel de margen alrededor de lo protegido
+        mask = mask.filter(ImageFilter.MinFilter(3))                       # one pixel of margin around the protected area
         frac = sum(1 for v in mask.getdata() if v) / float(SIZE * SIZE)
         cur_path = os.path.join(tiles_dir, fn)
         cur_b, ref_b = open(cur_path, 'rb').read(), open(ref_path, 'rb').read()
         cur, ref = decode(cur_b, SIZE), decode(ref_b, SIZE)
         new = Image.composite(ref, cur, mask)
         masks = _border_masks(cur_map, tb, to_px) if repaint else []
-        new = _paint(new, masks, SIZE)       # fronteras siempre continuas: se repintan las actuales encima
+        new = _paint(new, masks, SIZE)       # borders always continuous: the current ones are repainted on top
         nb, n0 = splice(cur_b, new, cur, SIZE)
         if n0:
             open(cur_path, 'wb').write(nb)
-        # mipmaps rehechos desde el nivel 0 restaurado, aunque este ya estuviera limpio: de lejos se ve lo mismo que de cerca
+        # mipmaps rebuilt from the restored level 0, even if it was already clean: from afar it looks the same as up close
         nm = sum(write_mips(c, r, new, lambda n: open(_have(tiles_dir, n, ref_tile), 'rb').read(), tiles_dir))
         if not n0 and not nm:
             continue
@@ -204,8 +204,8 @@ def restore(cur_map, ref_map, tiles_dir, ref_tile, only_bbox=None, log=print, re
 
 
 def repaint_tiles(m, tiles_dir, names=None, only_bbox=None, log=print):
-    """Dibuja encima las fronteras actuales del mapa (tierra y mar, como el juego) en los tiles del proyecto.
-    names: tiles 'CC-RR' a repintar (None = todos los del proyecto, o los de only_bbox). Devuelve los tiles tocados."""
+    """Draws the map's current borders (land and sea, like the game) on top of the project tiles.
+    names: 'CC-RR' tiles to repaint (None = all project tiles, or those in only_bbox). Returns the tiles touched."""
     done = []
     files = sorted(f for f in os.listdir(tiles_dir) if f.startswith('OperationalTerrain-') and len(f.split('-')) == 3)
     for fn in files:
@@ -228,7 +228,7 @@ def repaint_tiles(m, tiles_dir, names=None, only_bbox=None, log=print):
         img = _paint(cur, masks, SIZE)
         out, _ = splice(b, img, cur, SIZE)
         open(p, 'wb').write(out)
-        write_mips(c, r, img, lambda n: open(os.path.join(tiles_dir, n), 'rb').read(), tiles_dir)    # los mipmaps, desde el nivel 0
+        write_mips(c, r, img, lambda n: open(os.path.join(tiles_dir, n), 'rb').read(), tiles_dir)    # the mipmaps, from level 0
         log('tile %02d-%02d: líneas de las regiones dibujadas' % (c, r))
         done.append('%02d-%02d' % (c, r))
     return done

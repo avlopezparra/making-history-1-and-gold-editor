@@ -1,10 +1,10 @@
-"""Tecnologías según las tropas: si un país tiene unidades cuya investigación no completó (p. ej. ModernTank sin ModernTanks),
-se marca esa investigación —y sus requisitos— como completada en su MEPlayerData (ResearchProjectInitRef).
+"""Technologies from troops: if a country has units whose research it did not complete (e.g. ModernTank without ModernTanks),
+that research (and its prerequisites) is marked as completed in its MEPlayerData (ResearchProjectInitRef).
 
-Enlace unidad → investigación, sacado de los datos del propio escenario (MH1 y Gold):
-UnitTemplate.strName == FactoryOutputUnit.strUnitType → FactoryOutputUnit.strName → el ResearchProj* cuyo
-ResearchFactoryOutputAvailableData.strFactoryOutputName lo nombra. Una salida con bAvailableByDefault=true no necesita nada.
-Requisitos: ResearchProjectPreReq.strProjectName (en cadena). Nada se escribe hasta «Guardar»; undo() deshace el último apply().
+Unit → research link, taken from the scenario's own data (MH1 and Gold):
+UnitTemplate.strName == FactoryOutputUnit.strUnitType → FactoryOutputUnit.strName → the ResearchProj* whose
+ResearchFactoryOutputAvailableData.strFactoryOutputName names it. An output with bAvailableByDefault=true needs nothing.
+Prerequisites: ResearchProjectPreReq.strProjectName (chained). Nothing is written until «Guardar»; undo() undoes the last apply().
 """
 import xml.etree.ElementTree as ET
 
@@ -12,11 +12,11 @@ from scenario_core import prop, objs
 
 GROUPS = ('Army', 'AirForce', 'Fleet')
 DONE = 'RESEARCH_COMPLETED'
-_last = []          # [(elemento, estado anterior o None si se creó)] del último apply()
+_last = []          # [(element, previous state or None if created)] of the last apply()
 
 
 def _links(s):
-    """({plantilla: [proyectos que la desbloquean]}, {proyecto: [requisitos]})."""
+    """({template: [projects unlocking it]}, {project: [prerequisites]})."""
     out_of = {}
     for fo in s.all('FactoryOutputUnit'):
         if prop(fo, 'bAvailableByDefault') != 'true' and prop(fo, 'strUnitType'):
@@ -42,7 +42,7 @@ def _done(pd):
 
 
 def _closure(p, pre, have):
-    """p y todos sus requisitos que aún faltan, requisitos primero."""
+    """p and all its still missing prerequisites, prerequisites first."""
     out, seen = [], set()
 
     def walk(x):
@@ -57,7 +57,7 @@ def _closure(p, pre, have):
 
 
 def plan(s, countries):
-    """[{'country', 'units': [plantillas sin tecnología], 'techs': [investigaciones a añadir, requisitos primero]}]."""
+    """[{'country', 'units': [templates without technology], 'techs': [research to add, prerequisites first]}]."""
     unlock, pre = _links(s)
     units = {}
     for t in GROUPS:
@@ -85,7 +85,7 @@ def plan(s, countries):
 
 
 def apply(s, items):
-    """Marca las investigaciones como completadas (en memoria; falta «Guardar»)."""
+    """Marks the research as completed (in memory; «Guardar» still needed)."""
     st = s.s
     changed = []
     for it in items:
@@ -125,7 +125,7 @@ def undo(s):
 
 
 def issues(s):
-    """Para el validador: un aviso por país con unidades sin su tecnología, con el botón que la añade."""
+    """For the validator: one warning per country with units lacking their technology, with the button that adds it."""
     landed = {prop(r, 'strOwner') for r in s.regions(sea=False)}
     return [{'level': 'aviso', 'id': None,
              'msg': 'País %s: tiene unidades %s sin la tecnología %s' % (it['country'], ', '.join(it['units']), ', '.join(it['techs'])),

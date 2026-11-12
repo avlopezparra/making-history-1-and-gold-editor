@@ -1,5 +1,5 @@
-"""Comprobaciones de integridad de un mapa modificado frente al original.
-Uso: python -I check_map.py <original> <nuevo> [regiones...]"""
+"""Integrity checks of a modified map against the original.
+Usage: python -I check_map.py <original> <nuevo> [regiones...]"""
 import sys, math, collections, os
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import mhmap
@@ -52,7 +52,7 @@ for n in names:
     print('  %-17s extremos sueltos original %3s nuevo %3d | puntos de borde que son vertices %.3f' % (
         n, odd(o) if r < len(o['regions']) and o['regions'][r].name == n else '-', odd(m), sum(q in verts for q in pts) / len(pts)))
 
-# contornos validos (sin grietas ni autointersecciones) en las regiones de los bordes cambiados
+# valid outlines (no cracks or self-intersections) in the regions of the changed borders
 try:
     import outlines
     from shapely.geometry import shape

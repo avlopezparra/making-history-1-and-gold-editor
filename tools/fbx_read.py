@@ -1,4 +1,4 @@
-"""Lector mínimo de FBX binario (Kaydara FBX Binary): árbol de nodos con sus propiedades.
+"""Minimal binary FBX reader (Kaydara FBX Binary): node tree with its properties.
 
     n = fbx_read.load(path); n.find('Objects').children ...
 """

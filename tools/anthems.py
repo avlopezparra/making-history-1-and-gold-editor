@@ -1,11 +1,11 @@
-"""Himnos nacionales (globales, como el mod «More Anthems»).
+"""National anthems (global, like the «More Anthems» mod).
 
-El juego reproduce al entrar a la partida la lista 'PlayListAnthem' + nombre del país del jugador
-(UI2DEnterGame.xml). Esa lista y su pista se declaran en Modern Europe/system/UI/SoundPack.xml
-(MusicPlayListData + MusicTrackData) y el audio es un WAV PCM 16 bits 44,1 kHz estéreo en UI/sounds.
-No dependen del escenario: valen para todos (salvo un escenario con su propio ui/SoundPack.xml).
+On entering the game, it plays the list 'PlayListAnthem' + the player's country name
+(UI2DEnterGame.xml). That list and its track are declared in Modern Europe/system/UI/SoundPack.xml
+(MusicPlayListData + MusicTrackData) and the audio is a 16-bit 44.1 kHz stereo PCM WAV in UI/sounds.
+They do not depend on the scenario: they apply to all (except a scenario with its own ui/SoundPack.xml).
 
-Los audios importados quedan en ROOT/himnos (preparados); solo se escriben en el juego con install().
+Imported audio is kept in ROOT/himnos (staged); it is only written to the game with install().
 """
 import json
 import os
@@ -45,7 +45,7 @@ def _save_manifest(m):
 
 
 def game_anthems(ui=None):
-    """{país: archivo wav} de las listas PlayListAnthem<país> del SoundPack.xml del juego."""
+    """{country: wav file} from the PlayListAnthem<country> lists of the game's SoundPack.xml."""
     ui = ui or ui_dir()
     txt = open(os.path.join(ui, 'SoundPack.xml'), encoding='latin-1').read()
     tracks = dict(re.findall(r'<object type="MusicTrackData"[^>]*>\s*<property name="strName" value="([^"]*)"/>\s*'
@@ -74,7 +74,7 @@ def ffmpeg():
 
 
 def import_audio(country, data, ext='mp3', max_sec=180):
-    """Convierte el audio (bytes de cualquier formato) al WAV del juego y lo deja preparado."""
+    """Converts the audio (bytes in any format) to the game's WAV and stages it."""
     country = (country or '').strip()
     if not country or '"' in country or '<' in country:
         raise ValueError('nombre de país no válido')
@@ -113,7 +113,7 @@ def _add_entries(txt, country, nl):
              % (nl, tr, nl, wav_rel(country), nl, nl, nl))
     plist = ('\t\t<object type="MusicPlayListData" name="objPlayLists">%s\t\t\t<property name="strName" value="%s"/>%s'
              '\t\t\t<property name="strTrackNames" value="%s"/>%s\t\t</object>%s' % (nl, pl, nl, tr, nl, nl))
-    # pista: se reemplaza su archivo si ya existe; si no, va antes de «<!-- Play Lists -->»
+    # track: its file is replaced if it already exists; otherwise it goes before «<!-- Play Lists -->»
     pat = r'(<property name="strName" value="%s"/>\s*<property name="fileName" value=")[^"]*(")' % re.escape(tr)
     if re.search(pat, txt):
         txt = re.sub(pat, lambda mo: mo.group(1) + wav_rel(country) + mo.group(2), txt)
@@ -134,7 +134,7 @@ def _add_entries(txt, country, nl):
 
 
 def install(ui=None, backup=None):
-    """Copia los himnos preparados al juego (UI/sounds) y los declara en UI/SoundPack.xml, con respaldo previo."""
+    """Copies the staged anthems to the game (UI/sounds) and declares them in UI/SoundPack.xml, with a prior backup."""
     ui = ui or ui_dir()
     m = _manifest()
     if not m:
@@ -154,6 +154,6 @@ def install(ui=None, backup=None):
         raw = _add_entries(raw, country, nl)
         written.append(country)
     open(sp, 'wb').write(raw.encode('latin-1'))
-    for country in written:      # ya instalados: dejan de estar preparados
+    for country in written:      # already installed: no longer staged
         remove_staged(country)
     return {'ok': True, 'installed': written, 'backup': bdir}

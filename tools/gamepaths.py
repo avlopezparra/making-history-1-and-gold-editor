@@ -1,7 +1,7 @@
-"""Carpeta del juego con la que trabajan los editores: Making History: The Calm and The Storm (MH1) o Making History Gold.
+"""Game folder the editors work with: Making History: The Calm and The Storm (MH1) or Making History Gold.
 
-Los modulos editor_core, scenario_core y file_identify leen sus rutas (GAME, MAPS, SCEN_DIR, SCEN_ROOT...) como
-variables del modulo en cada llamada; select() las reescribe todas a la vez. La eleccion se recuerda en
+The editor_core, scenario_core and file_identify modules read their paths (GAME, MAPS, SCEN_DIR, SCEN_ROOT...) as
+module variables on each call; select() rewrites them all at once. The choice is remembered in
 making-history/editor_juego.json.
 """
 import json
@@ -12,8 +12,8 @@ FOLDERS = {'mh1': 'Making History The Calm and The Storm', 'gold': 'Making Histo
 
 
 def _steam_libraries():
-    """Carpetas «steamapps\\common» donde puede estar el juego: MH_STEAM_COMMON (variable de entorno, una o varias
-    separadas por ;), la instalación de Steam (registro de Windows) y todas sus bibliotecas (libraryfolders.vdf)."""
+    """«steamapps\\common» folders where the game may be: MH_STEAM_COMMON (environment variable, one or several
+    separated by ;), the Steam install (Windows registry) and all its libraries (libraryfolders.vdf)."""
     out = [x for x in os.environ.get('MH_STEAM_COMMON', '').split(';') if x.strip()]
     roots = []
     try:
@@ -43,7 +43,7 @@ def _steam_libraries():
     return res
 
 
-# instalaciones sin Steam (instalador de Muzzy Lane): MH_GAME_<MH1|GOLD> en el entorno o las carpetas habituales
+# non-Steam installs (Muzzy Lane installer): MH_GAME_<MH1|GOLD> in the environment or the usual folders
 RETAIL = {'mh1': ['Making History 1.0', 'Making History', 'Making History The Calm and The Storm'], 'gold': ['Making History Gold']}
 
 
@@ -71,7 +71,7 @@ GAMES = {
     'gold': {'label': 'Making History Gold', 'short': 'Gold', 'path': _find('gold')},
 }
 HERE = os.path.dirname(os.path.abspath(__file__))
-# carpeta de datos (proyectos, respaldos, registros): MH_ROOT si la define el ejecutable MHEditor.exe; si no, making-history/
+# data folder (projects, backups, logs): MH_ROOT if the MHEditor.exe executable defines it; otherwise making-history/
 ROOT = os.path.abspath(os.environ.get('MH_ROOT') or os.path.join(HERE, '..'))
 CHOICE = os.path.join(ROOT, 'editor_juego.json')
 CURRENT = ['mh1']
@@ -98,7 +98,7 @@ def defaults_dir(key=None):
 
 
 def backup_root(key=None):
-    """Respaldos de los archivos que tocan los editores: backup/ para MH1 (como siempre), backup/gold/ para Gold."""
+    """Backups of the files the editors touch: backup/ for MH1 (as always), backup/gold/ for Gold."""
     key = key or CURRENT[0]
     return os.path.join(ROOT, 'backup') if key == 'mh1' else os.path.join(ROOT, 'backup', key)
 
@@ -108,13 +108,13 @@ def map_backup(key=None):
 
 
 def project_base(base, key=None):
-    """Carpeta del proyecto del editor de mapa: editor_proyecto (MH1) o editor_proyecto_gold."""
+    """Map editor project folder: editor_proyecto (MH1) or editor_proyecto_gold."""
     key = key or CURRENT[0]
     return base if key == 'mh1' else base + '_' + key
 
 
 def detect(game_dir):
-    """'mh1', 'gold' o None segun la carpeta (para escenarios sueltos: mira si esta dentro de una instalacion)."""
+    """'mh1', 'gold' or None depending on the folder (for loose scenarios: checks whether it is inside an install)."""
     p = os.path.abspath(game_dir).lower()
     for k, g in GAMES.items():
         if p.startswith(os.path.abspath(g['path']).lower()):
@@ -127,14 +127,14 @@ GOLD_ONLY_UNITS = ('MotorizedInfantry2', 'MotorizedInfantry3', 'MechanizedInfant
 
 
 def scenario_game(scen_dir):
-    """¿El escenario es de MH1 o de Gold? Mira su contenido antes que la carpeta donde esta instalado.
+    """Is the scenario MH1 or Gold? Looks at its content before the folder it is installed in.
 
-    Criterio, por orden:
-      1. Su sharedDataUnitTemplates.xml propio: Gold si sus unidades tienen nLandDefenseHitPercent (propiedad que solo
-         lee el motor de Gold) o trae unidades exclusivas de Gold (MotorizedInfantry2/3, MechanizedInfantry2/3,
-         EarlyBombers, EarlyCruiser, EarlySubmarine); MH1 si no tiene ninguna de las dos cosas.
-      2. Sin archivo propio, usa las plantillas por defecto del juego donde esta: es de ese juego.
-    Devuelve {'game', 'installed_in', 'mismatch', 'reasons'}; mismatch = esta instalado en el otro juego (hay que convertirlo)."""
+    Criteria, in order:
+      1. Its own sharedDataUnitTemplates.xml: Gold if its units have nLandDefenseHitPercent (a property only
+         the Gold engine reads) or it has Gold-exclusive units (MotorizedInfantry2/3, MechanizedInfantry2/3,
+         EarlyBombers, EarlyCruiser, EarlySubmarine); MH1 if it has neither.
+      2. Without its own file, uses the default templates of the game it is in: it belongs to that game.
+    Returns {'game', 'installed_in', 'mismatch', 'reasons'}; mismatch = installed in the other game (needs converting)."""
     import re
     inst = detect(scen_dir)
     reasons = []
@@ -175,7 +175,7 @@ def load_choice():
 
 
 def select(key, remember=True):
-    """Apunta todos los modulos a la carpeta del juego elegido."""
+    """Points all modules to the chosen game's folder."""
     if key not in GAMES:
         raise ValueError('juego desconocido: %s' % key)
     if not installed(key):

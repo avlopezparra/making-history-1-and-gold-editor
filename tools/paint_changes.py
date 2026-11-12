@@ -1,16 +1,16 @@
-"""Aplica a las texturas del terreno los cambios de cambios.json (de fit_country.py).
+"""Applies the changes in cambios.json (from fit_country.py) to the terrain textures.
 
-  erase    lineas de frontera viejas que quedaron dentro de una region: se borran
-  paint    lineas de frontera nuevas: se pintan con el color de las originales
-  islands  islas nuevas: tierra arenosa con halo de aguas someras, como Bermudas
-  unring   polígonos de regiones isla: se quita el contorno oscuro pegado a la costa (la línea va por el polígono)
+  erase    old border lines left inside a region: erased
+  paint    new border lines: painted with the original lines' color
+  islands  new islands: sandy land with a shallow-water halo, like Bermuda
+  unring   island region polygons: the dark outline stuck to the coast is removed (the line follows the polygon)
 
-Trabaja en todos los tiles afectados (DXT5 en bruto, ver MAPA_FORMATO.md) y sus 4 mipmaps,
-recomprimiendo solo los bloques 4x4 que cambian.
+Works on all affected tiles (raw DXT5, see MAPA_FORMATO.md) and their 4 mipmaps,
+recompressing only the 4x4 blocks that change.
 
-Uso:
+Usage:
   python paint_changes.py <cambios.json> <art OperationalTerrain del juego> <salida> [--originals DIR]
-  --originals  carpeta con copias originales de tiles ya modificados en el juego (se usan antes que los del juego)
+  --originals  folder with original copies of tiles already modified in the game (used before the game's)
 """
 import argparse
 import json
@@ -26,11 +26,11 @@ from fix_texture import (decode, splice, inpaint, tile_name, write_mips, SIZE, M
                          ERASE_WIDTH, LINE_WIDTH, LINE_BLUR, LINE_COLOR)
 
 TILE_DEG = 15.0
-LAND = (222, 204, 160)      # arena, como Bermudas
+LAND = (222, 204, 160)      # sand, like Bermuda
 SHALLOW = (176, 184, 205)   # halo de aguas someras
-SEA_LINE_COLOR = (3, 14, 42)  # nucleo medido de las lineas entre zonas de mar
-MARGIN = 0.3                # grados alrededor de cada tile para no cortar lineas en los bordes
-S = 4                       # supermuestreo para las lineas
+SEA_LINE_COLOR = (3, 14, 42)  # measured core of the lines between sea zones
+MARGIN = 0.3                # degrees around each tile so lines are not cut at the edges
+S = 4                       # supersampling for the lines
 
 
 def tile_bounds(c, r):
@@ -57,11 +57,11 @@ def main():
     paint_tiles(json.load(open(a.changes)), a.art, a.out, a.originals)
 
 
-RING = 7          # ancho (px) de la franja exterior de la tierra donde está el contorno oscuro
+RING = 7          # width (px) of the outer land strip where the dark outline is
 
 
 def _unring(img, polys, to_px):
-    """Quita el contorno oscuro (y su resplandor gris) que rodea la costa de las islas dentro de 'polys'."""
+    """Removes the dark outline (and its gray glow) surrounding the coast of islands inside 'polys'."""
     zone = Image.new('L', (SIZE, SIZE), 0)
     dz = ImageDraw.Draw(zone)
     for g in polys:
@@ -98,7 +98,7 @@ def _unring(img, polys, to_px):
 
 
 def paint_tiles(ch, art, out, originals=None, log=print):
-    """Aplica un dict de cambios ({'erase','paint','islands'} en GeoJSON) a los tiles. Devuelve los tiles escritos."""
+    """Applies a dict of changes ({'erase','paint','islands'} in GeoJSON) to the tiles. Returns the tiles written."""
     class _A:
         pass
     a = _A()
@@ -131,7 +131,7 @@ def paint_tiles(ch, art, out, originals=None, log=print):
         orig = decode(base_bytes, SIZE)
         img = orig.copy()
 
-        # 0. contorno oscuro pegado a la costa de islas: dentro del polígono, en la franja exterior de la tierra, lo oscuro pasa a mar
+        # 0. dark outline stuck to island coasts: inside the polygon, in the outer land strip, dark becomes sea
         if ur:
             img = _unring(img, ur, to_px)
 
@@ -153,7 +153,7 @@ def paint_tiles(ch, art, out, originals=None, log=print):
                 patch = Image.composite(patch.filter(ImageFilter.GaussianBlur(1.2)), patch, soft)
                 img.paste(patch, bx[:2])
 
-        # 2. islas: halo + tierra con ruido
+        # 2. islands: halo + noisy land
         if isl:
             lm = Image.new('L', (SIZE * S, SIZE * S), 0)
             dl = ImageDraw.Draw(lm)
@@ -161,7 +161,7 @@ def paint_tiles(ch, art, out, originals=None, log=print):
                 for poly in getattr(g, 'geoms', [g]):
                     pts = [to_px(*q, S) for q in poly.exterior.coords]
                     dl.polygon(pts, fill=255)
-                    dl.line(pts, fill=255, width=S * 2)  # minimo visible para islas diminutas
+                    dl.line(pts, fill=255, width=S * 2)  # visible minimum for tiny islands
             land = lm.resize((SIZE, SIZE), Image.LANCZOS)
             halo = land.filter(ImageFilter.MaxFilter(9)).filter(ImageFilter.GaussianBlur(5))
             halo = halo.point(lambda v: int(min(255, v * 1.6) * 0.75))
@@ -189,7 +189,7 @@ def paint_tiles(ch, art, out, originals=None, log=print):
 
         new_bytes, n0 = splice(base_bytes, img, orig, SIZE)
         open(os.path.join(a.out, tile_name(c, r)), 'wb').write(new_bytes)
-        # mipmaps rehechos desde el nivel 0 (antes se les sumaba la diferencia y al alejar el zoom quedaban restos de líneas borradas)
+        # mipmaps rebuilt from level 0 (previously the difference was added and leftovers of erased lines remained when zooming out)
         counts = [n0] + write_mips(c, r, img, lambda n: open(source(n), 'rb').read(), a.out)
         log('tile %02d-%02d: borrar %d, pintar %d, islas %d | bloques por nivel %s' % (c, r, len(e), len(p), len(isl), counts))
         previews.append((c, r))

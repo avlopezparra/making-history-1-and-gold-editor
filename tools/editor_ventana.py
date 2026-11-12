@@ -1,8 +1,8 @@
-"""Abre los editores en su propia ventana (sin barras del navegador), como una aplicación de escritorio.
+"""Opens the editors in their own window (no browser bars), like a desktop application.
 
-Arranca el servidor local si no está en marcha y abre la interfaz en modo aplicación (--app) de un navegador
-Chromium instalado (Edge, Chrome o Brave). Si no hay ninguno, usa el navegador normal.
-Uso: pythonw editor_ventana.py [mapa|escenarios|imagenes]
+Starts the local server if it is not running and opens the interface in app mode (--app) of an installed
+Chromium browser (Edge, Chrome or Brave). If there is none, uses the normal browser.
+Usage: pythonw editor_ventana.py [mapa|escenarios|imagenes]
 """
 import os
 import socket
@@ -39,14 +39,14 @@ def main():
             py = sys.executable
         subprocess.Popen([py, os.path.join(HERE, 'editor_server.py'), '--no-abrir', '--puerto', str(PORT)],
                          cwd=HERE, creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
-        for _ in range(120):          # el servidor tarda unos segundos en cargar el mapa
+        for _ in range(120):          # the server takes a few seconds to load the map
             if server_up():
                 break
             time.sleep(0.5)
     url = 'http://localhost:%d%s' % (PORT, page)
     exe = next((os.path.expandvars(b) for b in BROWSERS if os.path.exists(os.path.expandvars(b))), None)
     if exe:
-        # perfil propio: la ventana recuerda su tamaño y no mezcla pestañas con el navegador habitual
+        # own profile: the window remembers its size and does not mix tabs with the usual browser
         profile = os.path.join(HERE, '..', '_ventana_perfil')
         subprocess.Popen([exe, '--app=' + url, '--user-data-dir=' + os.path.abspath(profile), '--window-size=1500,950'])
     else:

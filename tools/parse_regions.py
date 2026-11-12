@@ -1,15 +1,15 @@
-"""Parser de regions.bin (Making History: The Calm and The Storm).
+"""regions.bin parser (Making History: The Calm and The Storm).
 
-Formato (little-endian):
-  cabecera: u32 nRegiones
-  por region:
-    u32 tipo (1 / 2), u32 a, u32 b   (a == b en lo visto; posible area)
-    u32 len, char[len] nombre
-    u32 flag (0), f32 centroX (longitud), f32 centroY (latitud), u32 (0)
-    u32 nVecinos, u32[nVecinos] indices de regiones vecinas
-    u32 nPuntos, (f32 x, f32 y)[nPuntos] contorno
+Format (little-endian):
+  header: u32 nRegiones
+  per region:
+    u32 type (1 / 2), u32 a, u32 b   (a == b in what was seen; possibly area)
+    u32 len, char[len] name
+    u32 flag (0), f32 centroX (longitude), f32 centroY (latitude), u32 (0)
+    u32 nVecinos, u32[nVecinos] indices of neighboring regions
+    u32 nPuntos, (f32 x, f32 y)[nPuntos] outline
 
-Uso: python -I parse_regions.py regions.bin [salida.csv]
+Usage: python -I parse_regions.py regions.bin [salida.csv]
 """
 import struct, sys, collections
 d = open(sys.argv[1], 'rb').read()

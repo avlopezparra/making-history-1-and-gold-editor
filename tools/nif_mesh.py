@@ -1,10 +1,10 @@
-"""Mallas, texturas y huesos de un NIF de Making History; exportar a glTF (.glb) / OBJ e importar desde glTF / OBJ.
+"""Meshes, textures and bones of a Making History NIF; export to glTF (.glb) / OBJ and import from glTF / OBJ.
 
-Convenciones del juego (modelos de unidades):
-- Jerarquía SceneNode > <Unidad> > <Unidad> NonAccum > AnimNull > (Turret, Parts...). Los .kf animan nodos por nombre.
-- La forma «NationLogo» lleva la textura <País>-Decal.tga: el juego la cambia por la insignia del país.
-- Texturas incrustadas (NiPixelData RGB/RGBA sin compresión) o externas (Use External = 1, junto al .nif).
-- Y hacia arriba, como glTF. En el .glb todo cuelga de un nodo raíz «MH_Zup» (identidad).
+Game conventions (unit models):
+- Hierarchy SceneNode > <Unidad> > <Unidad> NonAccum > AnimNull > (Turret, Parts...). The .kf files animate nodes by name.
+- The «NationLogo» shape carries the <País>-Decal.tga texture: the game swaps it for the country's insignia.
+- Embedded textures (uncompressed RGB/RGBA NiPixelData) or external (Use External = 1, next to the .nif).
+- Y up, like glTF. In the .glb everything hangs from a root node «MH_Zup» (identity).
 """
 import io
 import json
@@ -16,12 +16,12 @@ import numpy as np
 
 import nif as N
 
-ZUP = np.eye(4)   # los modelos de MH ya tienen Y arriba (igual que glTF)
+ZUP = np.eye(4)   # MH models are already Y-up (same as glTF)
 
 
 # ---------------------------------------------------------------- transformaciones
 def rot(m):
-    # NIF guarda la matriz traspuesta respecto a la de columna (v' = R·v): se comprobó con la piel de la infantería
+    # NIF stores the matrix transposed relative to the column one (v' = R·v): verified with the infantry skin
     return np.array([[m['m11'], m['m21'], m['m31']], [m['m12'], m['m22'], m['m32']], [m['m13'], m['m23'], m['m33']]], float)
 
 
@@ -54,7 +54,7 @@ def niTransform(x):
 
 
 def split(m):
-    """matriz 4x4 -> (t, R, s) con escala uniforme (la de NIF)."""
+    """4x4 matrix -> (t, R, s) with uniform scale (NIF's)."""
     t = m[:3, 3].copy()
     a = m[:3, :3]
     s = float(np.cbrt(abs(np.linalg.det(a)))) or 1.0
@@ -134,7 +134,7 @@ def geometry(n, d):
 
 
 def scene(n, nif_dir=None):
-    """Resumen de la escena para el visor / exportadores."""
+    """Scene summary for the viewer / exporters."""
     par = parents(n)
     cache = {}
     nodes, shapes, textures, texmap = [], [], [], {}
@@ -266,7 +266,7 @@ def export_glb(n, nif_dir=None, hidden=False):
             WW = np.where(s > 0, WW / np.maximum(s, 1e-8), np.array([1, 0, 0, 0], np.float32))
             attrs['JOINTS_0'] = buf.add(J, 5123, 'VEC4', 34962)
             attrs['WEIGHTS_0'] = buf.add(WW.astype(np.float32), 5126, 'VEC4', 34962)
-            # glTF ignora la transformación del nodo de una malla con piel: inverseBind = BoneT * SkinT
+            # glTF ignores the node transform of a skinned mesh: inverseBind = BoneT * SkinT
             ibm = np.array([np.asarray(bt @ sk['skin_t']).T for bt in sk['bone_t']], np.float32).reshape(-1, 16)
             skins.append({'joints': [idx[b] for b in sk['bones'] if b in idx], 'inverseBindMatrices': buf.add(ibm, 5126, 'MAT4'),
                           'skeleton': idx.get(sk['root'], 0)})
@@ -354,7 +354,7 @@ def _pixel_block(img, like=None):
               'Alpha Mask': 0xFF000000 if alpha else 0, 'Bits Per Pixel': 32 if alpha else 24, 'Old Fast Compare': b'\0' * 8 if not like else like['Old Fast Compare'],
               'Tiling': 0, 'Palette': -1, 'Num Mipmaps': 1, 'Bytes Per Pixel': 4 if alpha else 3,
               'Mipmaps': [{'Width': w, 'Height': h, 'Offset': 0}], 'Num Pixels': len(raw), 'Pixel Data': raw})
-    # firma del formato tal como la escriben los .nif del juego (con otra, el juego lee mal los colores)
+    # format signature as written by the game's .nif files (with another one, the game reads colors wrong)
     b['Old Fast Compare'] = b'\x81\x08\x82 \x00\x08\x10\x18' if alpha else b'`\x08\x82\x00\x00\x08\x10\x00'
     return b
 
@@ -369,7 +369,7 @@ def _pow2(img, maxsize=1024):
 
 
 def set_texture(n, src_index, img, embed=True, file_name=None):
-    """Cambia la imagen de un NiSourceTexture. embed=True: la incrusta (NiPixelData); si no, apunta a file_name externo."""
+    """Changes the image of a NiSourceTexture. embed=True: embeds it (NiPixelData); otherwise points to external file_name."""
     st = n.blocks[src_index]
     if file_name:
         st['File Name'] = N.set_string(file_name)
@@ -402,7 +402,7 @@ def textures_list(n, nif_dir=None):
 
 # ---------------------------------------------------------------- importar
 def read_glb(data):
-    """glTF binario (.glb) o JSON (.gltf con buffers data:) -> (doc, bin)."""
+    """Binary glTF (.glb) or JSON (.gltf with data: buffers) -> (doc, bin)."""
     if data[:4] == b'glTF':
         ln, = struct.unpack_from('<I', data, 12)
         doc = json.loads(data[20:20 + ln])
@@ -523,7 +523,7 @@ def load_gltf_meshes(data):
 
 
 def load_obj_meshes(text, files=None):
-    """OBJ (Y arriba) -> mallas como load_gltf_meshes. files: {nombre: bytes} para .mtl y texturas."""
+    """OBJ (Y up) -> meshes like load_gltf_meshes. files: {name: bytes} for .mtl and textures."""
     from PIL import Image
     files = files or {}
     V, VT, VN = [], [], []
@@ -593,7 +593,7 @@ def load_obj_meshes(text, files=None):
         tf = mtl_of.get(key[1])
         if tf and tf in files:
             img = Image.open(io.BytesIO(files[tf])).convert('RGBA')
-        elif key[1] in kd_of:      # material sin textura: color liso
+        elif key[1] in kd_of:      # material without texture: plain color
             img = solid.setdefault(kd_of[key[1]], Image.new('RGBA', (8, 8), kd_of[key[1]] + (255,)))
         out.append({'name': key[0], 'parent_names': [], 'world': to_z, 'pos': np.array(pos, float), 'nor': np.array(nor, float),
                     'uv': np.array(uv, float), 'tris': np.array(tris, np.uint32), 'image': img, 'skin': None})
@@ -643,17 +643,17 @@ KEEP_DEFAULT = ('NationLogo', 'Frame', 'Wake', 'Shadow')
 
 
 def import_meshes(n, meshes, keep=KEEP_DEFAULT, default_parent=None, scale=1.0, target_size=None, fit=False):
-    """Sustituye la geometría de la plantilla n por meshes (de load_gltf_meshes / load_obj_meshes).
+    """Replaces the geometry of template n with meshes (from load_gltf_meshes / load_obj_meshes).
 
-    - Las formas de la plantilla cuyo nombre empieza por algo de keep se conservan (insignia, fogonazos...).
-    - Cada malla va bajo el NiNode de la plantilla con el mismo nombre que ella o que un antepasado suyo en glTF
-      (p. ej. «Turret» para que gire con la animación); si no hay, bajo default_parent (por defecto «Parts» o «AnimNull»).
-    - Las mallas con piel se atan a los nodos con el nombre de sus joints (huesos). Faltantes -> error.
-    - target_size: si se da, escala todo para que la mayor dimensión mida eso (en unidades del nodo padre del mundo).
+    - Template shapes whose name starts with something in keep are kept (insignia, muzzle flashes...).
+    - Each mesh goes under the template NiNode with the same name as it or as one of its glTF ancestors
+      (e.g. «Turret» so it rotates with the animation); if none, under default_parent (default «Parts» or «AnimNull»).
+    - Skinned meshes are bound to the nodes named after their joints (bones). Missing -> error.
+    - target_size: if given, scales everything so the largest dimension measures that (in world parent node units).
     """
     par = parents(n)
     cache = {}
-    # forma plantilla para copiar propiedades (material, alpha, etc.)
+    # template shape to copy properties from (material, alpha, etc.)
     tmpl = None
     for i, b in enumerate(n.blocks):
         if b['_type'] in ('NiTriShape', 'NiTriStrips') and not name(b).startswith(tuple(keep)):
@@ -667,7 +667,7 @@ def import_meshes(n, meshes, keep=KEEP_DEFAULT, default_parent=None, scale=1.0, 
         else:
             default_parent = name(n.blocks[0])
     dp = find_node(n, default_parent) if find_node(n, default_parent) >= 0 else 0
-    if fit and not target_size:     # mismo tamaño que el modelo de la plantilla
+    if fit and not target_size:     # same size as the template model
         pts = []
         for i, b in enumerate(n.blocks):
             if b['_type'] in ('NiTriShape', 'NiTriStrips') and not name(b).startswith(tuple(keep)) and b.get('Data', -1) >= 0 and not b.get('Flags', 0) & 1:
@@ -678,7 +678,7 @@ def import_meshes(n, meshes, keep=KEEP_DEFAULT, default_parent=None, scale=1.0, 
             allt = np.vstack(pts)
             new = np.vstack([(np.c_[m['pos'], np.ones(len(m['pos']))] @ m['world'].T)[:, :3] for m in meshes if len(m['pos'])])
             scale = float((allt.max(0) - allt.min(0)).max() / max((new.max(0) - new.min(0)).max(), 1e-9))
-    # quitar las formas viejas
+    # remove the old shapes
     removed = 0
     for i, b in enumerate(n.blocks):
         if 'Children' in b:
@@ -694,7 +694,7 @@ def import_meshes(n, meshes, keep=KEEP_DEFAULT, default_parent=None, scale=1.0, 
         ext = (allp.max(0) - allp.min(0)).max()
         pw = world(n, dp, par, cache)
         unit = float(np.cbrt(abs(np.linalg.det(pw[:3, :3]))))
-        scale = target_size / max(ext, 1e-9)    # S se aplica en el espacio del mundo
+        scale = target_size / max(ext, 1e-9)    # S is applied in world space
     props_common = [p for p in (tmpl or {}).get('Properties', []) if p >= 0 and n.blocks[p]['_type'] != 'NiTexturingProperty']
     tex_tmpl = None
     for p in (tmpl or {}).get('Properties', []):
@@ -706,13 +706,13 @@ def import_meshes(n, meshes, keep=KEEP_DEFAULT, default_parent=None, scale=1.0, 
     for m in meshes:
         if not len(m['tris']):
             continue
-        if m['name'] in kept:      # ya está en la plantilla (insignia, fogonazos...)
+        if m['name'] in kept:      # already in the template (insignia, muzzle flashes...)
             notes.append('%s: se conserva la de la plantilla' % m['name'])
             continue
         target = dp
         for nm in [m['name']] + m['parent_names']:
             j = find_node(n, nm)
-            if j < 0:     # «Turret_cupula» -> nodo «Turret» (OBJ no guarda jerarquía)
+            if j < 0:     # «Turret_cupula» -> node «Turret» (OBJ does not store hierarchy)
                 j = next((i for i, b in enumerate(n.blocks) if b['_type'] == 'NiNode' and len(name(b)) > 2
                           and nm.lower().startswith(name(b).lower() + '_')), -1)
             if j >= 0:
@@ -725,10 +725,10 @@ def import_meshes(n, meshes, keep=KEEP_DEFAULT, default_parent=None, scale=1.0, 
             miss = [j for j, b in zip(sk['joints'], bones) if b < 0]
             if miss:
                 raise ValueError('huesos sin nodo con ese nombre en la plantilla: %s' % ', '.join(miss[:8]))
-            # como en los .nif del juego: la malla con piel cuelga de «<Unidad> NonAccum» (dentro del árbol que anima el juego)
+            # as in the game's .nif files: the skinned mesh hangs from «<Unidad> NonAccum» (inside the tree the game animates)
             root = next((i for i, b in enumerate(n.blocks) if b['_type'] == 'NiNode' and name(b).endswith('NonAccum')), 0)
             target = root
-            # pose del glTF: v = Σ w · JointWorld · IBM · v ; luego al espacio de la raíz NIF
+            # glTF pose: v = Σ w · JointWorld · IBM · v ; then to NIF root space
             M = [np.linalg.inv(world(n, root, par, cache)) @ S @ jw @ ib for jw, ib in zip(sk['joint_world'], sk['ibm'])]
             P = np.c_[m['pos'], np.ones(len(m['pos']))]
             pos = np.zeros((len(P), 3))
@@ -799,7 +799,7 @@ def _make_skin(n, m, bones, nverts, root, S):
     data = {'_type': 'NiSkinData', 'Skin Transform': {'Rotation': set_rot(np.eye(3)), 'Translation': set_vec([0, 0, 0]), 'Scale': 1.0},
             'Num Bones': len(bones), 'Skin Partition': -1, 'Has Vertex Weights': 1, 'Bone List': blist}
     di = n.add(data)
-    # con la partición vacía el juego carga pero no dibuja la malla: hay que escribirla (como la infantería del juego)
+    # with an empty partition the game loads but does not draw the mesh: it must be written (like the game's infantry)
     part = n.add(_partition(m['tris'], J, W, nverts))
     if n.ver <= 0x0A010000:
         data['Skin Partition'] = part
@@ -810,8 +810,8 @@ def _make_skin(n, m, bones, nverts, root, S):
 
 
 def _strip(tris):
-    """Triángulos sueltos -> una tira con triángulos degenerados de unión; cada triángulo empieza en posición par
-    (mismo sentido de giro)."""
+    """Loose triangles -> one strip with degenerate joining triangles; each triangle starts at an even position
+    (same winding)."""
     s = []
     for a, b, c in tris:
         if not s:
@@ -819,14 +819,14 @@ def _strip(tris):
             continue
         last = s[-1]
         s += [last]
-        if (len(s) + 1) % 2:        # la segunda 'a' debe caer en posición par
+        if (len(s) + 1) % 2:        # the second 'a' must land at an even position
             s += [last]
         s += [a, a, b, c]
     return s
 
 
 def _partition(tris, J, W, nverts, max_bones=4):
-    """NiSkinPartition: grupos de triángulos con <= 4 huesos cada uno."""
+    """NiSkinPartition: groups of triangles with <= 4 bones each."""
     def vb(v):
         return {int(J[v, k]) for k in range(J.shape[1]) if W[v, k] > 0} or {int(J[v, 0])}
     parts = []
@@ -843,7 +843,7 @@ def _partition(tris, J, W, nverts, max_bones=4):
     blocks = []
     for p in parts:
         bones = sorted(p['bones'])
-        # como el juego: siempre 4 huesos por partición (se rellena con otros huesos de la piel, con peso 0)
+        # like the game: always 4 bones per partition (padded with other skin bones, with weight 0)
         for b in allb:
             if len(bones) >= max_bones:
                 break
@@ -856,7 +856,7 @@ def _partition(tris, J, W, nverts, max_bones=4):
                 if int(v) not in loc:
                     loc[int(v)] = len(vmap)
                     vmap.append(int(v))
-        # como en los .nif del juego: un peso por hueso de la partición, en su orden, y Bone Indices = 0, 1, 2...
+        # as in the game's .nif files: one weight per partition bone, in order, and Bone Indices = 0, 1, 2...
         nb = len(bones)
         wts, idx = [], []
         for v in vmap:
@@ -865,19 +865,19 @@ def _partition(tris, J, W, nverts, max_bones=4):
                 if W[v, k] > 0 and int(J[v, k]) in bones:
                     w[bones.index(int(J[v, k]))] += float(W[v, k])
             s_ = sum(w) or 1.0
-            wts.append([x / s_ for x in w] + [0.0] * (4 - nb))      # siempre 4 pesos por vértice (Gamebryo)
+            wts.append([x / s_ for x in w] + [0.0] * (4 - nb))      # always 4 weights per vertex (Gamebryo)
             idx.append(bytes(range(nb)) + bytes(4 - nb))
         strip = _strip([(loc[int(a)], loc[int(b)], loc[int(c)]) for a, b, c in p['tris']])
-        # como el juego: una sola tira por partición (las particiones con lista de triángulos cerraban el juego en d3d9)
+        # like the game: a single strip per partition (partitions with triangle lists crashed the game in d3d9)
         blocks.append({'Num Vertices': len(vmap), 'Num Triangles': len(strip) - 2, 'Num Bones': len(bones), 'Num Strips': 1, 'Num Weights Per Vertex': 4,
                        'Bones': bones, 'Has Vertex Map': 1, 'Vertex Map': vmap, 'Has Vertex Weights': 1, 'Vertex Weights': wts, 'Strip Lengths': [len(strip)],
                        'Has Faces': 1, 'Strips': [strip], 'Has Bone Indices': 1, 'Bone Indices': idx})
     return {'_type': 'NiSkinPartition', 'Num Skin Partition Blocks': len(blocks), 'Skin Partition Blocks': blocks}
 
 
-# ---------------------------------------------------------------- importar desde otro NIF y acomodar insignia / fogonazo
+# ---------------------------------------------------------------- import from another NIF and fit insignia / muzzle flash
 def material_color(n, b):
-    """Color difuso (sRGB 0-255) del NiMaterialProperty de una forma, o None."""
+    """Diffuse color (sRGB 0-255) of a shape's NiMaterialProperty, or None."""
     for p in b.get('Properties', []):
         if p >= 0 and n.blocks[p]['_type'] == 'NiMaterialProperty':
             c = n.blocks[p].get('Diffuse Color') or n.blocks[p].get('Ambient Color')
@@ -891,7 +891,7 @@ AXES = {'mh': np.eye(4), 'zup_y': np.array([[-1, 0, 0, 0], [0, 0, 1, 0], [0, 1, 
 
 
 def load_nif_meshes(n, nif_dir=None, axes='mh'):
-    """Formas de otro NIF -> mallas para import_meshes (sin piel). Sin textura: una de color liso con su material."""
+    """Shapes of another NIF -> meshes for import_meshes (no skin). Without texture: a plain-color one with its material."""
     from PIL import Image
     sc = scene(n, nif_dir)
     A = AXES[axes] if isinstance(axes, str) else axes
@@ -912,7 +912,7 @@ def load_nif_meshes(n, nif_dir=None, axes='mh'):
 
 
 def fit_attachments(n, turret='Turret'):
-    """Tras importar: pone la insignia (NationLogo) sobre el techo de la torreta nueva y el fogonazo (Firing) en la boca del cañón."""
+    """After importing: places the insignia (NationLogo) on the roof of the new turret and the muzzle flash (Firing) at the barrel mouth."""
     par = parents(n)
     cache = {}
     ti = find_node(n, turret)
@@ -930,14 +930,14 @@ def fit_attachments(n, turret='Turret'):
         return []
     P = np.vstack(pts)
     notes = []
-    # techo: los puntos más altos cerca del centro (sin el cañón, que sale hacia +Z)
+    # roof: the highest points near the center (without the barrel, which sticks out toward +Z)
     zc = np.median(P[:, 2])
     body = P[np.abs(P[:, 2] - zc) < (P[:, 2].max() - P[:, 2].min()) * 0.3]
     top = np.percentile(body[:, 1], 98) if len(body) else P[:, 1].max()
     cx, cz = np.median(body[:, 0]), np.median(body[:, 2])
     for i, b in enumerate(n.blocks):
         if b['_type'] in ('NiTriShape', 'NiTriStrips') and name(b) == 'NationLogo' and par.get(i) is not None:
-            # posición del logo en el espacio de la torreta
+            # logo position in turret space
             m = np.linalg.inv(world(n, ti, par, cache)) @ world(n, i, par, cache)
             pos = geometry(n, n.blocks[b['Data']])[0]
             lp = (np.c_[pos, np.ones(len(pos))] @ m.T)[:, :3]

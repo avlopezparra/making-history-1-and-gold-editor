@@ -1,7 +1,7 @@
-// Barra de carga con porcentaje («Now loading… 45 %»): se ve mientras el servidor aplica cambios (peticiones que no son
-// GET) y mientras la página redibuja lo cambiado (window.mhBusy(promesa, texto)). El porcentaje es el real cuando el
-// servidor lo informa (GET /api/progress: guardar el mapa, registrar en escenarios, adecuar…) y, si no, una estimación
-// por tiempo. Aparece tras 250 ms para no parpadear en lo rápido.
+// Loading bar with percentage («Now loading… 45 %»): shown while the server applies changes (non-GET
+// requests) and while the page redraws what changed (window.mhBusy(promise, text)). The percentage is real when the
+// server reports it (GET /api/progress: saving the map, registering in scenarios, adapting…) and otherwise a time-based
+// estimate. Appears after 250 ms so fast operations don't flicker.
 (() => {
   const EN = () => { try { return localStorage.getItem('mh-lang') === 'en'; } catch (e) { return false; } };
   const T = s => (window.mhTr ? window.mhTr(s) : s);
@@ -22,12 +22,12 @@
   }
   function render() {
     const t = (Date.now() - t0) / 1000;
-    let pct = 95 * (1 - Math.exp(-t / 4)), label = local;   // estimación si el servidor no informa
+    let pct = 95 * (1 - Math.exp(-t / 4)), label = local;   // estimate if the server does not report
     if (server && server.active && server.real) { pct = server.pct; if (server.label) label = T(server.label); }
     shown = Math.max(shown, Math.min(99, Math.round(pct)));
     const b = el();
     b.querySelector('.fill').style.width = shown + '%';
-    b.querySelector('.lbl').textContent = (EN() ? 'Now loading… ' : 'Cargando… ') + (label || '');   // sin texto propio: solo «Cargando…» (muchas peticiones no cambian nada)
+    b.querySelector('.lbl').textContent = (EN() ? 'Now loading… ' : 'Cargando… ') + (label || '');   // no own text: just «Cargando…» (many requests change nothing)
     b.querySelector('.pct').textContent = shown + ' %';
   }
   async function ask() {
@@ -59,7 +59,7 @@
     if (m === 'GET' || String(url).includes('/api/lang')) return f0(url, opt);
     return run(f0(url, opt), '', true);
   };
-  // en MHEditor.exe (pywebview) los enlaces a otro editor se abren en la misma ventana, no en el navegador del sistema
+  // in MHEditor.exe (pywebview) links to another editor open in the same window, not in the system browser
   document.addEventListener('click', e => {
     const a = e.target.closest && e.target.closest('a[target="_blank"]');
     if (!a || !window.pywebview || e.defaultPrevented) return;

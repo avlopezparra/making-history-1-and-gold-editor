@@ -1,11 +1,11 @@
-"""Endereza el final de una frontera que sigue un meridiano: lo prolonga recto hasta la costa.
+"""Straightens the end of a border that follows a meridian: extends it straight to the coast.
 
-Toma el meridiano (longitud mas repetida de los puntos casi verticales del borde entre dos regiones) y, entre
-la latitud donde termina el tramo recto y la costa, pasa a WEST todo lo que este al oeste del meridiano y a
-EAST lo que este al este.
+Takes the meridian (most repeated longitude of the nearly vertical points of the border between two regions) and, between
+the latitude where the straight stretch ends and the coast, moves to WEST everything west of the meridian and to
+EAST what is east of it.
 
-Uso: python straighten_meridian.py <xml mapa> <salida> <region oeste> <region este> <lat aprox del extremo>
-Ejemplo (Tierra del Fuego, Cabo del Espiritu Santo):
+Usage: python straighten_meridian.py <xml mapa> <salida> <region oeste> <region este> <lat aprox del extremo>
+Example (Tierra del Fuego, Cabo del Espiritu Santo):
   python straighten_meridian.py ../mapa_chile2 ../mapa_chile2b Magallanes Patagonia -52.63
 """
 import json
@@ -21,9 +21,9 @@ import mhmap  # noqa: E402
 from move_border import signed_area  # noqa: E402
 from transfer import apply_transfers  # noqa: E402
 
-WINDOW = 0.3   # grados alrededor del extremo que se consideran
-REACH = 0.2    # grados a cada lado del meridiano
-UP = 0.05      # grados por encima del final del tramo recto (hasta la costa)
+WINDOW = 0.3   # degrees around the end that are considered
+REACH = 0.2    # degrees on each side of the meridian
+UP = 0.05      # degrees above the end of the straight stretch (up to the coast)
 
 
 def main(src, out, west_name, east_name, lat_end):
@@ -42,7 +42,7 @@ def main(src, out, west_name, east_name, lat_end):
 
     b = next(x for x in m['borders'] if set(x.regions) == {W, E})
     pts = [p for f, s in b.segments for p in s if abs(p[1] - lat_end) < WINDOW]
-    # segmentos casi verticales -> longitud del meridiano
+    # nearly vertical segments -> meridian longitude
     xs = Counter()
     for f, s in b.segments:
         for p, q in zip(s, s[1:]):

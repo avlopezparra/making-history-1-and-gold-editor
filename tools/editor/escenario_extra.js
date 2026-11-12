@@ -1,7 +1,7 @@
-// Extras del editor de escenarios sacados de ed.exe (docs_texto/editor_oficial/COMPARACION.md):
-// botón «Editar» en la lista de errores, aviso de datos compartidos y recursos de los flujos comerciales y de ayuda.
+// Scenario editor extras taken from ed.exe (docs_texto/editor_oficial/COMPARACION.md):
+// «Editar» button in the error list, shared-data warning and trade/aid flow resources.
 (() => {
-  // lista de errores: cada problema con objeto lleva «Editar», que abre su ficha (como el botón Edit de ed.exe)
+  // error list: each problem with an object gets «Editar», which opens its sheet (like ed.exe's Edit button)
   const list = document.getElementById('vallist');
   if (list) {
     new MutationObserver(() => {
@@ -16,10 +16,10 @@
     });
   }
 
-  // nación rendida que recibe una región sin ciudad: deja de estar rendida pero no tiene capital; preguntar en el momento
+  // surrendered nation receiving a region without a city: stops being surrendered but has no capital; ask at that moment
   const NOCITY = /AVISO: (.+?) no tiene ninguna ciudad en su territorio \((.+?)\)/;
   let asking = false;
-  const askedFor = new Set();      // una vez por país y región (el aviso podía volver en otras respuestas y repetir la pregunta)
+  const askedFor = new Set();      // once per country and region (the warning could come back in other responses and repeat the question)
   const ask = async (owner, region) => {
     if (asking) return; asking = true;
     try {
@@ -35,7 +35,7 @@
   const realFetch = window.fetch;
   window.fetch = async (...a) => {
     const res = await realFetch(...a);
-    const isPost = String((a[1] && a[1].method) || 'GET').toUpperCase() === 'POST';     // solo acciones (cambiar dueño, transferir…), no lecturas
+    const isPost = String((a[1] && a[1].method) || 'GET').toUpperCase() === 'POST';     // only actions (change owner, transfer…), not reads
     if (isPost && String(a[0]).startsWith('/api/scen/') && (res.headers.get('content-type') || '').includes('json'))
       res.clone().text().then(t => {
         const m = NOCITY.exec(t); if (!m) return;

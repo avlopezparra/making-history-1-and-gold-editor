@@ -1,14 +1,14 @@
-"""Imagen de fondo (terreno) del regionpack: exportar a PNG/JPG e importar desde una imagen.
+"""Background image (terrain) of the regionpack: export to PNG/JPG and import from an image.
 
-El terreno son 24 x 13 tiles OperationalTerrain-CC-RR.tga (DXT5 en bruto, 1024 px = 15 grados, mipmaps -01..-04).
-La columna CC empieza en -180 de longitud; la fila RR en 105 de latitud hacia el sur (hasta -90).
+The terrain is 24 x 13 OperationalTerrain-CC-RR.tga tiles (raw DXT5, 1024 px = 15 degrees, mipmaps -01..-04).
+Column CC starts at -180 longitude; row RR at 105 latitude going south (down to -90).
 
-- export_image: une los tiles (del proyecto si están modificados, si no del regionpack) en una sola imagen
-  equirectangular de la zona pedida, al nivel de detalle elegido (0 = 1024 px por tile ... 4 = 64 px).
-- import_image: la imagen cubre la zona bbox (lon0, lat0, lon1, lat1); se escala a la resolución del juego,
-  se pega en cada tile afectado (lo que queda fuera de la imagen conserva el terreno actual), se conserva el
-  canal alfa original y se recomprimen el tile y sus 4 mipmaps en la carpeta tiles/ del proyecto.
-  Nada llega al juego hasta «Instalar».
+- export_image: joins the tiles (the project's if modified, otherwise the regionpack's) into a single
+  equirectangular image of the requested area, at the chosen detail level (0 = 1024 px per tile ... 4 = 64 px).
+- import_image: the image covers the bbox area (lon0, lat0, lon1, lat1); it is scaled to the game's resolution,
+  pasted into each affected tile (what falls outside the image keeps the current terrain), the original
+  alpha channel is kept and the tile and its 4 mipmaps are recompressed into the project's tiles/ folder.
+  Nothing reaches the game until «Instalar».
 """
 import io
 import json
@@ -32,7 +32,7 @@ def _tiles(bbox):
 
 
 def snap(bbox):
-    """bbox ajustado a los bordes de los tiles."""
+    """bbox snapped to the tile edges."""
     c0, c1, r0, r1 = _tiles(bbox)
     return (LON0 + c0 * TILE_DEG, LAT0 - (r1 + 1) * TILE_DEG, LON0 + (c1 + 1) * TILE_DEG, LAT0 - r0 * TILE_DEG)
 
@@ -59,12 +59,12 @@ def _tile_rgba(project, c, r):
 
 
 def import_image(project, data, bbox, log=print):
-    """data: bytes de la imagen. bbox: zona que cubre. Devuelve la lista de tiles escritos."""
+    """data: image bytes. bbox: area it covers. Returns the list of tiles written."""
     img = Image.open(io.BytesIO(data)).convert('RGB')
     x0, y0, x1, y1 = bbox
     if not (x1 > x0 and y1 > y0):
         raise ValueError('zona no válida')
-    ppd = SIZE / TILE_DEG                      # pixeles por grado a resolucion completa
+    ppd = SIZE / TILE_DEG                      # pixels per degree at full resolution
     W, H = int(round((x1 - x0) * ppd)), int(round((y1 - y0) * ppd))
     if W * H > 24576 * 13312:
         raise ValueError('zona demasiado grande')
@@ -74,8 +74,8 @@ def import_image(project, data, bbox, log=print):
     os.makedirs(project.tiles, exist_ok=True)
     for c in range(c0, c1 + 1):
         for r in range(r0, r1 + 1):
-            tx0, ty1 = LON0 + c * TILE_DEG, LAT0 - r * TILE_DEG          # esquina superior izquierda del tile
-            # parte de la imagen que cae en este tile (en pixeles del tile y de la imagen)
+            tx0, ty1 = LON0 + c * TILE_DEG, LAT0 - r * TILE_DEG          # top-left corner of the tile
+            # part of the image falling in this tile (in tile and image pixels)
             ix0 = max(tx0, x0); ix1 = min(tx0 + TILE_DEG, x1)
             iy1 = min(ty1, y1); iy0 = max(ty1 - TILE_DEG, y0)
             if ix1 <= ix0 or iy1 <= iy0:
@@ -103,15 +103,15 @@ def import_image(project, data, bbox, log=print):
     return written
 
 
-# ------------------------------------------------------------------ exportar fondo y límites por separado
+# ------------------------------------------------------------------ export background and borders separately
 def borders_layer(project, bbox, level):
-    """Imagen RGBA transparente con las fronteras entre regiones (borders.brd) en la zona y tamaño de la exportación."""
+    """Transparent RGBA image with the borders between regions (borders.brd) in the export's area and size."""
     from PIL import ImageDraw
     x0, y0, x1, y1 = bbox
     s = SIZE >> level
     ppd = s / TILE_DEG
     W, H = int(round((x1 - x0) * ppd)), int(round((y1 - y0) * ppd))
-    SS = 2                                                  # supermuestreo para suavizar las líneas
+    SS = 2                                                  # supersampling to smooth the lines
     img = Image.new('L', (W * SS, H * SS), 0)
     d = ImageDraw.Draw(img)
     width = max(1, int(round(SS * max(1.0, 2.5 * s / SIZE * 1.0 + 0.5))))
@@ -128,8 +128,8 @@ def borders_layer(project, bbox, level):
 
 
 def export_with_terrain(project, bbox=None, level=2, fmt='png', scen=None, separate=False):
-    """.zip con la imagen de fondo y otra con el color del tipo de terreno de cada región (mar en celeste, huecos en blanco) y la leyenda;
-    con 'separate' además el fondo sin fronteras y las fronteras por separado."""
+    """.zip with the background image and another with each region's terrain type color (sea light blue, holes white) and the legend;
+    with 'separate' also the background without borders and the borders separately."""
     import zipfile
     import terrain_colors
     if separate:
@@ -152,9 +152,9 @@ def export_with_terrain(project, bbox=None, level=2, fmt='png', scen=None, separ
 
 
 def export_separate(project, bbox=None, level=2, fmt='png'):
-    """.zip con tres imágenes alineadas: fondo.png (terreno sin las fronteras pintadas), limites.png (solo las fronteras,
-    transparente) y fondo_con_limites.png (tal como lo ve el juego). El fondo se obtiene rellenando las fronteras con el
-    terreno vecino más cercano."""
+    """.zip with three aligned images: fondo.png (terrain without the painted borders), limites.png (borders only,
+    transparent) and fondo_con_limites.png (as the game shows it). The background is obtained by filling the borders with the
+    nearest neighboring terrain."""
     import zipfile
     import numpy as np
     data, bb, size = export_image(project, bbox, level, 'png')
@@ -163,14 +163,14 @@ def export_separate(project, bbox=None, level=2, fmt='png'):
     dil = lambda im, n: im.filter(ImageFilter.MaxFilter(3)) if n <= 1 else dil(im.filter(ImageFilter.MaxFilter(3)), n - 1)
     line = np.asarray(dil(mask.resize(full.size).point(lambda v: 255 if v > 20 else 0), 1 + (2 >> level))) > 0
     arr = np.asarray(full).astype('float32')
-    # solo se rellenan los píxeles de la línea que son realmente de frontera pintada (más oscuros que su entorno):
-    # las costas también son fronteras en borders.brd pero no están pintadas en la textura
+    # only the line pixels that really are painted border (darker than their surroundings) are filled:
+    # coasts are borders in borders.brd too but are not painted on the texture
     lum = full.convert('L')
     local = np.asarray(lum.filter(ImageFilter.MedianFilter(5 if level < 2 else 3))).astype('float32')
     m = line & (np.asarray(lum).astype('float32') < local - 14)
     m = (np.asarray(dil(Image.fromarray((m * 255).astype('uint8')), 1)) > 0) & line
     unknown = m.copy()
-    for _ in range(10):                                   # relleno con la media de los vecinos ya conocidos, hacia dentro
+    for _ in range(10):                                   # fill with the mean of already known neighbors, inward
         if not unknown.any():
             break
         known = (~unknown).astype('float32')
@@ -181,7 +181,7 @@ def export_separate(project, bbox=None, level=2, fmt='png'):
         new = unknown & (wsum > 0)
         arr[new] = asum[new] / wsum[new][:, None]
         unknown &= ~new
-    fondo = Image.fromarray(arr.clip(0, 255).astype('uint8'))
+    background = Image.fromarray(arr.clip(0, 255).astype('uint8'))
     ext, kw = ('jpg', {'quality': 92}) if fmt == 'jpg' else ('png', {'compress_level': 3})
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as z:
@@ -193,7 +193,7 @@ def export_separate(project, bbox=None, level=2, fmt='png'):
             else:
                 im.convert('RGB').save(b, 'JPEG', **kw)
                 z.writestr(name + '.jpg', b.getvalue())
-        put('fondo', fondo)
+        put('fondo', background)
         put('limites', lim, rgba=True)
         put('fondo_con_limites', full)
         z.writestr('LEEME.txt',

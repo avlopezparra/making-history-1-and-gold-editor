@@ -1,13 +1,13 @@
-"""Exporta el mapa de Making History a GeoJSON y PNG.
+"""Exports the Making History map to GeoJSON and PNG.
 
-Uso: python -I export_map.py <carpeta xml del mapa> <carpeta de salida>
+Usage: python -I export_map.py <carpeta xml del mapa> <carpeta de salida>
 
-Genera:
-  regions.geojson   un poligono por region (contorno de su malla), con nombre, tipo y vecinos
-  borders.geojson   las 2405 lineas de frontera, con las dos regiones que separan
-  mapa_mundo.png    mapa completo
-  mapa_europa.png   recorte de Europa con nombres
-Se abre en QGIS, geojson.io o cualquier visor GeoJSON.
+Generates:
+  regions.geojson   one polygon per region (outline of its mesh), with name, type and neighbors
+  borders.geojson   the 2405 border lines, with the two regions they separate
+  mapa_mundo.png    full map
+  mapa_europa.png   Europe crop with names
+Opens in QGIS, geojson.io or any GeoJSON viewer.
 """
 import colorsys
 import hashlib
@@ -20,7 +20,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import mhmap  # noqa: E402
 from PIL import Image, ImageDraw, ImageFont  # noqa: E402
 
-SEA = 0  # u_type de las zonas de mar
+SEA = 0  # u_type of sea zones
 
 
 def ring_area(ring):
@@ -37,9 +37,9 @@ def point_in_ring(p, ring):
 
 
 def shape_rings(shape):
-    """Contornos de un shape: aristas que pertenecen a un solo triangulo, encadenadas."""
-    # se trabaja con coordenadas redondeadas, no con indices: la malla repite
-    # vertices en la misma posicion y por indice saldrian costuras falsas
+    """Outlines of a shape: edges belonging to a single triangle, chained."""
+    # works with rounded coordinates, not indices: the mesh repeats
+    # vertices at the same position and by index false seams would appear
     ix = shape.indices
     key = [tuple(round(c, 4) for c in v[:2]) for v in shape.vertices]
     count = defaultdict(int)

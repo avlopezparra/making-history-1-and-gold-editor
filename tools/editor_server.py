@@ -1,7 +1,7 @@
-"""Servidor local del editor de regiones de Making History.
+"""Local server for the Making History region editor.
 
-Uso:  python editor_server.py [--proyecto CARPETA] [--puerto 8765]
-Luego abrir http://localhost:8765 en el navegador.
+Usage:  python editor_server.py [--proyecto CARPETA] [--puerto 8765]
+Then open http://localhost:8765 in the browser.
 """
 import argparse
 import hmac
@@ -21,7 +21,7 @@ from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-ROOT = os.path.abspath(os.environ.get('MH_ROOT') or os.path.join(HERE, '..'))   # datos (en el .exe, junto a él)
+ROOT = os.path.abspath(os.environ.get('MH_ROOT') or os.path.join(HERE, '..'))   # data (in the .exe, next to it)
 sys.path.insert(0, HERE)
 import editor_core  # noqa: E402
 import gamepaths  # noqa: E402
@@ -29,7 +29,7 @@ import progress  # noqa: E402
 import new_pack  # noqa: E402
 import anthems  # noqa: E402
 try:
-    import ai_chat  # noqa: E402   (chat de IA: aún no se publica)
+    import ai_chat  # noqa: E402   (AI chat: not published yet)
 except ImportError:
     ai_chat = None
 import changelog_keys  # noqa: E402
@@ -37,7 +37,7 @@ import diag_log  # noqa: E402   (MHEditor.log)
 
 
 def _options():
-    """Opciones del editor que se recuerdan entre sesiones (opciones.json junto al editor)."""
+    """Editor options remembered between sessions (opciones.json next to the editor)."""
     try:
         with open(os.path.join(ROOT, 'opciones.json'), encoding='utf-8') as f:
             return json.load(f)
@@ -48,9 +48,9 @@ def _options():
 editor_core.SAVE_HISTORY = _options().get('save_history') is not False
 
 PROJECT = None
-# seguridad: el servidor solo escucha en 127.0.0.1, pero cualquier web abierta en el navegador podía mandarle un POST (CSRF) o leerlo
-# con DNS rebinding. Se exige Host local, Origin local (si lo hay) y, en los POST, este token, que el servidor mete en sus páginas.
-# MH_API_TOKEN fija el token (pruebas con curl); si no, uno nuevo por arranque, escrito en logs/mheditor_token_<puerto>.txt.
+# security: the server only listens on 127.0.0.1, but any website open in the browser could send it a POST (CSRF) or read it
+# via DNS rebinding. A local Host, a local Origin (if present) and, on POSTs, this token, which the server puts in its pages, are required.
+# MH_API_TOKEN sets the token (tests with curl); otherwise a new one per start, written to logs/mheditor_token_<puerto>.txt.
 API_TOKEN = os.environ.get('MH_API_TOKEN') or secrets.token_urlsafe(24)
 LOCAL_HOSTS = ('127.0.0.1', 'localhost', '::1')
 TOKEN_JS = ('<script>(() => {{ const T = window.MH_TOKEN = {tok}; const f = window.fetch;'
@@ -73,8 +73,8 @@ class Handler(BaseHTTPRequestHandler):
         pass
 
     def _local(self, post=False):
-        """La petición viene de una página de este servidor (o de un programa local), no de otra web: Host local siempre; Origin local
-        si lo trae; en los POST, el token de la página (cabecera X-MH-Token)."""
+        """The request comes from a page of this server (or a local program), not from another website: local Host always; local Origin
+        if sent; on POSTs, the page token (X-MH-Token header)."""
         host = (self.headers.get('Host') or '').strip().lower()
         name = host[1:].split(']')[0] if host.startswith('[') else host.rsplit(':', 1)[0]
         if name not in LOCAL_HOSTS:
@@ -85,14 +85,14 @@ class Handler(BaseHTTPRequestHandler):
         return not post or hmac.compare_digest(self.headers.get('X-MH-Token') or '', API_TOKEN)
 
     def send(self, code, body, ctype='application/json; charset=utf-8', cache=False):
-        self._status = code         # para MHEditor.log (diag_log)
+        self._status = code         # for MHEditor.log (diag_log)
         if isinstance(body, dict) and (body.get('error') or body.get('errors')):
             self._err = body.get('error') or body.get('errors')
         if isinstance(body, (dict, list)):
             body = json.dumps(body).encode('utf-8')
         elif isinstance(body, str):
             body = body.encode('utf-8')
-        if ctype.startswith('text/html') and b'<head>' in body:      # token para los POST de la página (y de sus iframes)
+        if ctype.startswith('text/html') and b'<head>' in body:      # token for the POSTs of the page (and its iframes)
             body = body.replace(b'<head>', b'<head>' + TOKEN_JS.format(tok=json.dumps(API_TOKEN)).encode('utf-8'), 1)
             cache = False
         self.send_response(code)
@@ -110,7 +110,7 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if u.path in ('/', '/index.html'):
                 return self.send(200, open(os.path.join(HERE, 'editor', 'index.html'), 'rb').read(), 'text/html; charset=utf-8')
-            if u.path == '/api/log':         # texto de MHEditor.log para «Copiar log»
+            if u.path == '/api/log':         # MHEditor.log text for «Copiar log»
                 return self.send(200, {'path': diag_log.PATH[0], 'text': diag_log.read(), 'enabled': diag_log.enabled()})
             if u.path.startswith('/api/wikidata/'):
                 return self.send(200, wikidata_api(u.path, {k: v[0] for k, v in q.items()}))
@@ -119,7 +119,7 @@ class Handler(BaseHTTPRequestHandler):
                                        'history': len([d for d in os.listdir(PROJECT.history) if d.isdigit()]),
                                        'can_redo': PROJECT.can_redo(), 'save_history': editor_core.SAVE_HISTORY})
             if u.path == '/api/region_at':
-                # región bajo un punto (para que un clic seleccione aunque esa región no esté cargada en el mapa del navegador)
+                # region under a point (so a click selects it even if that region is not loaded in the browser map)
                 from shapely.geometry import Point, shape
                 x, y = float(q['x'][0]), float(q['y'][0])
                 pt, hit = Point(x, y), None
@@ -139,10 +139,10 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send(200, {'pack': PROJECT.pack, 'decided': PROJECT.decided, 'packs': all_packs(),
                                        'nuevos': sorted(new_pack.pending_packs(project_dir('World'))), 'virtual': PROJECT.virtual,
                                        'users': editor_core.Project.pack_users(), 'from_world': pack_from_world()})
-            if u.path == '/api/vanilla/regions':       # regiones de tierra del juego vanilla (World): para «Equivale a región del juego vanilla»
+            if u.path == '/api/vanilla/regions':       # land regions of the vanilla game (World): for «Equivale a región del juego vanilla»
                 try:
-                    pm = scenario_layers.PackMap('World', vanilla_folder())    # el World sin modificar (copia de referencia), no el que haya editado el usuario
-                    if (q.get('full') or [''])[0]:      # todas, con su tipo (para sugerir una equivalencia del mismo tipo)
+                    pm = scenario_layers.PackMap('World', vanilla_folder())    # the unmodified World (reference copy), not the one the user may have edited
+                    if (q.get('full') or [''])[0]:      # all of them, with their type (to suggest an equivalence of the same type)
                         return self.send(200, sorted(({'name': pm.name[g.index], 'sea': bool(pm.sea[pm.name[g.index]])} for g in pm.m['regions']),
                                                      key=lambda x: x['name']))
                     return self.send(200, sorted(pm.name[g.index] for g in pm.m['regions'] if not pm.sea[pm.name[g.index]]))
@@ -164,14 +164,14 @@ class Handler(BaseHTTPRequestHandler):
                     return self.send(200, PROJECT.review_changelog(q.get('base', ['World'])[0]))
                 except (ValueError, OSError) as e:
                     return self.send(200, {'error': str(e)})
-            if u.path == '/api/changelog/owners':     # regiones nuevas y su dueño en un escenario (para asignar los que faltan al «Adecuar»)
+            if u.path == '/api/changelog/owners':     # new regions and their owner in a scenario (to assign the missing ones on «Adecuar»)
                 sc_ = (q.get('scenario') or [''])[0]
                 try:
                     s_ = scenario(sc_)
                     have = {scenario_core.prop(r, 'strName') for r in s_.regions(sea=False)}
                     regs = PROJECT.new_regions_info(sc_, have)
                     known = {r['name'] for r in regs}
-                    try:      # tierra del mapa que el changelog no conoce y no sale de ninguna región con datos: sin dueño no se puede añadir
+                    try:      # map land the changelog does not know and that comes from no region with data: without an owner it cannot be added
                         for x in scenario_layers.pack_sync_plan(s_, PROJECT.pack)['add']:
                             if not x['sea'] and not x['mother'] and x['name'] not in known and x['name'] not in have:
                                 regs.append({'name': x['name'], 'mother': None, 'owner': None, 'owner_here': None, 'ownerless': True})
@@ -186,13 +186,13 @@ class Handler(BaseHTTPRequestHandler):
             if u.path == '/api/region/canal':
                 return self.send(200, PROJECT.canal_info((q.get('name') or [''])[0]))
             if u.path == '/api/countries':
-                if q.get('scenario') and q['scenario'][0] in SCEN:      # escenario abierto: incluye las naciones creadas sin guardar
+                if q.get('scenario') and q['scenario'][0] in SCEN:      # open scenario: includes nations created but not saved
                     with SCEN_LOCK:
                         return self.send(200, sorted(SCEN[q['scenario'][0]].countries()))
                 return self.send(200, scenario_countries(q['scenario'][0]) if q.get('scenario') else [])
             if u.path == '/api/scenario':
                 name = q['name'][0]
-                if name in SCEN:   # escenario abierto en el editor: propietarios y colores con los cambios sin guardar
+                if name in SCEN:   # scenario open in the editor: owners and colors with unsaved changes
                     info = live_scenario_info(SCEN[name])
                 else:
                     info = PROJECT.scenario_info(name)
@@ -203,18 +203,18 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send(200, LOG[-50:])
             if u.path == '/api/game':
                 return self.send(200, gamepaths.info())
-            if u.path == '/api/game/license':   # «Invalid License Key»: licencia vieja en VirtualStore que tapa la de HKLM
+            if u.path == '/api/game/license':   # «Invalid License Key»: old license in VirtualStore that hides the HKLM one
                 import licencia_juego
                 return self.send(200, {'issues': licencia_juego.check(), 'permanent': licencia_juego.writable()})
             if u.path == '/api/xconvert/check':
                 return self.send(200, xconvert_check(q.get('scen', [''])[0], q.get('pack', [''])[0]))
             if u.path in ('/icon_mh1.png', '/icon_gold.png'):   # iconos de GameBanana de MH1 y Gold
                 return self.send(200, open(os.path.join(HERE, 'editor', u.path[1:]), 'rb').read(), 'image/png', cache=True)
-            if u.path in ('/scenario', '/scenario.html', '/escenario', '/escenario.html'):   # /escenario: enlaces antiguos
+            if u.path in ('/scenario', '/scenario.html', '/escenario', '/escenario.html'):   # /escenario: old links
                 return self.send(200, open(os.path.join(HERE, 'editor', 'escenario.html'), 'rb').read(), 'text/html; charset=utf-8')
             if u.path == '/api/regions/export_json':
-                # «Exportar a otro regionpack»: las regiones elegidas (con dueño, tipo y terreno del escenario) y, si se pide, sus
-                # ciudades, unidades y minerales, en un solo FeatureCollection que el importador de GeoJSON del otro regionpack lee
+                # «Exportar a otro regionpack»: the chosen regions (with owner, type and terrain from the scenario) and, if requested, their
+                # cities, units and minerals, in a single FeatureCollection that the other regionpack's GeoJSON importer reads
                 import geojson_io
                 name = q['name'][0] if q.get('name') and q['name'][0] else None
                 only = {x for x in q['regions'][0].split('|') if x} if q.get('regions') else set()
@@ -237,18 +237,18 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send(200, data, 'application/zip')
             if u.path.startswith('/api/scen/') or u.path.startswith('/api/files/'):
                 return self.send(200, scen_get(u.path, {k: v[0] for k, v in q.items()}))
-            if u.path == '/i18n_en.json':
-                return self.send(200, open(os.path.join(HERE, 'editor', 'i18n_en.json'), 'rb').read(), 'application/json; charset=utf-8')
+            if u.path in ('/i18n_en.json', '/i18n_ru.json'):
+                return self.send(200, open(os.path.join(HERE, 'editor', u.path[1:]), 'rb').read(), 'application/json; charset=utf-8')
             if u.path == '/api/progress':
                 return self.send(200, progress.get())
             if u.path == '/ai_chat.js':
-                if ai_chat is None:       # sin ai_chat.py (MHEditor.exe lo excluye): sin el botón del chat (antes daba errores 500)
+                if ai_chat is None:       # without ai_chat.py (MHEditor.exe excludes it): no chat button (it used to give 500 errors)
                     return self.send(200, '// chat de IA no incluido en esta versión', 'text/javascript; charset=utf-8')
                 return self.send(200, open(os.path.join(HERE, 'editor', 'ai_chat.js'), 'rb').read(), 'text/javascript; charset=utf-8')
             if u.path.startswith('/api/ai/') and ai_chat is None:
                 return self.send(200, {'error': 'el chat de IA no está incluido en esta versión'})
-            if u.path == '/api/ai/config':     # chat de IA: proveedores (sin claves)
-                return self.send(200, ai_chat.public())
+            if u.path == '/api/ai/config':     # AI chat: providers (without keys); without ai_chat.py (release) there is no chat
+                return self.send(200, ai_chat.public() if ai_chat else {'error': 'sin chat de IA'})
             if u.path == '/api/ai/routes':
                 return self.send(200, {'routes': ai_chat.routes(q.get('filter', [''])[0])})
             if u.path == '/api/ai/route_src':
@@ -291,7 +291,7 @@ class Handler(BaseHTTPRequestHandler):
                     return self.send(200, {'error': str(e)})
             if u.path in ('/images', '/images.html', '/imagenes', '/imagenes.html'):
                 return self.send(200, open(os.path.join(HERE, 'editor', 'imagenes.html'), 'rb').read(), 'text/html; charset=utf-8')
-            if u.path == '/api/anthems':      # himnos: globales (UI/SoundPack.xml), no del escenario
+            if u.path == '/api/anthems':      # anthems: global (UI/SoundPack.xml), not per scenario
                 try:
                     return self.send(200, anthems.status())
                 except OSError as e:
@@ -302,13 +302,13 @@ class Handler(BaseHTTPRequestHandler):
                 import terrain_image
                 bbox = [float(x) for x in q['bbox'][0].split(',')] if q.get('bbox') else None
                 fmt = q.get('fmt', ['png'])[0]
-                if q.get('terrain', ['0'])[0] == '1':      # además, una imagen con el color del tipo de terreno de cada región
+                if q.get('terrain', ['0'])[0] == '1':      # also, an image with the terrain type color of each region
                     with SCEN_LOCK:
                         sn = q.get('scenario', [''])[0]
                         data, bb, size = terrain_image.export_with_terrain(PROJECT, bbox, int(q.get('level', ['2'])[0]), fmt,
                                                                            scenario(sn) if sn else None, q.get('separate', ['0'])[0] == '1')
                     return self.send(200, data, 'application/zip')
-                if q.get('separate', ['0'])[0] == '1':     # fondo, límites y fondo con límites en imágenes separadas (.zip)
+                if q.get('separate', ['0'])[0] == '1':     # background, borders and background with borders in separate images (.zip)
                     data, bb, size = terrain_image.export_separate(PROJECT, bbox, int(q.get('level', ['2'])[0]), fmt)
                     return self.send(200, data, 'application/zip')
                 data, bb, size = terrain_image.export_image(PROJECT, bbox, int(q.get('level', ['2'])[0]), fmt)
@@ -322,7 +322,7 @@ class Handler(BaseHTTPRequestHandler):
             if u.path.startswith('/tile/'):
                 _, _, c, r, lv = u.path.split('/')
                 c, r, lv = int(c), int(r), int(lv.split('.')[0])
-                # pal: paleta del juego del escenario abierto (si es del otro juego, se recolorean las texturas)
+                # pal: game palette of the open scenario (if it belongs to the other game, textures are recolored)
                 pal = q.get('pal', [''])[0]
                 pal = pal if pal in gamepaths.GAMES and pal != gamepaths.CURRENT[0] else ''
                 key = (c, r, lv, PROJECT_VERSION[0], gamepaths.CURRENT[0], pal)
@@ -350,7 +350,7 @@ class Handler(BaseHTTPRequestHandler):
         if not self._local(post=True):
             return self.send(403, {'error': 'petición rechazada: no viene de una página del editor (falta el token o no es localhost); recarga la página',
                                    'errors': ['petición rechazada: no viene de una página del editor (falta el token o no es localhost); recarga la página']})
-        # avance de la acción para la barra de carga de la página (GET /api/progress)
+        # action progress for the page loading bar (GET /api/progress)
         progress.begin()
         try:
             return self._post()
@@ -361,13 +361,13 @@ class Handler(BaseHTTPRequestHandler):
         u = urlparse(self.path)
         n = int(self.headers.get('Content-Length') or 0)
         payload = json.loads(self.rfile.read(n) or b'{}')
-        self._payload = payload if not u.path.startswith('/api/ai/') else {'ai': u.path}    # nada de los ajustes / claves de la IA
+        self._payload = payload if not u.path.startswith('/api/ai/') else {'ai': u.path}    # nothing from the AI settings / keys
         try:
-            if u.path == '/api/log':            # errores y pasos que manda la página (MHEditor.log)
+            if u.path == '/api/log':            # errors and steps sent by the page (MHEditor.log)
                 diag_log.client(payload.get('entries') or [])
                 self._payload = None
                 return self.send(200, {'ok': True})
-            if u.path == '/api/log/enable':       # casilla «Guardar registro de diagnóstico»
+            if u.path == '/api/log/enable':       # «Guardar registro de diagnóstico» checkbox
                 return self.send(200, {'enabled': diag_log.set_enabled(bool(payload.get('on')))})
             if u.path == '/api/log/folder':       # «Abrir carpeta del log»
                 if diag_log.PATH[0] and hasattr(os, 'startfile'):
@@ -382,8 +382,8 @@ class Handler(BaseHTTPRequestHandler):
             if u.path.startswith('/api/wikidata/'):
                 return self.send(200, wikidata_api(u.path, payload))
             if u.path == '/api/regions/merge':
-                # unificar regiones (selección múltiple): las demás se eliminan y su área, ciudades, población y unidades
-                # pasan a 'into'; es un guardado del mapa como cualquier otro (y se registra en los escenarios)
+                # merge regions (multiple selection): the others are deleted and their area, cities, population and units
+                # go to 'into'; it is a map save like any other (and is registered in the scenarios)
                 idx = {PROJECT.rname(g.index): g.index for g in PROJECT.m['regions']}
                 into, names = payload.get('into'), [n for n in payload.get('regions') or [] if n != payload.get('into')]
                 delete = bool(payload.get('delete'))
@@ -397,7 +397,7 @@ class Handler(BaseHTTPRequestHandler):
                 project = PROJECT
                 if payload.get('pack') and payload['pack'] != project.pack:
                     return self.send(200, {'errors': ['El regionpack cambió en otra ventana. Descarga los cambios pendientes con «Borrador» y recarga esta ventana antes de guardar.'], 'warnings': [], 'transfers': []})
-                try:     # escenario nuevo y naciones nuevas: se comprueba todo antes de tocar el mapa
+                try:     # new scenario and new nations: everything is checked before touching the map
                     ns = payload.get('new_scenario')
                     if ns:
                         scenario_new.check_name(ns.get('name'))
@@ -415,7 +415,7 @@ class Handler(BaseHTTPRequestHandler):
                     return self.send(200, {'errors': [str(e)], 'warnings': [], 'transfers': []})
                 try:
                     rep = project.save(payload, log=log)
-                except SystemExit as e:   # errores controlados del proceso de traspaso: no queda nada a medias
+                except SystemExit as e:   # handled errors of the transfer process: nothing is left half done
                     project._drop_pending_snapshot()
                     project.reload()
                     rep = {'errors': [str(e)], 'warnings': [], 'transfers': []}
@@ -440,7 +440,7 @@ class Handler(BaseHTTPRequestHandler):
                     rep['conflicts'] = []
                     rep['scenarios'] = register_regions(news, scenario_core.scenarios_using(project.pack), pf=progress.part(75, 99),
                                                         force=set(payload.get('force_scenarios') or []), conflicts=rep['conflicts'], project=project)
-                    # el escenario abierto en el editor usa otro regionpack: la página pregunta si pasarlo a este
+                    # the scenario open in the editor uses another regionpack: the page asks whether to switch it to this one
                     op = payload.get('scenario')
                     if op and op not in rep['scenarios'] and op in scenario_core.scenarios():
                         rep['open_other_pack'] = {'name': op, 'pack': scenario_core.pack_of(scenario(op))}
@@ -452,7 +452,7 @@ class Handler(BaseHTTPRequestHandler):
                     for k, v in dele.items():
                         rep['scenarios'].setdefault(k, []).extend(v)
                 if rep.get('scenarios') and not rep.get('errors'):
-                    keep_game_loadable(rep, project)       # mapa del juego al día con lo registrado (si no, la página ofrece «Instalar»)
+                    keep_game_loadable(rep, project)       # game map up to date with what was registered (otherwise the page offers «Instalar»)
                 return self.send(200, rep)
             if u.path == '/api/undo':
                 rep = PROJECT.undo()
@@ -460,7 +460,7 @@ class Handler(BaseHTTPRequestHandler):
                 if rep.get('removed_regions'):
                     rep['scenarios'] = unregister_regions(rep['removed_regions'], scenario_core.scenarios_using(PROJECT.pack))
                 if rep.get('restored_regions'):
-                    # deshacer un borrado: la region vuelve a los escenarios (desde la que la habia absorbido)
+                    # undo a deletion: the region returns to the scenarios (from the one that had absorbed it)
                     news = []
                     for x in rep['restored_regions']:
                         g_n, g_m = PROJECT.region_geom(x['nombre']), PROJECT.region_geom(x['madre']) if x.get('madre') else None
@@ -472,12 +472,12 @@ class Handler(BaseHTTPRequestHandler):
                     keep_game_loadable(rep)
                 return self.send(200, rep)
             if u.path == '/api/register_region':
-                # region que existe en el mapa pero no en el escenario abierto (p. ej. si falló su registro)
+                # region that exists in the map but not in the open scenario (e.g. if its registration failed)
                 x = {'nombre': payload['name'], 'madre': payload.get('mother'), 'pais': payload.get('owner'),
                      'controlador': payload.get('controller'), 'terreno': payload.get('terrain'),
                      'poblacion_manual': payload.get('population'), 'texto': payload.get('text'),
                      'poblacion': {payload['mother']: float(payload.get('pop_pct') or 0) / 100} if payload.get('mother') else None}
-                # habitantes a mano (el diálogo propone los del changelog): salen de la madre en vez de usar el %
+                # inhabitants set by hand (the dialog proposes the changelog ones): taken from the mother instead of using the %
                 if x['poblacion_manual'] is not None:
                     x['poblacion'] = None
                     if x.get('madre'):
@@ -488,7 +488,7 @@ class Handler(BaseHTTPRequestHandler):
                 keep_game_loadable(rep)
                 return self.send(200, rep)
             if u.path == '/api/geojson/create_nations':
-                # naciones que menciona un GeoJSON y no están en el escenario: se crean (sin guardar) y quedan rendidas hasta recibir su región
+                # nations mentioned by a GeoJSON that are not in the scenario: created (unsaved) and left surrendered until they receive their region
                 out = []
                 with SCEN_LOCK:
                     s = scenario(payload['scenario'])
@@ -505,7 +505,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send(200, geojson_compare.exclaves(PROJECT, payload['polygon'], float(payload.get('max_pct') or 0.05),
                                                                payload.get('sources')))
             if u.path == '/api/background/restore':
-                # restaura el fondo desde el World original donde no hay frontera dibujada (ver background_restore.py); se puede deshacer con «Volver»
+                # restores the background from the original World where no border is drawn (see background_restore.py); can be undone with «Volver»
                 ref = vanilla_folder()
                 if not ref:
                     return self.send(200, {'error': 'no hay copia del mapa original (backup/mapa_original): se crea la primera vez que el editor instala un cambio'})
@@ -520,11 +520,11 @@ class Handler(BaseHTTPRequestHandler):
                                                           lambda n: vanilla_ref.tile_path(n, orig, world), bb, log,
                                                           map_tile=lambda n: os.path.join(PROJECT.map_dir, 'art', 'OperationalTerrain', n))
                         lines = background_restore.repaint_tiles(PROJECT.m, PROJECT.tiles, only_bbox=bb, log=log) \
-                            if payload.get('lines') else []          # opción «Dibujar las líneas de las regiones»
+                            if payload.get('lines') else []          # «Dibujar las líneas de las regiones» option
                     except Exception as e:
                         traceback.print_exc()
                         return self.send(200, {'error': 'no se pudo restaurar el fondo: %s' % e})
-                    if not done and not lines:     # nada que restaurar: sin copia para «Volver»
+                    if not done and not lines:     # nothing to restore: no copy for «Volver»
                         snaps = sorted(d for d in os.listdir(PROJECT.history) if d.isdigit())
                         if snaps:
                             shutil.rmtree(os.path.join(PROJECT.history, snaps[-1]), ignore_errors=True)
@@ -532,15 +532,15 @@ class Handler(BaseHTTPRequestHandler):
                     TILE_CACHE.clear()
                 PROJECT_VERSION[0] += 1
                 return self.send(200, {'ok': True, 'tiles': done, 'lines': lines})
-            if u.path == '/api/region/crumbs':      # trozos sueltos / exclaves diminutos de una región (para pasarlos a la vecina)
+            if u.path == '/api/region/crumbs':      # loose pieces / tiny exclaves of a region (to move them to the neighbor)
                 return self.send(200, {'crumbs': PROJECT.crumbs(int(payload['region']))})
-            if u.path == '/api/geojson/close_gaps':     # importación: cerrar rendijas/huecos pequeños entre los contornos
+            if u.path == '/api/geojson/close_gaps':     # import: close small gaps/holes between outlines
                 gs, n = __import__('geojson_io').close_gaps(payload['geoms'], float(payload.get('max_area') or 0.05))
                 return self.send(200, {'geoms': gs, 'closed': n})
             if u.path == '/api/equivalence/auto':
-                # equivalencias con el World vanilla calculadas por solape de áreas (regiones del mismo tipo): una región vanilla
-                # equivale a la región nueva que tiene la mayor parte de su área; si una región nueva no recibe ninguna entera,
-                # equivale a la vanilla que más área le aporta. Se escriben en el changelog (base: World).
+                # equivalences with vanilla World computed by area overlap (regions of the same type): a vanilla region
+                # is equivalent to the new region that holds most of its area; if a new region receives none whole,
+                # it is equivalent to the vanilla one that contributes most area. Written to the changelog (base: World).
                 from shapely.strtree import STRtree
                 vm = scenario_layers.PackMap('World', vanilla_folder())
                 vnames = [n for n in vm.name.values() if n not in ('BasicRegionLists', 'Historic')]
@@ -551,8 +551,8 @@ class Handler(BaseHTTPRequestHandler):
                 only_missing = bool(payload.get('only_missing', True))
                 have = PROJECT.equivalences()
                 tree = STRtree([g for _, g, _ in vgeo])
-                best_new = {}           # región vanilla -> (región nueva con más de su área, fracción)
-                share = {}              # región nueva -> [(vanilla, área común)]
+                best_new = {}           # vanilla region -> (new region with most of its area, fraction)
+                share = {}              # new region -> [(vanilla, shared area)]
                 for n, (g, sea) in mine.items():
                     for i in tree.query(g):
                         vn, vg, vs = vgeo[int(i)]
@@ -570,8 +570,8 @@ class Handler(BaseHTTPRequestHandler):
                 same_name_elsewhere = []
                 for n in mine:
                     if n in vnames and not payload.get('include_same_name'):
-                        # se llama como una región de World: equivale a sí misma SOLO si está en el mismo sitio (Piedmont de
-                        # EE. UU. no es el Piamonte de Italia): se comprueba por solape de áreas, no por el nombre
+                        # named like a World region: equivalent to itself ONLY if it is in the same place (Piedmont in the
+                        # US is not Piedmont in Italy): checked by area overlap, not by name
                         g0, v0 = mine[n][0], vg_by.get(n)
                         ov = g0.intersection(v0).area / min(g0.area, v0.area) if v0 is not None and g0.area and v0.area else 0
                         if ov >= 0.3:
@@ -589,21 +589,21 @@ class Handler(BaseHTTPRequestHandler):
                         PROJECT.set_equivalence(n, eq)
                 return self.send(200, {'equivalences': res, 'written': bool(payload.get('write')), 'base': 'World',
                                        'same_name_elsewhere': same_name_elsewhere})
-            if u.path == '/api/gap/split_proximity':        # repartir un hueco entre las regiones que lo rodean por cercanía
+            if u.path == '/api/gap/split_proximity':        # split a gap among the surrounding regions by proximity
                 return self.send(200, {'pieces': PROJECT.split_gap_by_proximity(payload['polygon'], payload.get('neighbors') or [])})
-            if u.path == '/api/region/split_proximity':     # repartir una región (agua) entre sus vecinas de tierra por cercanía
+            if u.path == '/api/region/split_proximity':     # split a (water) region among its land neighbors by proximity
                 return self.send(200, {'pieces': PROJECT.split_by_proximity(int(payload['region']))})
-            if u.path == '/api/gaps/small':                   # huecos pequeños entre regiones (todo el regionpack o un par)
+            if u.path == '/api/gaps/small':                   # small gaps between regions (whole regionpack or a pair)
                 pr = payload.get('pair')
                 rg = payload.get('region')
                 project = PROJECT
-                if payload.get('regions'):                   # los que dejó el último guardado alrededor de esas regiones
+                if payload.get('regions'):                   # those left by the last save around these regions
                     gaps = project.gaps_around([int(x) for x in payload['regions']])
                 else:
                     gaps = project.small_gaps(float(payload.get('max_area') or 0.05), float(payload.get('eps') or 0.03),
                                               tuple(int(x) for x in pr) if pr else None, int(rg) if rg is not None else None)
                 return self.send(200, {'gaps': gaps, 'audit': project.preview_gap_repair(gaps)})
-            if u.path == '/api/validate':                     # todo lo que bloquearía el guardado, de una vez
+            if u.path == '/api/validate':                     # everything that would block the save, at once
                 iss = PROJECT.validate()
                 for name in scenario_core.scenarios_using(PROJECT.pack):
                     try:
@@ -635,12 +635,12 @@ class Handler(BaseHTTPRequestHandler):
                 rep = PROJECT.install(payload.get('target', 'same'), payload.get('name'), payload.get('scenarios') or [],
                                       backup_root=scenario_core.BACKUP_ROOT)
                 if rep.get('ok') and payload.get('apply_scenarios'):
-                    # los escenarios elegidos al instalar pasan a usar el regionpack con sus regiones adecuadas, y se guardan
+                    # the scenarios chosen on install switch to the regionpack with their regions adjusted, and are saved
                     rep['scenarios'] = adapt_scenarios(payload['apply_scenarios'], rep['regionpack'], payload.get('pop_mode') or 'area')
                 if rep.get('ok'):
                     rep['incompatibles'] = pack_incompatibles(rep['regionpack'])
                 if rep.get('ok') and rep.get('nuevo_proyecto'):
-                    select_pack(rep['regionpack'])      # se sigue editando el regionpack nuevo, en su propio proyecto
+                    select_pack(rep['regionpack'])      # editing continues on the new regionpack, in its own project
                     PROJECT_VERSION[0] += 1
                 return self.send(200, rep)
             if u.path == '/api/changelog/owner':
@@ -650,7 +650,7 @@ class Handler(BaseHTTPRequestHandler):
                     return self.send(200, {'error': str(e)})
                 return self.send(200, {'ok': True})
             if u.path == '/api/region/equivalence':
-                # una región de mar solo equivale a regiones de mar vanilla y una de tierra a las de tierra
+                # a sea region only matches vanilla sea regions and a land one only land ones
                 try:
                     vt = {x['name']: bool(x['sea']) for x in json.loads(json.dumps(scenario_layers_vanilla_types()))}
                 except Exception:
@@ -661,8 +661,8 @@ class Handler(BaseHTTPRequestHandler):
                     return self.send(200, {'error': '%s es de %s: no puede equivaler a %s (%s)' % (payload['region'], 'mar' if mine else 'tierra', ', '.join(bad), 'de tierra' if mine else 'de mar')})
                 return self.send(200, {'equivale': PROJECT.set_equivalence(payload['region'], payload.get('vanilla') or [])})
             if u.path == '/api/region/paint_island':
-                # «Pintar la isla en el fondo»: tierra y costa de islas en tiles/ del proyecto; con un GeoJSON, su forma real
-                # (rasgos con «name» = región; uno solo sin nombre vale para la primera región)
+                # «Pintar la isla en el fondo»: land and coast of islands in the project tiles/; with a GeoJSON, its real shape
+                # (features with «name» = region; a single unnamed one applies to the first region)
                 from shapely.geometry import shape as _shape
                 from shapely.ops import unary_union as _uu
                 regs = payload.get('regions') or []
@@ -676,20 +676,20 @@ class Handler(BaseHTTPRequestHandler):
                 except (ValueError, OSError) as e:
                     return self.send(200, {'error': str(e)})
             if u.path == '/api/redraw_borders':
-                # «Redibujar fronteras»: líneas de todas las fronteras en tiles/ del proyecto (el juego, solo al Instalar)
+                # «Redibujar fronteras»: lines of all borders in the project tiles/ (the game, only on Install)
                 try:
                     r = payload.get('region')
                     out = PROJECT.redraw_borders(None if r is None else int(r), log=log)
                     PROJECT_VERSION[0] += 1
                     return self.send(200, out)
-                except Exception as e:      # cualquier fallo con su texto (antes la página mostraba «Cannot read properties of undefined»)
+                except Exception as e:      # any failure with its text (before, the page showed «Cannot read properties of undefined»)
                     traceback.print_exc()
                     return self.send(200, {'error': 'no se pudieron redibujar las fronteras: %s' % e})
             if u.path == '/api/install_tiles':
-                # instalar solo el fondo: copia al juego esos tiles del proyecto (sin tocar regions.bin, borders.brd ni escenarios)
+                # install only the background: copies those project tiles to the game (without touching regions.bin, borders.brd or scenarios)
                 return self.send(200, {'copied': PROJECT.install_tiles(payload.get('tiles') or [])})
             if u.path == '/api/region/convert':
-                # mar <-> tierra (tierra importada que quedó como mar): solo el tipo; la malla no cambia
+                # sea <-> land (imported land that ended up as sea): only the type; the mesh does not change
                 try:
                     out = PROJECT.convert_region_type(payload.get('regions') or [], payload.get('to'), payload.get('terrain') or 1)
                 except (ValueError, OSError) as e:
@@ -697,7 +697,7 @@ class Handler(BaseHTTPRequestHandler):
                 PROJECT_VERSION[0] += 1
                 log('tipo de región -> %s: %s' % (payload.get('to'), ', '.join(out['done'])))
                 if payload.get('to') == 'sea' and payload.get('scenarios') and out['done']:
-                    # también en los escenarios: deja de ser región de tierra (lo de dentro vuelve a la vecina más cercana) y pasa a waterWorld.xml
+                    # also in the scenarios: stops being a land region (what is inside returns to the nearest neighbor) and goes to waterWorld.xml
                     sc_out = {}
                     with SCEN_LOCK:
                         for name in scenario_core.scenarios_using(PROJECT.pack):
@@ -731,7 +731,7 @@ class Handler(BaseHTTPRequestHandler):
                     out['scenarios'] = sc_out
                 return self.send(200, dict(out, ok=True))
             if u.path == '/api/region/canal':
-                # región de mar de navegación libre o cerrada (canal): map.xml del proyecto, se instala con «Instalar»
+                # free-navigation or closed (canal) sea region: project map.xml, installed with «Instalar»
                 try:
                     info = PROJECT.set_canal(payload['region'], bool(payload.get('closed')), payload.get('zone'))
                 except (ValueError, OSError) as e:
@@ -748,10 +748,10 @@ class Handler(BaseHTTPRequestHandler):
                 PROJECT_VERSION[0] += 1
                 return self.send(200, out)
             if u.path == '/api/region/rename':
-                # nombre de una región: map.xml del proyecto (se instala con «Instalar») y los escenarios que usan el regionpack
+                # region name: project map.xml (installed with «Instalar») and the scenarios using the regionpack
                 old, new, text = payload['region'], payload['new_name'].strip(), (payload.get('text') or '').strip() or None
                 if new == old:
-                    # solo el nombre visible (stringTable de cada escenario); el interno y map.xml no cambian
+                    # only the visible name (stringTable of each scenario); the internal one and map.xml do not change
                     if not text:
                         return self.send(200, {'error': 'falta el nombre visible'})
                     out = {}
@@ -766,7 +766,7 @@ class Handler(BaseHTTPRequestHandler):
                                 reg = next((r for r in sc_.regions() if scenario_core.prop(r, 'strName') == old), None)
                                 sid = scenario_core.prop(reg, 'sidName') if reg is not None else None
                                 if reg is not None and payload.get('change_sid'):
-                                    # también el código del texto (sidName): SID.Game.Region.Name.<texto sin espacios ni acentos>
+                                    # also the text code (sidName): SID.Game.Region.Name.<text without spaces or accents>
                                     nsid = scenario_core.region_sid(text)
                                     if nsid != sid:
                                         st.set_prop(reg, 'sidName', nsid)
@@ -814,9 +814,9 @@ class Handler(BaseHTTPRequestHandler):
                 log('changelog revisado: quitadas %s; añadidas %s' % (', '.join(r['removed']) or '-', ', '.join(r['added']) or '-'))
                 return self.send(200, r)
             if u.path == '/api/refresh':
-                # Refrescar: el escenario se relee del disco aparte (/api/scen/reload); aquí, el regionpack del juego
+                # Refresh: the scenario is re-read from disk separately (/api/scen/reload); here, the game regionpack
                 state = PROJECT.installed_state()
-                with TILE_LOCK:              # el fondo también se vuelve a leer (si no, quedaban tiles de otro regionpack)
+                with TILE_LOCK:              # the background is re-read too (otherwise tiles from another regionpack remained)
                     TILE_CACHE.clear()
                 PROJECT_VERSION[0] += 1
                 if payload.get('load_installed') and state != 'same' and not PROJECT.virtual:
@@ -827,7 +827,7 @@ class Handler(BaseHTTPRequestHandler):
                     threading.Thread(target=PROJECT.precompute, daemon=True).start()
                     log('regionpack %s recargado desde el juego' % PROJECT.pack)
                     return self.send(200, {'state': 'same', 'loaded': True, 'stale_tiles': stale})
-                # mapa igual que el del juego pero con tiles de fondo viejos en el proyecto (regionpack actualizado desde fuera)
+                # map equal to the game one but with old background tiles in the project (regionpack updated externally)
                 drop = bool(payload.get('drop_tiles'))
                 n = PROJECT.drop_stale_tiles(dry=not drop) if state == 'same' else 0
                 if n and drop:
@@ -835,10 +835,10 @@ class Handler(BaseHTTPRequestHandler):
                         TILE_CACHE.clear()
                     PROJECT_VERSION[0] += 1
                 return self.send(200, {'state': state, 'pack': PROJECT.pack, 'stale_tiles' if drop else 'tiles_differ': n})
-            if u.path == '/api/game/license_permanent':   # permiso de escritura en HKLM (pide admin): sin VirtualStore no vuelve a pasar
+            if u.path == '/api/game/license_permanent':   # write permission on HKLM (asks for admin): without VirtualStore it does not happen again
                 import licencia_juego
-                return self.send(200, licencia_juego.permanente())
-            if u.path == '/api/game/license_fix':   # borra solo esos valores, con respaldo .reg en making-history
+                return self.send(200, licencia_juego.make_permanent())
+            if u.path == '/api/game/license_fix':   # deletes only those values, with a .reg backup in making-history
                 import licencia_juego
                 return self.send(200, licencia_juego.fix())
             if u.path == '/api/game/select':
@@ -857,16 +857,16 @@ class Handler(BaseHTTPRequestHandler):
                 except (ValueError, KeyError, OSError) as e:
                     return self.send(200, {'error': str(e)})
             if u.path == '/api/geojson/analyze':
-                # contornos que se van a importar como regiones: ¿existen ya? ¿de qué regiones sale su área?
+                # outlines to be imported as regions: do they already exist? which regions does their area come from?
                 import geojson_compare
                 return self.send(200, {'shapes': geojson_compare.analyze_shapes(PROJECT, payload.get('shapes') or [])})
             if u.path in ('/api/geojson/osm', '/api/geojson/kml', '/api/geojson/normalize'):
-                # contornos desde una relación de OpenStreetMap o un KML/KMZ, y el paso común (válido, partes unidas, simplificar)
+                # outlines from an OpenStreetMap relation or a KML/KMZ, and the common step (valid, parts merged, simplify)
                 try:
                     return self.send(200, __import__('geo_sources').api(u.path, payload))
                 except ValueError as e:
                     return self.send(200, {'error': str(e)})
-            if u.path == '/api/options':      # «Historial» de guardados para «Volver» (apagado: no copia nada y borra el que hay)
+            if u.path == '/api/options':      # save «Historial» for «Volver» (off: copies nothing and deletes the existing one)
                 opts = _options()
                 opts['save_history'] = editor_core.SAVE_HISTORY = payload.get('save_history') is not False
                 with open(os.path.join(ROOT, 'opciones.json'), 'w', encoding='utf-8') as f:
@@ -876,11 +876,11 @@ class Handler(BaseHTTPRequestHandler):
                         PROJECT.clear_history()
                 return self.send(200, {'save_history': editor_core.SAVE_HISTORY})
             if u.path == '/api/lang':
-                lang ='en' if payload.get('lang') == 'en' else 'es'
+                lang = payload.get('lang') if payload.get('lang') in ('en', 'ru') else 'es'
                 json.dump({'lang': lang}, open(os.path.join(ROOT, 'idioma.json'), 'w'))
                 return self.send(200, {'lang': lang})
             if u.path == '/api/minimap/import':
-                # minimapa del regionpack (art/MiniMap.tga): se guarda en el proyecto al tamaño del original y llega al juego con «Instalar»
+                # regionpack minimap (art/MiniMap.tga): saved in the project at the original size and reaches the game with «Instalar»
                 import base64, io
                 from PIL import Image
                 try:
@@ -900,14 +900,14 @@ class Handler(BaseHTTPRequestHandler):
                 log('minimapa importado: %s (%dx%d)' % (out, size[0], size[1]))
                 return self.send(200, {'ok': True, 'size': list(size)})
             if u.path == '/api/terrain/import':
-                # imagen de fondo -> tiles DXT5 del proyecto (llega al juego con «Instalar»)
+                # background image -> project DXT5 tiles (reaches the game with «Instalar»)
                 import base64
                 import terrain_image
                 try:
                     data = base64.b64decode(payload['image'].split(',')[-1])
                     with PROJECT.lock:
                         tiles = terrain_image.import_image(PROJECT, data, [float(x) for x in payload['bbox']], log=log)
-                        if payload.get('lines') and tiles:       # opción «Dibujar las líneas de las regiones»
+                        if payload.get('lines') and tiles:       # «Dibujar las líneas de las regiones» option
                             import background_restore
                             background_restore.repaint_tiles(PROJECT.m, PROJECT.tiles, set(tiles), log=log)
                 except (ValueError, KeyError, OSError) as e:
@@ -917,8 +917,8 @@ class Handler(BaseHTTPRequestHandler):
                 PROJECT_VERSION[0] += 1
                 return self.send(200, {'tiles': tiles, 'lines': bool(payload.get('lines'))})
             if u.path == '/api/pack/copy':
-                # copia de seguridad del regionpack (y, si se pide, los escenarios elegidos pasan a usarla)
-                if PROJECT.virtual:        # regionpack nuevo sin instalar: «Guardar como…» duplica el proyecto
+                # regionpack backup (and, if requested, the chosen scenarios switch to it)
+                if PROJECT.virtual:        # new uninstalled regionpack: «Guardar como…» duplicates the project
                     nm = (payload.get('name') or '').strip()
                     err = new_pack.check_name(nm, editor_core.MAPS, project_dir(nm) if nm else None)
                     if err:
@@ -939,13 +939,13 @@ class Handler(BaseHTTPRequestHandler):
                                                             project_dir(payload.get('name', '').strip()) if payload.get('project') else None)
                     except (ValueError, OSError) as e:
                         return self.send(200, {'error': str(e)})
-                    for n in rep['escenarios']:      # el escenario se vuelve a leer del disco con su regionpack nuevo
+                    for n in rep['escenarios']:      # the scenario is re-read from disk with its new regionpack
                         if n in SCEN:
                             scenario_core.STORE.revert([x for x in SCEN[n].paths if os.path.basename(x) == 'scenario.xml'])
                             SCEN.pop(n, None)
                 return self.send(200, rep)
             if u.path == '/api/pack/new':
-                # regionpack nuevo desde cero: proyecto sin regiones y fondo en color mar (o la imagen dada); nada va al juego
+                # new regionpack from scratch: project without regions and sea-colored background (or the given image); nothing goes to the game
                 import base64
                 name = (payload.get('name') or '').strip()
                 err = new_pack.check_name(name, editor_core.MAPS, project_dir(name) if name else None)
@@ -987,7 +987,7 @@ class Handler(BaseHTTPRequestHandler):
                         return self.send(200, anthems.import_audio(payload.get('country'), base64.b64decode(payload['data']), payload.get('ext') or 'mp3'))
                     if u.path == '/api/anthems/remove':
                         return self.send(200, anthems.remove_staged(payload.get('country')))
-                    if u.path == '/api/anthems/install':      # único paso que escribe en el juego
+                    if u.path == '/api/anthems/install':      # only step that writes to the game
                         rep = anthems.install()
                         if rep.get('ok'):
                             log('himnos instalados: %s (copia en %s)' % (', '.join(rep['installed']), rep['backup']))
@@ -1014,13 +1014,13 @@ class Handler(BaseHTTPRequestHandler):
             return self.send(404, {'error': 'no encontrado'})
         except Exception as e:
             traceback.print_exc()
-            PROJECT._drop_pending_snapshot()      # instantánea de un guardado que no llegó a escribir el mapa
+            PROJECT._drop_pending_snapshot()      # snapshot of a save that never got to write the map
             PROJECT.reload()
             return self.send(500, {'error': 'error interno: %s' % e, 'errors': ['error interno: %s' % e], 'warnings': [], 'transfers': []})
 
 
 def _logged(method, fn):
-    """Cada petición a /api queda en MHEditor.log: método, ruta, estado, duración, resumen del contenido y el error si lo hubo."""
+    """Every /api request is logged in MHEditor.log: method, path, status, duration, content summary and the error if any."""
     def run(self):
         t0, self._status, self._err, self._payload = time.time(), None, None, None
         try:
@@ -1056,13 +1056,13 @@ DOCVIEW = None
 
 
 def scenario_layers_vanilla_types():
-    """[{name, sea}] de las regiones del World vanilla."""
+    """[{name, sea}] of the vanilla World regions."""
     pm = scenario_layers.PackMap('World', vanilla_folder())
     return [{'name': pm.name[g.index], 'sea': bool(pm.sea[pm.name[g.index]])} for g in pm.m['regions']]
 
 
 def pack_from_world():
-    """False si el regionpack se hizo desde cero (no procede de World: pack.json «base: null» o changelog «origen: desde_cero»)."""
+    """False if the regionpack was made from scratch (not derived from World: pack.json «base: null» or changelog «origen: desde_cero»)."""
     try:
         pj = json.load(open(os.path.join(PROJECT.dir, 'pack.json'), encoding='utf-8'))
         if 'base' in pj and pj['base'] is None:
@@ -1074,8 +1074,8 @@ def pack_from_world():
             return False
     except Exception:
         pass
-    # un fondo propio (p. ej. TamrielDemo): sus tiles del juego no se parecen a los de World. Antes se daba por «de World» y
-    # «Restaurar fondo» pegaba la Tierra encima donde no había frontera
+    # a custom background (e.g. TamrielDemo): its game tiles do not resemble World's. Before it was assumed «de World» and
+    # «Restaurar fondo» pasted the Earth over it where there was no border
     try:
         import filecmp
         world = os.path.join(editor_core.MAPS, 'World', 'art', 'OperationalTerrain')
@@ -1092,7 +1092,7 @@ def pack_from_world():
 
 
 def vanilla_folder():
-    """Carpeta de la copia «vanilla» de World (referencia: cómo es el juego sin cambios), creada la primera vez; None si no hay originales."""
+    """Folder of the «vanilla» copy of World (reference: the unchanged game), created the first time; None if there are no originals."""
     import vanilla_ref
     try:
         return vanilla_ref.ensure(gamepaths.map_backup(), os.path.join(editor_core.MAPS, 'World'),
@@ -1102,7 +1102,7 @@ def vanilla_folder():
 
 
 def scen_pack_project(s):
-    """Proyecto (changelog) del regionpack que usa el escenario; el abierto si es el mismo."""
+    """Project (changelog) of the regionpack used by the scenario; the open one if it is the same."""
     sx = s.all('Scenario', lambda f: f == 'scenario.xml')
     disp = next((o for o in sx[0].iter('object') if o.get('type') == 'ScenarioDisplaySettings'), None) if sx else None
     pack = (scenario_core.prop(disp, 'strMapName') if disp is not None else None) or 'World'
@@ -1120,7 +1120,7 @@ def scen_year(s):
 
 
 def wikidata_api(path, p):
-    """Wikidata (solo lectura) y asociación país/ciudad del escenario -> QID, anotada en el changelog del regionpack."""
+    """Wikidata (read only) and scenario country/city -> QID association, noted in the regionpack changelog."""
     import wikidata
     try:
         s = scenario(p['scen']) if p.get('scen') else None
@@ -1174,7 +1174,7 @@ def scenario(name):
 
 
 def view_for(i):
-    """El escenario al que pertenece un objeto (con sus reglas) o la vista generica."""
+    """The scenario an object belongs to (with its rules) or the generic view."""
     global DOCVIEW
     path = scenario_core.STORE.doc_of.get(scenario_core.STORE.get(i), '')
     for s in SCEN.values():
@@ -1193,7 +1193,7 @@ def live_scenario_info(s):
             pop = P(r, 'nPopulation')
             regions[P(r, 'strName')] = {'owner': P(r, 'strOwner'), 'controller': P(r, 'strController'), 'terrain': P(r, 'strTerrain'),
                                         'culture': P(r, 'strCulture'),
-                                        # nombre que muestra el juego (texto de sidName), para la etiqueta al pasar el cursor
+                                        # name shown by the game (sidName text), for the hover label
                                         'text': (getattr(s, 'strings', None) or {}).get(P(r, 'sidName') or '') or None,
                                        'population': int(pop) if pop and pop.isdigit() else None}
         colors = {P(p, 'strName'): '#' + (P(p, 'colCountryColor') or '#888888').lstrip('#')[:6] for p in s.all('Player')}
@@ -1206,12 +1206,12 @@ def scenario_countries(name):
 
 
 def register_regions(news, names, check_pack=False, pf=None, force=(), conflicts=None, project=None):
-    """Registra regiones nuevas del mapa (entradas 'regiones_nuevas' del changelog) en los escenarios 'names'
-    y los guarda (con copia de seguridad). Devuelve {escenario: notas}."""
+    """Registers new map regions ('regiones_nuevas' changelog entries) in the scenarios 'names'
+    and saves them (with backup). Returns {scenario: notes}."""
     from shapely.geometry import Point
     import new_region
     out = {}
-    conflicts = conflicts if conflicts is not None else []      # unidades que quedan en territorio de otro (parámetro: el servidor es multihilo)
+    conflicts = conflicts if conflicts is not None else []      # units left in someone else's territory (parameter: the server is multithreaded)
     project = project or PROJECT
     R = project.m['regions']
     ub = {project.rname(g.index): g.u_b for g in R}
@@ -1231,28 +1231,28 @@ def register_regions(news, names, check_pack=False, pf=None, force=(), conflicts
                 if check_pack and pk != project.pack:
                     notes.append('AVISO: este escenario usa el regionpack «%s», no «%s»: las regiones nuevas no existirán '
                                  'en su mapa hasta que use «%s»' % (pk, project.pack, project.pack))
-                K = len(news) * 6 + 1     # pasos por escenario, para la barra de avance (cada acción con su texto)
+                K = len(news) * 6 + 1     # steps per scenario, for the progress bar (each action with its text)
                 sp = lambda k, label: (pf or progress.part(5, 99))(i + k / float(K), len(names), '%s · %s' % (name, label))
                 have_regions = {scenario_core.prop(r, 'strName') for r in s.regions()}
                 for j, x in enumerate(news):
-                    x = scenario_layers.for_scenario(x, name)     # dueño propio de este escenario, si el changelog lo trae
+                    x = scenario_layers.for_scenario(x, name)     # this scenario's own owner, if the changelog has it
                     nm, mother = x['nombre'], x.get('madre')
-                    if mother and mother not in have_regions:      # changelogs antiguos: madre con el nombre de regions.bin
+                    if mother and mother not in have_regions:      # old changelogs: mother with the regions.bin name
                         mother = project.renames.get(mother, mother)
-                    if nm in have_regions:         # ya está en el escenario: no se vuelve a repartir población ni a cambiar de dueño
+                    if nm in have_regions:         # already in the scenario: population is not split again nor owner changed
                         notes.append('%s: ya existía en el escenario; no se toca' % nm)
                         continue
                     sp(j * 6, '%s: creando la región' % nm)
-                    if x.get('nacion'):         # nación nueva (con su capital) que recibe esta región
+                    if x.get('nacion'):         # new nation (with its capital) receiving this region
                         notes += scenario_new.prepare_region(s, x)
                     g_new = project.region_geom(nm)
                     terrain = x.get('terreno') or (new_region.TERRAIN_OF_TYPE.get(x.get('tipo')) if not mother else None)
                     try:
                         if x.get('mar'):
-                            # region de mar nueva: waterWorld.xml y las flotas que quedan dentro
+                            # new sea region: waterWorld.xml and the fleets left inside
                             notes += scenario_layers.add_sea_region(s, nm, mother, x.get('texto'))
                             notes += scenario_layers.reassign_by_geometry(s, nm, g_new, sea=True)
-                            notes += scenario_layers.reassign_ports(s, nm, g_new, project.region_geom)   # ciudades portuarias más cerca del mar nuevo
+                            notes += scenario_layers.reassign_ports(s, nm, g_new, project.region_geom)   # port cities closest to the new sea
                             continue
                         if mother:
                             g_m = project.region_geom(mother)
@@ -1261,7 +1261,7 @@ def register_regions(news, names, check_pack=False, pf=None, force=(), conflicts
                                 goes = (lambda gn, gm: lambda px, py: gn.distance(Point(px, py)) < gm.distance(Point(px, py)))(g_new, g_m)
                             pops = x.get('poblacion')   # {region de origen: fraccion de sus habitantes} elegida en el dialogo
                             exact = (x.get('pob_por_escenario') or {}).get(name)
-                            manual = x.get('poblacion_manual') if not pops and exact is None else None   # a mano o del GeoJSON
+                            manual = x.get('poblacion_manual') if not pops and exact is None else None   # by hand or from the GeoJSON
                             notes += scenario_core.add_new_region(s, nm, mother=mother, fraction=0 if (pops or exact is not None or manual is not None) else (x.get('fraccion') or 0),
                                                                   goes_to_new=goes, text=x.get('texto'), terrain=terrain)
                             sp(j * 6 + 2, '%s: repartiendo la población' % nm)
@@ -1270,13 +1270,13 @@ def register_regions(news, names, check_pack=False, pf=None, force=(), conflicts
                             if exact is not None:
                                 notes += scenario_layers.set_population_from(s, nm, mother, exact)
                             if manual is not None:
-                                # los habitantes puestos a mano salen de las regiones de origen (por su área), no de la nada:
-                                # antes la madre perdía el % de área y luego la cifra a mano lo pisaba (se perdían habitantes)
+                                # inhabitants set by hand come from the source regions (by their area), not from nothing:
+                                # before, the mother lost the area % and then the hand-set figure overwrote it (inhabitants were lost)
                                 ms = {project.renames.get(k, k) if k not in have_regions else k: float(a or 0) for k, a in (x.get('madres') or {}).items()}
                                 ms = {k: a for k, a in ms.items() if k in have_regions and a > 0} or {mother: 1.0}
                                 tot = sum(ms.values())
                                 notes += scenario_layers.take_population(s, nm, {k: float(manual) * a / tot for k, a in ms.items()})
-                            # dueño / controlador elegidos al crearla (si no, hereda los de la madre)
+                            # owner / controller chosen on creation (otherwise inherits the mother's)
                             sp(j * 6 + 3, '%s: asignando propietario y controlador' % nm)
                             vals = {k: v for k, v in (('strOwner', x.get('pais')), ('strController', x.get('controlador') or x.get('pais'))) if v}
                             reg = next((r for r in s.regions(sea=False) if scenario_core.prop(r, 'strName') == nm), None)
@@ -1291,7 +1291,7 @@ def register_regions(news, names, check_pack=False, pf=None, force=(), conflicts
                             if not owner:
                                 notes.append('%s: sin país asignado, no se registra' % nm)
                                 continue
-                            # poblacion: densidad media de las regiones del pais por el area de la nueva
+                            # population: average density of the country's regions times the area of the new one
                             P = scenario_core.prop
                             regs = [r for r in s.regions(sea=False) if P(r, 'strOwner') == owner]
                             pop = sum(int(P(r, 'nPopulation') or 0) for r in regs if (P(r, 'nPopulation') or '').isdigit())
@@ -1301,13 +1301,13 @@ def register_regions(news, names, check_pack=False, pf=None, force=(), conflicts
                                 population = int(x['poblacion_manual'])
                             notes += scenario_core.add_new_region(s, nm, owner=owner, terrain=terrain, population=population,
                                                                   text=x.get('texto'))
-                        notes += scenario_layers._city_and_liberate(s, nm, x, g_new)    # ciudad pedida + país rendido → liberado
-                        notes += scenario_new.finish_region(s, x, nm)                   # capital y país histórico de la nación nueva
-                        # países históricos elegidos al crearla (si no se eligieron, los de la madre)
+                        notes += scenario_layers._city_and_liberate(s, nm, x, g_new)    # requested city + surrendered country -> liberated
+                        notes += scenario_new.finish_region(s, x, nm)                   # capital and historic country of the new nation
+                        # historic countries chosen on creation (if none were chosen, the mother's)
                         if x.get('historicos') is not None:
                             sp(j * 6 + 4, '%s: asignando los países históricos' % nm)
                             notes += scenario_layers.set_historic(s, nm, x['historicos'])
-                        # ciudades, recursos y unidades dentro de la region nueva (de todas las regiones recortadas)
+                        # cities, resources and units inside the new region (from all the clipped regions)
                         sp(j * 6 + 5, '%s: pasando ciudades, recursos y unidades' % nm)
                         notes += scenario_layers.reassign_by_geometry(s, nm, g_new)
                         for c in scenario_layers.unit_conflicts(s, nm):
@@ -1319,10 +1319,10 @@ def register_regions(news, names, check_pack=False, pf=None, force=(), conflicts
                     except ValueError as e:
                         notes.append('ERROR: %s' % e)
                 new_nats = {x['nacion']['name'] for x in news if x.get('nacion')}
-                bad = scenario_new.check_nations(s, new_nats) if new_nats else []      # solo las naciones nuevas (un conjunto vacío las revisaba todas)
+                bad = scenario_new.check_nations(s, new_nats) if new_nats else []      # only the new nations (an empty set checked all of them)
                 notes += ['ERROR: ' + b for b in bad]
                 sp(K - 1, 'guardando los archivos del escenario')
-                if forced:      # «Registrar igualmente»: tenía cambios sin guardar; todo queda en memoria para «Guardar escenario»
+                if forced:      # «Registrar igualmente»: it had unsaved changes; everything stays in memory for «Guardar escenario»
                     notes.append('registrada sin guardar (el escenario tenía cambios sin guardar): falta «Guardar escenario»')
                 else:
                     res = st.save([p for p in s.paths if p in st.dirty])
@@ -1336,12 +1336,12 @@ def register_regions(news, names, check_pack=False, pf=None, force=(), conflicts
 
 
 def delete_from_scenarios(deleted, names, pf=None, pops=None, project=None):
-    """Quita de los escenarios las regiones borradas del mapa. Si su área pasó a una región de tierra, sus ciudades,
-    recursos, población y unidades pasan a ella; si no, las unidades van a la región más cercana de su país."""
+    """Removes regions deleted from the map from the scenarios. If their area went to a land region, their cities,
+    resources, population and units go to it; otherwise units go to the nearest region of their country."""
     project = project or PROJECT
     P = scenario_core.prop
     out = {}
-    pops = pops if pops is not None else {}       # {región: {escenario: habitantes}} que se pierden (para «Volver»)
+    pops = pops if pops is not None else {}       # {region: {scenario: inhabitants}} that are lost (for «Volver»)
     with SCEN_LOCK:
         for k, name in enumerate(names):
             (pf or progress.part(5, 99))(k, len(names), 'Quitando las regiones borradas de «%s»' % name)
@@ -1358,7 +1358,7 @@ def delete_from_scenarios(deleted, names, pf=None, pops=None, project=None):
                     if d.get('sea'):
                         sea_into = into
                         if into and into in land:
-                            # mar/lago/río que pasa a una región de TIERRA: las flotas y los puertos van al mar vecino de esa región
+                            # sea/lake/river that becomes a LAND region: fleets and ports go to the neighboring sea of that region
                             gi = next((g for g in project.m['regions'] if project.rname(g.index) == into), None)
                             seas_now = {P(r, 'strName') for r in s.regions(sea=True)} - {nm}
                             sea_into = next((project.rname(n) for n in (gi.neighbors if gi is not None else [])
@@ -1408,8 +1408,8 @@ def delete_from_scenarios(deleted, names, pf=None, pops=None, project=None):
 
 
 def adapt_scenarios(names, pack, pop_mode='area'):
-    """Pasa los escenarios al regionpack 'pack' añadiendo y quitando las regiones necesarias, y los guarda.
-    Los que tienen cambios sin guardar en el editor de escenarios no se tocan."""
+    """Switches the scenarios to regionpack 'pack', adding and removing the needed regions, and saves them.
+    Those with unsaved changes in the scenario editor are not touched."""
     out = {}
     with SCEN_LOCK:
         for k, name in enumerate(names):
@@ -1432,12 +1432,12 @@ def adapt_scenarios(names, pack, pop_mode='area'):
 
 
 def uninstalled_in_scenarios(pack):
-    """{escenario: [regiones]} de los escenarios que usan 'pack' y tienen regiones que el mapa INSTALADO no tiene (p. ej. regiones
-    nuevas registradas al guardar pero sin «Instalar»): el juego no los carga. Se mira lo que hay en disco, que es lo que lee el juego."""
+    """{scenario: [regions]} of the scenarios that use 'pack' and have regions the INSTALLED map lacks (e.g. new regions
+    registered on save but without «Instalar»): the game does not load them. Checks what is on disk, which is what the game reads."""
     try:
         inst = set(scenario_layers.PackMap(pack).sea)
     except ValueError:
-        return {}              # regionpack sin instalar: ya se avisa aparte
+        return {}              # uninstalled regionpack: already warned separately
     rx = re.compile(r'<object type="(?:Sea)?Region"[^>]*>\s*<property name="strName" value="([^"]*)"')
     out = {}
     for name in scenario_core.scenarios_using(pack):
@@ -1453,9 +1453,9 @@ def uninstalled_in_scenarios(pack):
 
 
 def keep_game_loadable(rep, project=None):
-    """Tras registrar regiones nuevas (o quitarlas) en los escenarios del juego: si alguno queda con regiones que el mapa instalado
-    no tiene, se instala ya el mapa (si no, el juego no carga esos escenarios) y se adecuan los demás escenarios del regionpack a
-    los que les falten. Así una región nueva (p. ej. una isla) nunca deja escenarios a medias entre «Guardar» e «Instalar»."""
+    """After registering new regions (or removing them) in the game scenarios: if any is left with regions the installed map
+    lacks, the map is installed right away (otherwise the game does not load those scenarios) and the other scenarios of the regionpack
+    missing them are adjusted. So a new region (e.g. an island) never leaves scenarios half done between «Guardar» and «Instalar»."""
     project = project or PROJECT
     if project.virtual:
         return
@@ -1463,8 +1463,8 @@ def keep_game_loadable(rep, project=None):
     if not bad:
         return
     if not getattr(keep_game_loadable, 'auto', False):
-        # el juego solo se toca con «Instalar» explícito: la página pregunta («Instalar ahora» / «Más tarde») con not_loadable.
-        # Antes se instalaba aquí sin preguntar y se adecuaban otros escenarios del regionpack.
+        # the game is only touched with an explicit «Instalar»: the page asks («Instalar ahora» / «Más tarde») with not_loadable.
+        # Before, it installed here without asking and adjusted other scenarios of the regionpack.
         rep['not_loadable'] = bad
         return
     r = project.install('same', None, [], backup_root=scenario_core.BACKUP_ROOT)
@@ -1481,7 +1481,7 @@ def keep_game_loadable(rep, project=None):
 
 
 def pack_incompatibles(pack):
-    """{escenario: {'faltan': [...], 'sobran': [...]}} de los escenarios que usan 'pack' y no cuadran con su mapa."""
+    """{scenario: {'faltan': [...], 'sobran': [...]}} of the scenarios that use 'pack' and do not match their map."""
     out = {}
     with SCEN_LOCK:
         for name in scenario_core.scenarios_using(pack):
@@ -1496,7 +1496,7 @@ def pack_incompatibles(pack):
 
 
 def nearest_region_of(s, country, xy, exclude=None, port=False):
-    """Región de tierra de 'country' más cercana al punto xy: {name, xy (centro)} o None."""
+    """Land region of 'country' nearest to point xy: {name, xy (center)} or None."""
     from shapely.geometry import Point
     if not xy:
         return None
@@ -1508,7 +1508,7 @@ def nearest_region_of(s, country, xy, exclude=None, port=False):
         if P(r, 'strOwner') != country or n == exclude:
             continue
         if port and not any(c.get('type') == 'City' and P(c, 'strPortForRegion') for c in scenario_core.objs(r)):
-            continue        # una flota solo puede atracar en una region con puerto
+            continue        # a fleet can only dock in a region with a port
         g = PROJECT.region_geom(n)
         if g is None:
             continue
@@ -1533,10 +1533,10 @@ def unregister_regions(removed, names):
                 have = {scenario_core.prop(r, 'strName') for r in s.regions()}
                 for x in removed:
                     mo = x.get('madre')
-                    if mo and mo not in have:      # changelogs antiguos: madre con el nombre de regions.bin
+                    if mo and mo not in have:      # old changelogs: mother with the regions.bin name
                         mo = PROJECT.renames.get(mo, mo)
                     notes += scenario_core.remove_new_region(s, x['nombre'], mo, x.get('poblacion'))
-                    # ciudades, recursos y unidades vuelven a la region de origen donde estan (si salio de varias)
+                    # cities, resources and units return to the source region where they are (if it came from several)
                     for m in x.get('madres') or []:
                         if m != x.get('madre'):
                             notes += scenario_layers.reassign_by_geometry(s, m, PROJECT.region_geom(m))
@@ -1549,7 +1549,7 @@ def unregister_regions(removed, names):
 
 
 def map_info():
-    """Regiones del mapa del proyecto: {nombre: es_mar} y vecinos por nombre (para validar)."""
+    """Regions of the project map: {name: is_sea} and neighbors by name (for validation)."""
     R = PROJECT.m['regions']
     nm = PROJECT.rname
     names = {nm(g.index): g.u_type == 0 for g in R}
@@ -1602,7 +1602,7 @@ def scen_get(path, q):
                     'dirty': sorted(os.path.basename(p) for p in scenario_core.STORE.dirty)}
         if path == '/api/scen/tab':
             r = scenario(q['name']).tab_rows(q['tab'])
-            return scenario_i18n.L(r) if q['tab'] == 'events' else r      # columnas «Clase», «Tipo», «Qué hace» en el idioma del editor
+            return scenario_i18n.L(r) if q['tab'] == 'events' else r      # «Clase», «Tipo», «Qué hace» columns in the editor language
         if path == '/api/scen/options':
             return scenario(q['name']).options()
         if path == '/api/scen/obj':
@@ -1612,7 +1612,7 @@ def scen_get(path, q):
             r['poblacion_ref'] = bool(scenario_layers.pack_pop_table(q['pack']))
             return r
         if path == '/api/scen/historic_of':
-            # para el diálogo de región nueva: países históricos posibles y los que ya incluyen las regiones de origen
+            # for the new region dialog: possible historic countries and those the source regions already include
             s = scenario(q['name'])
             P = scenario_core.prop
             src = set(x for x in (q.get('regions') or '').split('|') if x)
@@ -1631,14 +1631,14 @@ def scen_get(path, q):
         if path == '/api/scen/relations':
             return scenario_layers.relations(scenario(q['name']), [x for x in (q.get('countries') or '').split('|') if x])
         if path == '/api/scen/pack_check':
-            # comprobación rápida para el indicador del editor de regiones: ¿cuadra el escenario con este regionpack?
+            # quick check for the region editor indicator: does the scenario match this regionpack?
             s = scenario(q['name'])
             try:
                 missing, extra = scenario_layers.pack_mismatch(s, q['pack'])
-            except ValueError as e:         # regionpack nuevo todavía sin instalar (solo existe como proyecto)
+            except ValueError as e:         # new regionpack not yet installed (exists only as a project)
                 return {'error': str(e), 'not_installed': True, 'pack': q['pack']}
-            # regiones ya guardadas en el proyecto (y registradas en el escenario) que el mapa del juego aún no tiene: no «sobran»,
-            # falta «Instalar»; mientras tanto el juego no carga el escenario («... that isn't part of the map»)
+            # regions already saved in the project (and registered in the scenario) that the game map does not have yet: not «sobran»,
+            # «Instalar» is missing; meanwhile the game does not load the scenario («... that isn't part of the map»)
             pending = []
             if q['pack'] == PROJECT.pack:
                 proj = {PROJECT.rname(g.index) for g in PROJECT.m['regions']}
@@ -1650,7 +1650,7 @@ def scen_get(path, q):
         if path == '/api/scen/mapdata':
             return scenario_layers.mapdata(scenario(q['name']))
         if path == '/api/scen/points':
-            # ciudades y productores por su vecPosition; ejercitos, aviacion y flotas en el centro de su region
+            # cities and producers by their vecPosition; armies, aircraft and fleets at the center of their region
             s = scenario(q['name'])
             P = scenario_core.prop
             centers = {PROJECT.rname(g.index): (g.cx, g.cy) for g in PROJECT.m['regions']}
@@ -1672,7 +1672,7 @@ def scen_get(path, q):
             off = {'Army': (0, -0.25), 'AirForce': (0.3, 0.15), 'Fleet': (0, 0)}
             for t, kind in (('Army', 'army'), ('AirForce', 'air'), ('Fleet', 'fleet')):
                 for e in s.all(t):
-                    xy = pos(e)   # las unidades tienen vecPosition; si no, el centro de su region
+                    xy = pos(e)   # units have vecPosition; otherwise the center of their region
                     c = (xy[0] - off[t][0], xy[1] - off[t][1]) if xy else centers.get(P(e, 'strRegion'))
                     if c:
                         n = sum(int(P(u, 'nNumber')) if (P(u, 'nNumber') or '').isdigit() else 1 for u in scenario_core.objs(e))
@@ -1687,7 +1687,7 @@ def scen_get(path, q):
         if path == '/api/scen/terrains':
             return {'terrains': scenario_events.terrains(scenario(q['name']))}
         if path == '/api/scen/region_export':
-            # paquete de regiones (con ciudades y recursos; unidades si units=1) para importarlas en otro escenario
+            # region bundle (with cities and resources; units if units=1) to import them into another scenario
             return region_transfer.export_regions(scenario(q['name']), [x for x in q.get('regions', '').split('|') if x], q.get('units') == '1')
         if path == '/api/scen/start_research':
             return research_defaults.info(scenario(q['name']), q.get('country') or None)
@@ -1761,7 +1761,7 @@ def scen_post(path, p):
             notes = scenario_layers.remove_duplicates(s, p.get('remove'), p.get('remove_dupes'))
             return {'notes': notes, 'dirty': sorted(os.path.basename(x) for x in scenario_core.STORE.dirty if x in s.paths)}
         if path == '/api/scen/fix_nation_refs':
-            # referencias a una nación inexistente: cambiarlas por otra o borrar las relaciones diplomáticas
+            # references to a nonexistent nation: change them to another or delete the diplomatic relations
             st, n = scenario_core.STORE, 0
             for it in p['items']:
                 el = st.get(it['id'])
@@ -1776,7 +1776,7 @@ def scen_post(path, p):
             return {'notes': ['%d referencia(s) %s' % (n, 'borradas' if p.get('delete') else 'cambiadas a %s' % p['value'])],
                     'dirty': _dirty_of(s)}
         if path == '/api/scen/delete':
-            # borrar un objeto suelto (p. ej. una relación diplomática con una nación que no existe)
+            # delete a single object (e.g. a diplomatic relation with a nation that does not exist)
             st, el = scenario_core.STORE, scenario_core.STORE.get(p['id'])
             if el is None:
                 raise ValueError('ese objeto ya no existe')
@@ -1788,7 +1788,7 @@ def scen_post(path, p):
             notes = v.update(p['id'], dict(p.get('values') or {}), p.get('move_children', True))
             return {'notes': notes, 'detail': v.detail(p['id'])}
         if path == '/api/scen/new_from':
-            # escenario nuevo copiando uno existente entero (p. ej. «Scenario Template»: todo el mapa de un solo país para repartir)
+            # new scenario copying an existing one whole (e.g. «Scenario Template»: the whole map for a single country to split)
             src = scenario(p['src'])
             if any(x in st.dirty for x in src.paths):
                 raise ValueError('«%s» tiene cambios sin guardar: guárdalo o revierte antes de usarlo como base' % p['src'])
@@ -1800,7 +1800,7 @@ def scen_post(path, p):
                 open(f, 'wb').write(raw.encode('utf-8'))
             return {'name': r['scenario'], 'pack': scenario_core.pack_of(scenario(r['scenario']))}
         if path == '/api/scen/new_scratch':
-            # escenario vacío sobre un regionpack (sin naciones): luego se le añaden naciones al crear regiones
+            # empty scenario on a regionpack (no nations): nations are added later when creating regions
             name = scenario_new.create_scenario(p['name'], p['pack'], p.get('template') or None, p.get('display') or None, p.get('description') or None)
             scenario_extra.ensure_dirs(os.path.join(scenario_core.SCEN_ROOT, name))
             return {'name': name, 'template': p.get('template') or '(plantilla del editor)'}
@@ -1808,7 +1808,7 @@ def scen_post(path, p):
             s = scenario(p['name'])
             return {'errors': scenario_new.check_nations(s)}
         if path == '/api/scen/flow_resource':
-            # recurso de un flujo comercial o de ayuda (ResourceTrade): añadir, cambiar o quitar (cantidad 0)
+            # resource of a trade or aid flow (ResourceTrade): add, change or remove (amount 0)
             el = st.get(p['id'])
             notes = scenario_extra.flow_resource(st, el, p.get('resource'), p.get('amount'))
             return {'notes': notes, 'detail': view_for(p['id']).detail(p['id'])}
@@ -1821,7 +1821,7 @@ def scen_post(path, p):
             st.remove(el)
             return {'ok': True, 'parent': st.eid(par) if par is not None and par.tag == 'object' else None}
         if path == '/api/scen/set_owner':
-            # cambiar dueno/controlador de una region desde el mapa (sin tocar su forma)
+            # change owner/controller of a region from the map (without touching its shape)
             s = scenario(p['name'])
             reg = next((r for r in s.regions(sea=False) if scenario_core.prop(r, 'strName') == p['region']), None)
             if reg is None:
@@ -1832,7 +1832,7 @@ def scen_post(path, p):
             if p.get('controller'):
                 values['strController'] = p['controller']
             notes = s.update(st.eid(reg), values)
-            if p.get('owner'):     # un país rendido que recibe una región deja de estarlo y su capital pasa a una ciudad de ella
+            if p.get('owner'):     # a surrendered country that receives a region stops being so and its capital moves to one of its cities
                 notes += scenario_layers.unsurrender(s, p['owner'], p['region'])
             return {'notes': notes, 'dirty': _dirty_of(s)}
         if path == '/api/scen/dirty':
@@ -1844,7 +1844,7 @@ def scen_post(path, p):
                     'dirty': sorted(os.path.basename(x) for x in st.dirty)}
         if path in ('/api/scen/event_template', '/api/scen/event_when', '/api/scen/event_remove', '/api/scen/ai_rule', '/api/scen/event_add',
                     '/api/scen/terrain', '/api/scen/terrain_delete', '/api/scen/culture', '/api/scen/culture_delete', '/api/scen/terrain_color'):
-            # eventos (plantillas, fecha/turno, quitar con su cadena), reglas de la IA, tipos de terreno y culturas
+            # events (templates, date/turn, remove with its chain), AI rules, terrain types and cultures
             s = scenario(p['name'])
             E, i = scenario_events, None
             if path == '/api/scen/event_template':
@@ -1873,7 +1873,7 @@ def scen_post(path, p):
                 i, notes = E.culture_create(s, p.get('culture'), p.get('display'))
             elif path == '/api/scen/culture_delete':
                 notes = E.culture_delete(s, p['id'], p.get('to'))
-            elif path == '/api/scen/terrain_color':       # botón explícito: escribe UnifiedMapViews.xml del juego
+            elif path == '/api/scen/terrain_color':       # explicit button: writes the game UnifiedMapViews.xml
                 notes = E.terrain_color_set(s, p['terrain'], p['color'])
             else:
                 notes = E.terrain_delete(s, p['id'], p.get('to'))
@@ -1903,7 +1903,7 @@ def scen_post(path, p):
             r['dirty'] = _dirty_of(s)
             return r
         if path == '/api/scen/bulk':
-            # acciones de selección múltiple (regiones o países)
+            # multiple selection actions (regions or countries)
             s = scenario(p['name'])
             a, L_ = p['action'], scenario_layers
             if a == 'regions':
@@ -1944,7 +1944,7 @@ def scen_post(path, p):
                 raise ValueError('acción desconocida: %s' % a)
             return {'notes': notes, 'dirty': _dirty_of(s)}
         if path == '/api/scen/resolve_units':
-            # unidades de otro país que quedaron en una región nueva: cambiar de país o trasladar
+            # units of another country left in a new region: change country or move
             out = []
             touched = set()
             for it in p['items']:
@@ -1956,14 +1956,14 @@ def scen_post(path, p):
                 st.save([x for x in s.paths if x in st.dirty])
             return {'notes': out}
         if path == '/api/scen/discard_all':
-            # la pagina se ha (re)cargado: lo no guardado se descarta y todo se vuelve a leer de los archivos guardados
+            # the page was (re)loaded: unsaved changes are discarded and everything is re-read from the saved files
             names = sorted(SCEN)
             dirty = sorted({os.path.basename(x) for x in st.dirty})
             st.revert()
             SCEN.clear()
             return {'discarded': dirty, 'scenarios': names}
         if path == '/api/scen/reload':
-            # Refrescar: releer el escenario del disco (descarta lo que hay en memoria) y comprobar su regionpack
+            # Refresh: re-read the scenario from disk (discards what is in memory) and check its regionpack
             name = p['name']
             if name in SCEN:
                 dirty = sorted(os.path.basename(x) for x in st.dirty if x in SCEN[name].paths)
@@ -1991,7 +1991,7 @@ def scen_post(path, p):
             r['dirty'] = _dirty_of(s)
             return r
         if path == '/api/scen/create':
-            # objeto nuevo: ciudad, recurso (productor) o ejército (como «Add» de ed.exe)
+            # new object: city, resource (producer) or army (like «Add» in ed.exe)
             s = scenario(p['name'])
             L_, k, SC_ = scenario_layers, p['kind'], scenario_create
             if k == 'city':
@@ -2046,13 +2046,13 @@ def scen_post(path, p):
             notes = scenario_layers.set_claims(s, p['country'], p.get('list'), p.get('regions') or [])
             return {'notes': notes, 'dirty': _dirty_of(s)}
         if path == '/api/scen/fix_icons':
-            # unidades / investigaciones sin imagen válida: la imagen por defecto de su familia (escribe ui/ del escenario)
+            # units / research without a valid image: the default image of their family (writes the scenario ui/)
             items = p.get('items')
             done = icon_defaults.fix(scenario(p['name']).dir, [tuple(x) for x in items] if items else None,
                                      writer=lambda f: image_tools.write_files(f, 'iconos-por-defecto'), log=lambda *_: None)
             return {'done': done}
         if path == '/api/scen/bulk_units':
-            # creación masiva de unidades: 'info' (plantillas por tipo y países), 'plan' (vista previa), 'apply', 'undo'
+            # bulk unit creation: 'info' (templates by type and countries), 'plan' (preview), 'apply', 'undo'
             import bulk_units
             s = scenario(p['name'])
             op = p.get('op')
@@ -2067,7 +2067,7 @@ def scen_post(path, p):
             if op == 'apply':
                 import tech_units
                 notes = bulk_units.apply(s, p['items'])
-                # unidades por encima de la tecnología del país (p. ej. la plantilla más barata): se ofrece añadirla después
+                # units above the country's technology (e.g. the cheapest template): offered to add it afterwards
                 tech = tech_units.plan(s, sorted({it['country'] for it in p['items']}))
                 return {'notes': notes, 'dirty': _dirty_of(s), 'tech': tech}
             if op in ('tech_plan', 'tech_apply', 'tech_undo'):
@@ -2079,6 +2079,11 @@ def scen_post(path, p):
                 if op == 'tech_plan':
                     return {'items': items}
                 return {'notes': tech_units.apply(s, items), 'dirty': _dirty_of(s)}
+            if op in ('stack_plan', 'stack_apply'):      # groups of the same country piled up in the same place -> one
+                piles = bulk_units.stacks(s)
+                if op == 'stack_plan':
+                    return {'piles': piles}
+                return {'notes': bulk_units.merge_stacks(s, piles), 'dirty': _dirty_of(s)}
             if op == 'undo':
                 return {'notes': bulk_units.undo(s), 'dirty': _dirty_of(s)}
             raise ValueError('operación desconocida: %s' % op)
@@ -2098,7 +2103,7 @@ def scen_post(path, p):
             notes = scenario_layers.auto_capitals(s, p.get('countries'))
             return {'notes': notes, 'dirty': _dirty_of(s)}
         if path == '/api/scen/create_info':
-            # listas para el diálogo de «Añadir»: recursos, plantillas de unidad, países, regiones de mar y tierra
+            # lists for the «Añadir» dialog: resources, unit templates, countries, sea and land regions
             s = scenario(p['name'])
             P = scenario_core.prop
             return {'resources': sorted({P(x, 'strResource') for x in s.all('Producer') if P(x, 'strResource')}),
@@ -2120,10 +2125,10 @@ def scen_post(path, p):
                                         - {P(g, 'strOwner') for t in ('Army', 'AirForce', 'Fleet') for g in s.all(t)}),
                     'cities': sorted(({'name': P(c, 'strName'), 'region': P(scenario_core.STORE.parent.get(c), 'strName'), 'owner': P(c, 'strOwner')} for c in s.all('City')), key=lambda x: x['name'])}
         if path == '/api/scen/move_point':
-            # mover una ciudad o recurso a otro punto del mapa (si cae en otra región, pasa a ella con su dueño)
+            # move a city or resource to another map point (if it falls in another region, it goes to it with its owner)
             s = scenario(p['name'])
             el = st.get(p['id'])
-            if el.get('type') in scenario_events.UNIT_TYPES:     # ejércitos, aviación y flotas: cambian de región (o entran en un puerto)
+            if el.get('type') in scenario_events.UNIT_TYPES:     # armies, aircraft and fleets: change region (or enter a port)
                 notes = scenario_events.move_unit(s, p['id'], p.get('x'), p.get('y'), p.get('port'))
                 return {'notes': scenario_i18n.L(notes), 'dirty': sorted(os.path.basename(z) for z in st.dirty if z in s.paths)}
             x, y = float(p['x']), float(p['y'])
@@ -2132,12 +2137,12 @@ def scen_post(path, p):
             cur = scenario_core.prop(st.parent.get(el), 'strName')
             try:
                 rname = scenario_layers._land_region_at(s, x, y)[1]
-            except ValueError:          # sobre el mar (o fuera del mapa): región de mar si la hay
+            except ValueError:          # over the sea (or off the map): sea region if there is one
                 try:
                     rname = scenario_layers.pack_map(scenario_layers.scenario_pack(s)).region_at(x, y, sea=True)
                 except Exception:
                     rname = None
-            keep = p.get('keep')        # None: preguntar si cambia de región; True: sigue en la suya; False: pasa a la del punto
+            keep = p.get('keep')        # None: ask whether it changes region; True: stays in its own; False: goes to the point's one
             if rname and rname != cur and keep is None:
                 owner = next((scenario_core.prop(r, 'strOwner') for r in s.regions() if scenario_core.prop(r, 'strName') == rname), '')
                 return {'ask': {'from': cur, 'to': rname, 'owner': owner or ''}}
@@ -2149,7 +2154,7 @@ def scen_post(path, p):
                 notes.append('sigue dependiendo de %s (el punto queda fuera de ella)' % cur)
             return {'notes': notes, 'dirty': sorted(os.path.basename(z) for z in st.dirty if z in s.paths)}
         if path in ('/api/scen/model_texture', '/api/scen/model_import', '/api/scen/model_save_links'):
-            # visor de modelos: vista previa (sin sprite_id) o guardar el .nif en el escenario (botón explícito) y vincular el Sprite
+            # model viewer: preview (without sprite_id) or save the .nif in the scenario (explicit button) and link the Sprite
             import models_api
             s = scenario(p['name'])
             if path.endswith('save_links'):
@@ -2158,7 +2163,7 @@ def scen_post(path, p):
             r['dirty'] = sorted(os.path.basename(z) for z in st.dirty if z in s.paths)
             return r
         if path == '/api/scen/sprites':
-            # escala 3D (fScale): 'set' en memoria; 'save' escribe los archivos del juego (botón explícito) y lo anota; 'undo' / 'discard'
+            # 3D scale (fScale): 'set' in memory; 'save' writes the game files (explicit button) and notes it; 'undo' / 'discard'
             op = p.get('op')
             notes = (sprite_scale.set_scales(p.get('values') or {}) if op == 'set' else sprite_scale.save_game() if op == 'save'
                      else sprite_scale.undo_last() if op == 'undo' else sprite_scale.discard() if op == 'discard' else None)
@@ -2166,7 +2171,7 @@ def scen_post(path, p):
                 raise ValueError('operación desconocida: %s' % op)
             return {'notes': notes}
         if path == '/api/scen/region_import':
-            # importar regiones de otro escenario (src + regions) o de un paquete .json (bundle); dry: solo el plan
+            # import regions from another scenario (src + regions) or from a .json bundle (bundle); dry: plan only
             s = scenario(p['name'])
             if p.get('bundle'):
                 bundle = p['bundle']
@@ -2179,29 +2184,29 @@ def scen_post(path, p):
             notes = region_transfer.apply(s, bundle, p.get('mapping') or {}, bool(p.get('cities', True)), bool(p.get('units', True)))
             return {'notes': notes, 'dirty': sorted(os.path.basename(z) for z in st.dirty if z in s.paths)}
         if path == '/api/scen/start_research':
-            # proyectos completados al empezar (unidades que se pueden fabricar): para todos (country vacío) o para un país
+            # projects completed at start (buildable units): for everyone (empty country) or for one country
             s = scenario(p['name'])
             notes = research_defaults.set_country(s, p['country'], p.get('on') or []) if p.get('country') else research_defaults.set_default(s, p.get('on') or [])
             return {'notes': notes, 'dirty': sorted(os.path.basename(z) for z in st.dirty if z in s.paths)}
         if path == '/api/scen/rename_country':
-            # cambiar el nombre de un país: solo cómo se ve (SID) o también el nombre interno, archivos y referencias
+            # rename a country: only how it looks (SID) or also the internal name, files and references
             s = scenario(p['name'])
             notes = scenario_layers.rename_country(s, p['old'], p['new'], bool(p.get('code')), keep_shown=bool(p.get('keep_shown')))
             c = s.countries().get(p['new'] if p.get('code') else p['old'])
             return {'notes': notes, 'id': st.eid(c) if c is not None else None, 'dirty': sorted(os.path.basename(z) for z in st.dirty if z in s.paths)}
         if path == '/api/scen/set_direction':
-            # orientación de una ciudad o unidad (nDirection, grados; en ed.exe con clic derecho)
+            # orientation of a city or unit (nDirection, degrees; right click in ed.exe)
             s = scenario(p['name'])
             notes = scenario_events.set_direction(s, p['id'], p['deg'])
             return {'notes': scenario_i18n.L(notes), 'dirty': sorted(os.path.basename(z) for z in st.dirty if z in s.paths)}
         if path == '/api/scen/open_folder':
-            # abrir en el Explorador la carpeta de un escenario o de un regionpack (solo lectura: no cambia nada)
+            # open in Explorer the folder of a scenario or regionpack (read only: changes nothing)
             if p.get('scenario'):
                 d = os.path.join(scenario_core.SCEN_ROOT, p['scenario'])
             else:
                 d = os.path.join(editor_core.MAPS, p.get('pack') or PROJECT.pack)
                 if not os.path.isdir(d) and (p.get('pack') or PROJECT.pack) == PROJECT.pack:
-                    d = PROJECT.dir          # regionpack nuevo aún sin instalar: su proyecto del editor
+                    d = PROJECT.dir          # new regionpack not yet installed: its editor project
             d = os.path.abspath(d)
             if not os.path.isdir(d):
                 raise ValueError('no existe la carpeta %s' % d)
@@ -2209,7 +2214,7 @@ def scen_post(path, p):
                 os.startfile(d)
             return {'notes': ['abierta %s' % d], 'path': d}
         if path == '/api/scen/port_options':
-            # mares para el puerto de una ciudad: los vecinos de su región primero (en el mapa del regionpack del escenario)
+            # seas for a city port: the neighbors of its region first (in the map of the scenario's regionpack)
             s = scenario(p['name'])
             el = st.get(p['id'])
             region = scenario_core.prop(st.parent.get(el), 'strName')
@@ -2237,7 +2242,7 @@ def scen_post(path, p):
             notes = scenario_layers.set_playable(s, p['countries'])
             return {'notes': notes, 'dirty': _dirty_of(s)}
         if path == '/api/scen/set_pack':
-            # cambiar de regionpack también adecua las regiones: si no coinciden con su mapa, el juego no carga el escenario
+            # changing regionpack also adjusts the regions: if they do not match its map, the game does not load the scenario
             s = scenario(p['name'])
             if p.get('only_switch'):
                 notes = scenario_layers.set_pack(s, p['pack'])
@@ -2248,11 +2253,11 @@ def scen_post(path, p):
             s = scenario(p['name'])
             ext = scenario_layers.external_dirty(s)
             if ext and not p.get('mode'):
-                # datos compartidos de ScenarioDefaults: que el usuario elija
+                # shared ScenarioDefaults data: let the user choose
                 return {'needs_choice': True, 'defaults': [
                     {'file': os.path.basename(x), 'users': scenario_layers.users_of(x)} for x in ext]}
             if not p.get('ignore_pack'):
-                # no guardar sin avisar un escenario cuyas regiones no cuadran con su regionpack (el juego no lo cargaría)
+                # do not save without warning a scenario whose regions do not match its regionpack (the game would not load it)
                 pack = scenario_core.pack_of(s)
                 try:
                     missing, extra = scenario_layers.pack_mismatch(s, pack)
@@ -2268,7 +2273,7 @@ def scen_post(path, p):
             r = st.save([x for x in s.paths if x in st.dirty])
             in_game = os.path.normcase(os.path.abspath(scenario_core.SCEN_ROOT)).startswith(os.path.normcase(os.path.abspath(scenario_core.GAME)))
             if not scenario_layers.tilt_state(s) and in_game:
-                cam = scenario_layers.ensure_flat_camera()   # camara sin inclinacion (archivo nuevo, no toca WorldUnified)
+                cam = scenario_layers.ensure_flat_camera()   # camera without tilt (new file, does not touch WorldUnified)
                 if cam:
                     r['written'].append(os.path.relpath(cam, scenario_core.GAME))
             return r
@@ -2293,7 +2298,7 @@ def scen_post(path, p):
 import scenario_compare  # noqa: E402
 import savegame  # noqa: E402
 
-SAVE_CACHE = {}     # (ruta, mtime, escenario) -> SaveData
+SAVE_CACHE = {}     # (path, mtime, scenario) -> SaveData
 
 
 def _save_for(s, path):
@@ -2308,21 +2313,21 @@ def _save_for(s, path):
 
 
 def _dirty_of(s):
-    # todo lo que está sin guardar dentro de la carpeta del escenario: también game/stringTable.xml, que no está en s.paths
-    # (si no, tras «Adecuar» con solo textos cambiados, «Guardar escenario» quedaba desactivado)
+    # everything unsaved inside the scenario folder: also game/stringTable.xml, which is not in s.paths
+    # (otherwise, after «Adecuar» with only texts changed, «Guardar escenario» stayed disabled)
     base = os.path.abspath(s.dir) + os.sep
     return sorted(os.path.relpath(x, s.dir).replace(os.sep, '/') if not x in s.paths else os.path.basename(x)
                   for x in scenario_core.STORE.dirty if x in s.paths or os.path.abspath(x).startswith(base))
 
 
-# ---------------------------------------------------------------- registro del juego («¿por qué no carga?»)
+# ---------------------------------------------------------------- game log («why does it not load?»)
 import game_log_report  # noqa: E402
 GAMELOG = {'thread': None, 'stop': None, 'path': None, 'error': None}
 
 
 def gamelog_api(path, p):
-    """start: abre «Game Log.bat» en su ventana (se cierra con Ctrl+C) o, en el .exe (sin Python), escucha aquí mismo hasta stop.
-    status / report: el último logs/juego_*.log analizado (game_log_report). Solo escucha y lee; no toca el juego."""
+    """start: opens «Game Log.bat» in its window (closed with Ctrl+C) or, in the .exe (without Python), listens right here until stop.
+    status / report: the latest analyzed logs/juego_*.log (game_log_report). Only listens and reads; does not touch the game."""
     if path == '/api/gamelog/start':
         bat = os.path.join(ROOT, 'Game Log.bat')
         if not getattr(sys, 'frozen', False) and os.path.exists(bat) and p.get('mode') != 'editor':
@@ -2339,7 +2344,7 @@ def gamelog_api(path, p):
         def run():
             try:
                 game_log.main(stop=GAMELOG['stop'], started=lambda x: GAMELOG.update(path=x))
-            except BaseException as e:     # sys.exit si el canal está ocupado (otra captura o DebugView)
+            except BaseException as e:     # sys.exit if the channel is busy (another capture or DebugView)
                 GAMELOG['error'] = str(e)
         GAMELOG['thread'] = threading.Thread(target=run, daemon=True)
         GAMELOG['thread'].start()
@@ -2399,7 +2404,7 @@ def cmp_post(path, p):
             summ['forces'] = dict(summ['forces'])
             return {'summary': summ, 'plan': pl, 'pack': rep, 'dirty': _dirty_of(s)}
         if path == '/api/save/create':
-            # escenario nuevo (carpeta aparte) desde la partida; el escenario base no se toca
+            # new scenario (separate folder) from the saved game; the base scenario is not touched
             s = scenario(p['scenario'])
             r = savegame.create_scenario(scenario_core.SCEN_ROOT, s.name, os.path.abspath(p['path']), p['new_name'],
                                          p.get('owners', True), p.get('ipus', True), p.get('forces', True), p.get('adapt', True))
@@ -2435,7 +2440,7 @@ def img_get(h, path, q):
             if png is None:
                 return h.send(404, {'error': 'sin bandera'})
             return h.send(200, png, 'image/png')
-        if path == '/api/img/asset':        # un icono/imagen con todas sus variantes (propia del escenario o del juego)
+        if path == '/api/img/asset':        # an icon/image with all its variants (scenario-specific or from the game)
             return h.send(200, image_assets.info(q['scen'], q['kind'], q.get('name', '')))
         if path == '/api/img/asset/export':
             png, fname = image_assets.export_png(q['scen'], q['kind'], q.get('name', ''), q.get('group'))
@@ -2447,7 +2452,7 @@ def img_get(h, path, q):
             h.end_headers()
             h.wfile.write(png)
             return
-        if path == '/api/img/nations':      # naciones sin color o sin bandera (marcas de la lista)
+        if path == '/api/img/nations':      # nations without color or flag (list marks)
             return h.send(200, image_tools.nation_status(q['scen']))
         if path == '/api/img/catalog':
             return h.send(200, {'groups': image_assets.catalog(q['scen'])})
@@ -2472,9 +2477,9 @@ def img_post(path, p):
             return image_tools.icon_preview(p)
         elif path == '/api/img/icon/write':
             rep = image_tools.icon_write(p)
-        elif path == '/api/img/fetch':      # bandera/imagen desde una URL que da el usuario
+        elif path == '/api/img/fetch':      # flag/image from a URL given by the user
             return image_tools.fetch_url(p.get('url'))
-        elif path == '/api/img/lobby/preview':     # retrato del lobby por capas (bandera, monumento, líder)
+        elif path == '/api/img/lobby/preview':     # layered lobby portrait (flag, monument, leader)
             return image_tools.lobby_preview(p)
         elif path == '/api/img/lobby/write':
             rep = image_tools.lobby_write(p)
@@ -2520,7 +2525,7 @@ def map_backup_dir():
 
 
 def select_game(key):
-    """Cambia la carpeta del juego (MH1 o Gold) de los dos editores."""
+    """Changes the game folder (MH1 or Gold) of both editors."""
     global PROJECT, DOCVIEW
     with SCEN_LOCK:
         if scenario_core.STORE.dirty:
@@ -2528,7 +2533,7 @@ def select_game(key):
                              % ', '.join(sorted(os.path.basename(p) for p in scenario_core.STORE.dirty)))
         if key == gamepaths.CURRENT[0] and PROJECT is not None:
             return {'ok': True, 'game': key}
-        # un servidor de pruebas (--escenarios) no cambia el juego que recuerda el editor del usuario
+        # a test server (--escenarios) does not change the game remembered by the user's editor
         gamepaths.select(key, remember=not ARGS.escenarios)
         if ARGS.escenarios:
             scenario_core.SCEN_ROOT = os.path.abspath(ARGS.escenarios)
@@ -2549,7 +2554,7 @@ def select_game(key):
 
 
 def free_name(folder, name, dst):
-    """name si no existe en folder; si no, «name <juego>», «name <juego> 2»..."""
+    """name if it does not exist in folder; otherwise «name <juego>», «name <juego> 2»..."""
     if not os.path.exists(os.path.join(folder, name)):
         return name
     base = '%s %s' % (name, gamepaths.GAMES[dst]['short'])
@@ -2560,7 +2565,7 @@ def free_name(folder, name, dst):
 
 
 def xconvert_check(scen, pack):
-    """Para el diálogo «Convertir a Gold/MH1» del editor de regiones: destino y nombres libres sugeridos."""
+    """For the region editor «Convertir a Gold/MH1» dialog: destination and suggested free names."""
     src = gamepaths.CURRENT[0]
     dst = 'gold' if src == 'mh1' else 'mh1'
     out = {'from': src, 'to': dst, 'to_short': gamepaths.GAMES[dst]['short'], 'installed': gamepaths.installed(dst)}
@@ -2577,7 +2582,7 @@ def xconvert_check(scen, pack):
 
 
 def xconvert_api(p):
-    """Convierte el escenario y/o el regionpack (tal como están instalados) al otro juego. Nunca sobrescribe."""
+    """Converts the scenario and/or the regionpack (as installed) to the other game. Never overwrites."""
     import convert_scenario
     import port_regionpack
     src = gamepaths.CURRENT[0]
@@ -2610,7 +2615,7 @@ def xconvert_api(p):
 
 
 def convert_scenario_api(p):
-    """Convierte un escenario del juego actual (o de una carpeta) al otro juego, en una copia."""
+    """Converts a scenario of the current game (or from a folder) to the other game, in a copy."""
     import convert_scenario
     src = p.get('dir') or os.path.join(scenario_core.SCEN_ROOT, p['name'])
     if not os.path.isdir(src):
@@ -2629,7 +2634,7 @@ def convert_scenario_api(p):
 
 
 def all_packs():
-    """Regionpacks del juego y los nuevos aún sin instalar (solo existen como proyecto)."""
+    """Regionpacks of the game and new ones not yet installed (they exist only as a project)."""
     return sorted(set(editor_core.Project.packs()) | set(new_pack.pending_packs(project_dir('World'))))
 
 
@@ -2641,7 +2646,7 @@ def select_pack(pack):
         return
     PROJECT = editor_core.Project(project_dir(pack), map_backup_dir(), pack)
     threading.Thread(target=PROJECT.precompute, daemon=True).start()
-    try:   # se recuerda para abrir el mismo regionpack la próxima vez (no en las pruebas con --escenarios)
+    try:   # remembered to open the same regionpack next time (not in tests with --escenarios)
         if ARGS is not None and ARGS.escenarios:
             raise OSError
         json.dump({'pack': pack}, open(os.path.join(ROOT, 'ultimo_regionpack.json'), 'w'))
@@ -2650,9 +2655,11 @@ def select_pack(pack):
 
 
 def ai_post(path, p):
-    # chat de IA (ai_chat.py): config de claves locales, llamada al proveedor, comprobación de rutas y respaldo
+    # AI chat (ai_chat.py): local keys config, provider call, path check and backup
     if ai_chat is None:
         return {'error': 'el chat de IA no está incluido en esta versión'}
+    if ai_chat is None:
+        return {'error': 'sin chat de IA'}
     try:
         if path == '/api/ai/config':
             return ai_chat.save(p)
@@ -2663,6 +2670,12 @@ def ai_post(path, p):
             return ai_chat.chat(p.get('system') or '', p['messages'], p.get('tools') or [])
         if path == '/api/ai/check':
             return {'error': ai_chat.check_call(p.get('method', 'GET'), p.get('path', '')), 'disk': bool(ai_chat.DISK.match(p.get('path', '')))}
+        if path == '/api/ai/cities':      # cities and their region («Madrid» → «Castile»)
+            import scenario_layers
+            with SCEN_LOCK:
+                cr = scenario_layers._city_region(scenario(p['scenario']))
+            f_ = (p.get('filter') or '').lower()
+            return {'cities': ', '.join('%s (%s)' % (c, r) for c, r in sorted(cr.items()) if c and (not f_ or f_ in c.lower() or f_ in (r or '').lower()))[:6000] or 'nada'}
         if path == '/api/ai/backup':
             import scenario_core
             d = ai_chat.backup_scenario(scenario_core.SCEN_ROOT, scenario_core.BACKUP_ROOT, p.get('scenario'))
@@ -2687,7 +2700,7 @@ def main():
                     help='mh1 o gold (por defecto, el último elegido en la interfaz)')
     a = ap.parse_args()
     ARGS = a
-    # un solo servidor por puerto: en Windows varios pueden compartirlo y uno viejo responderia con codigo antiguo
+    # one server per port: on Windows several can share it and an old one would answer with old code
     import socket
     with socket.socket() as probe:
         probe.settimeout(0.5)
@@ -2697,9 +2710,9 @@ def main():
             if not a.no_abrir:
                 webbrowser.open(url)
             return
-    # el historial de «Volver» solo vale dentro de una sesión: al arrancar se borra el que quedó en TODOS los proyectos
-    # (antes solo en el que se abría, y cada guardado copiaba el fondo entero: GB en regionpacks que no se volvían a abrir).
-    # Aquí, y no antes: si ya hay otro editor abierto (arriba) su sesión sigue usando el suyo
+    # the «Volver» history is only valid within a session: on start the one left in ALL projects is deleted
+    # (before, only in the one being opened, and each save copied the whole background: GB in regionpacks never reopened).
+    # Here, and not earlier: if another editor is already open (above) its session keeps using its own
     import glob
     for h in glob.glob(glob.escape(os.path.abspath(a.proyecto)) + '*' + os.sep + 'history'):
         for d in os.listdir(h):
@@ -2726,7 +2739,7 @@ def main():
                           'project': a.proyecto, 'scenarios': a.escenarios, 'pack': a.pack, 'port': a.puerto})
     select_pack(a.pack)
     srv = ThreadingHTTPServer(('127.0.0.1', a.puerto), Handler)
-    try:      # para programas locales (pruebas): el token de este arranque
+    try:      # for local programs (tests): the token of this start
         os.makedirs(os.path.join(ROOT, 'logs'), exist_ok=True)
         with open(os.path.join(ROOT, 'logs', 'mheditor_token_%d.txt' % a.puerto), 'w', encoding='utf-8') as f:
             f.write(API_TOKEN)

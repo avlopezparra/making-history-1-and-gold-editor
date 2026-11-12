@@ -1,8 +1,8 @@
-"""Uganda jugable + tecnología exclusiva «Ugandan Knuckles» en The Limits of Piss 31.12.2021.
+"""Playable Uganda + exclusive «Ugandan Knuckles» technology in The Limits of Piss 31.12.2021.
 
     python tools/uganda_tlop.py <carpeta del escenario> <carpeta TMWR (modelo, bandera, textos)>
 
-Edita la carpeta dada en sitio (usar sobre una copia; instalar aparte con copia de seguridad).
+Edits the given folder in place (use on a copy; install separately with a backup).
 """
 import re
 import shutil
@@ -15,7 +15,7 @@ TMWR = Path(sys.argv[2])
 C = 'Uganda'
 TECH, UNIT, LOCK = 'UgandanKnuckles', 'UgandanKnuckles', 'DaWae'
 KAMPALA_IPUS = 10
-UNIT_IPUS = 150          # 15 turnos con la fábrica de Kampala (10 IPU)
+UNIT_IPUS = 150          # 15 turns with the Kampala factory (10 IPU)
 
 
 CRLF = {}
@@ -32,7 +32,7 @@ def wr(n, t):
 
 
 def block(text, start_pat, opener='<object '):
-    """Devuelve (ini, fin) del <object ...> que contiene la línea start_pat."""
+    """Returns (start, end) of the <object ...> containing the start_pat line."""
     i = text.index(start_pat)
     a = text.rfind('\n', 0, text.rfind(opener, 0, i)) + 1
     depth, j = 0, a
@@ -54,7 +54,7 @@ def insert_before(text, anchor, new):
     return text[:i] + new + text[i:]
 
 
-# --- 1. Sacar Uganda (región + ejército) de Reino Unido
+# --- 1. Take Uganda (region + army) out of the United Kingdom
 uk = rd('countryUnited Kingdom.xml')
 a, b = block(uk, '<property name="strName" value="Uganda"/>')
 region = uk[a:b]
@@ -152,7 +152,7 @@ add = ''.join('\t<string id="%s" value="%s"/>\n' % (k, v.replace("'", '&apos;'))
 st = st.replace('</stringTable>', add + '</stringTable>')
 wr('game/stringTable.xml', st)
 
-# --- 6. Investigación: «Da Wae» (inalcanzable para el resto) -> Ugandan Knuckles
+# --- 6. Research: «Da Wae» (unreachable for the rest) -> Ugandan Knuckles
 rs = rd('sharedDataResearch.xml')
 rs = rs.replace('\t\t</object>\n\t</object>\n</objects>', '''			<object type="ResearchProjNoOp" name="objResearchProjects">
 				<property name="strName" value="DaWae"/>
@@ -190,7 +190,7 @@ rs = rs.replace('\t\t</object>\n\t</object>\n</objects>', '''			<object type="Re
 assert 'value="DaWae"' in rs
 wr('sharedDataResearch.xml', rs)
 
-# --- 7. Fábrica
+# --- 7. Factory
 fa = rd('sharedDataFactories.xml')
 a, b = block(fa, '<property name="strUnitType" value="Militia"/>')
 fa = fa[:b] + '''			<object type="FactoryOutputUnit" name="objFactoryOutputs">
@@ -238,7 +238,7 @@ us = us.replace('<property name="strTemplateNames" value="Militia"/>',
                 '<property name="strTemplateNames" value="UgandanKnuckles"/>')
 wr('sharedDataUnitTemplateSprites.xml', us)
 
-# --- 9. Gráfico: plantilla -> sprite «Uganda Knuckles» directo
+# --- 9. Graphics: template -> sprite «Uganda Knuckles» directly
 node = '''		<object type="MKDNode" name="objNodes">
 			<property name="strKey" value="UgandanKnuckles"/>
 			<object type="SpriteRefName" name="objDefault">

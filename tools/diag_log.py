@@ -1,8 +1,8 @@
-"""Registro de diagnóstico MHEditor.log (junto a los datos / al .exe) para que el usuario lo envíe cuando algo falla.
+"""Diagnostic log MHEditor.log (next to the data / the .exe) for the user to send when something fails.
 
-Una línea por suceso: arranque, cada petición a /api (método, ruta, estado, duración y un resumen corto del contenido: nombres,
-regiones, cuántos elementos; nunca geometrías enteras), cada excepción con su traza y lo que mandan las páginas (errores de
-JavaScript, avisos de error y los pasos del usuario). Rota a ~2 MB y guarda 1 anterior. Claves, tokens y ajustes de la IA se tapan.
+One line per event: startup, each /api request (method, route, status, duration and a short summary of the content: names,
+regions, how many items; never whole geometries), each exception with its traceback and what the pages send (JavaScript
+errors, error notices and the user's steps). Rotates at ~2 MB and keeps 1 previous. Keys, tokens and AI settings are masked.
 """
 import json
 import logging
@@ -19,11 +19,11 @@ LOGGER = logging.getLogger('mheditor.diag')
 PATH = [None]
 SECRET_KEY = re.compile(r'key|token|secret|password|passwd|auth|cookie', re.I)
 SECRET_VAL = re.compile(r'(sk-[A-Za-z0-9_\-]{8,}|AIza[0-9A-Za-z_\-]{20,}|(?:key|token|secret|password)\s*[=:]\s*\S+)', re.I)
-SKIP_PATHS = ('/api/tile', '/api/progress', '/api/log')          # muy frecuentes y sin interés (teselas del mapa, barra de avance)
+SKIP_PATHS = ('/api/tile', '/api/progress', '/api/log')          # very frequent and uninteresting (map tiles, progress bar)
 
 
 def start(root, info):
-    """Abre el registro (una vez) y anota el arranque."""
+    """Opens the log (once) and records startup."""
     if PATH[0]:
         return PATH[0]
     PATH[0] = os.path.join(root, 'MHEditor.log')
@@ -42,7 +42,7 @@ def start(root, info):
     LOGGER.info('python %s · %s · exe=%s', sys.version.split()[0], platform.platform(), bool(getattr(sys, 'frozen', False)))
     orig = traceback.print_exc
 
-    def print_exc(*a, **k):        # las excepciones que el servidor ya atrapa (traceback.print_exc) también van al registro
+    def print_exc(*a, **k):        # exceptions the server already catches (traceback.print_exc) also go to the log
         orig(*a, **k)
         LOGGER.error('exception\n%s', redact(traceback.format_exc()))
     traceback.print_exc = print_exc
@@ -54,7 +54,7 @@ def enabled():
 
 
 def set_enabled(on):
-    """Activa/desactiva el registro; se recuerda con el archivo MHEditor.log.off."""
+    """Enables/disables the log; remembered via the MHEditor.log.off file."""
     if not PATH[0]:
         return False
     off = PATH[0] + '.off'
@@ -71,7 +71,7 @@ def set_enabled(on):
 
 
 def redact(x):
-    """Copia sin secretos: campos con nombre de secreto -> '***'; textos con pinta de clave -> '***'."""
+    """Copy without secrets: fields with a secret name -> '***'; key-looking texts -> '***'."""
     if isinstance(x, dict):
         return {k: ('***' if SECRET_KEY.search(str(k)) else redact(v)) for k, v in x.items()}
     if isinstance(x, (list, tuple)):
@@ -82,7 +82,7 @@ def redact(x):
 
 
 def summary(payload, depth=0):
-    """Resumen corto de una petición: textos cortos y números tal cual; listas largas y geometrías como «[N]» / «<Polygon>»."""
+    """Short summary of a request: short texts and numbers as-is; long lists and geometries as «[N]» / «<Polygon>»."""
     if isinstance(payload, dict):
         if 'coordinates' in payload or payload.get('type') in ('FeatureCollection', 'Feature', 'Polygon', 'MultiPolygon', 'LineString'):
             return '<%s>' % payload.get('type', 'geometry')
@@ -112,7 +112,7 @@ def request(method, path, status, t0, payload=None, error=None):
 
 
 def client(entries):
-    """Lo que manda la página (POST /api/log): [{page, level, action, msg, stack, ts}]."""
+    """What the page sends (POST /api/log): [{page, level, action, msg, stack, ts}]."""
     for e in (entries if isinstance(entries, list) else [entries])[:50]:
         if not isinstance(e, dict):
             continue
@@ -126,7 +126,7 @@ def client(entries):
 
 
 def read(tail=400_000):
-    """El registro (el anterior y el actual) para «Copiar log»."""
+    """The log (previous and current) for «Copiar log»."""
     out = ''
     for p in ([PATH[0] + '.1', PATH[0]] if PATH[0] else []):
         if os.path.exists(p):
@@ -135,7 +135,7 @@ def read(tail=400_000):
     return out[-tail:]
 
 
-if __name__ == '__main__':          # prueba rápida: python diag_log.py <carpeta>
+if __name__ == '__main__':          # quick test: python diag_log.py <carpeta>
     import tempfile
     d = sys.argv[1] if len(sys.argv) > 1 else tempfile.mkdtemp()
     start(d, {'version': 'test', 'api_key': 'sk-abcdefghijkl'})

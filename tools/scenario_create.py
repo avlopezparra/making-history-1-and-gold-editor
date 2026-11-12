@@ -1,7 +1,7 @@
-"""Creación de objetos nuevos en un escenario (como «Add» de ed.exe): naciones, flotas, alianzas, guerras, acuerdos de acceso militar y
-copias de plantillas (unidades, producción, investigación). Ciudades, recursos y ejércitos están en scenario_layers.py.
+"""Creation of new objects in a scenario (like ed.exe's «Add»): nations, fleets, alliances, wars, military access agreements and
+copies of templates (units, production, research). Cities, resources and armies are in scenario_layers.py.
 
-Todas las funciones devuelven (id, notas) o una lista de notas, y lanzan ValueError con el motivo si algo no cuadra.
+All functions return (id, notes) or a list of notes, and raise ValueError with the reason if something does not fit.
 """
 import copy
 import os
@@ -20,7 +20,7 @@ def _slug(text):
 
 
 def _write_new(s, path, root):
-    """Escribe un archivo XML nuevo del escenario (vacío de formato: se reindenta al guardar), lo abre y lo da por modificado."""
+    """Writes a new scenario XML file (unformatted: reindented on save), opens it and marks it as modified."""
     st = s.s
     body = ET.tostring(root, encoding='unicode')
     with open(path, 'w', encoding='utf-8', newline='') as f:
@@ -38,12 +38,12 @@ def _insert_after(st, el, after, parent):
     st.attach(el, parent, index=(kids.index(after) + 1) if after is not None and after in kids else None)
 
 
-# ---------------------------------------------------------------------------------------- 1. nación nueva
+# ---------------------------------------------------------------------------------------- 1. new nation
 def create_country(s, name, template=None, color=None, ctype='Minor', gov=None, flag=None, capital=None, regions=None, description=None,
                    new_capital=None):
-    """País nuevo: country<Nombre>.xml + player<Nombre>.xml copiando una nación pequeña (sin regiones ni unidades) como plantilla,
-    registrados en game.xml, y su Player en gamestate.xml. 'regions' (opcional) le pasa esas regiones; 'capital' es una ciudad suya
-    (o, si no tiene regiones, la ciudad anhelada de una nación rendida liberable)."""
+    """New country: country<Nombre>.xml + player<Nombre>.xml copying a small nation (no regions or units) as template,
+    registered in game.xml, and its Player in gamestate.xml. 'regions' (optional) gives it those regions; 'capital' is one of its cities
+    (or, if it has no regions, the longed-for city of a surrendered liberable nation)."""
     st = s.s
     name = (name or '').strip()
     if not name or BAD_FILE.search(name):
@@ -54,7 +54,7 @@ def create_country(s, name, template=None, color=None, ctype='Minor', gov=None, 
     if why:
         raise ValueError(why)
     fc, fp = 'country%s.xml' % name, 'player%s.xml' % name
-    from_template = bool(template)       # sin plantilla: nación nueva con los valores por defecto (como al crearla desde una región)
+    from_template = bool(template)       # without template: new nation with default values (as when creating it from a region)
     if from_template and template not in countries:
         raise ValueError('no existe el país de plantilla %s' % template)
     if color and not re.fullmatch(r'#[0-9A-Fa-f]{6}([0-9A-Fa-f]{2})?', color):
@@ -69,7 +69,7 @@ def create_country(s, name, template=None, color=None, ctype='Minor', gov=None, 
     cities = {prop(c, 'strName'): c for c in s.all('City')}
     if capital and capital not in cities:
         raise ValueError('la ciudad «%s» no existe en el escenario' % capital)
-    if new_capital:                 # capital nueva: se crea al final, en una de sus regiones (o en otra, si es una nación rendida)
+    if new_capital:                 # new capital: created at the end, in one of its regions (or another one, if it is a surrendered nation)
         nc = (new_capital.get('name') or '').strip()
         if not nc:
             raise ValueError('la capital nueva necesita un nombre')
@@ -103,7 +103,7 @@ def create_country(s, name, template=None, color=None, ctype='Minor', gov=None, 
         pv = lambda k, v: _setp(c, k, v)
         pv('strName', name)
         pv('strHomelands', name)
-        for k in ('Name', 'Possessive', 'Adjective', 'People', 'Alliance'):     # textos propios, no los de la plantilla
+        for k in ('Name', 'Possessive', 'Adjective', 'People', 'Alliance'):     # its own texts, not the template's
             key = 'sidAllianceName' if k == 'Alliance' else 'sid' + k
             if prop(c, key) is not None or k == 'Name':
                 pv(key, 'SID.Game.Country.%s.%s' % (k, _slug(name)))
@@ -133,13 +133,13 @@ def create_country(s, name, template=None, color=None, ctype='Minor', gov=None, 
                     dl = ET.SubElement(pd, 'object', {'type': 'DipRelInitialValueList', 'name': 'objDipRelInitialValueList'})
                     ET.SubElement(dl, 'property', {'name': 'nDefault', 'value': prop(k, 'nDefault') or '500'})
             _setp(pd, 'strOwner', name)
-            _setp(pd, 'strName', name)          # el de la plantilla haría dos PlayerData con su nombre
+            _setp(pd, 'strName', name)          # the template's would make two PlayerData with its name
             _setp(pd, 'strFoggees', name)
         else:
             notes.append('AVISO: la plantilla %s no tiene datos de jugador: %s queda sin ellos' % (template, name))
         _write_new(s, os.path.abspath(s.path(fp)), proot)
 
-        # ---- game.xml: los dos archivos se cargan (solo cuentan los que figuran aquí)
+        # ---- game.xml: both files are loaded (only those listed here count)
         last = [g for g in s.all('GO') if (g.get('fromFile') or '').startswith(('country', 'player'))]
         if not last:
             raise ValueError('game.xml no carga ningún country*/player*.xml: no sé dónde registrar el país')
@@ -148,7 +148,7 @@ def create_country(s, name, template=None, color=None, ctype='Minor', gov=None, 
         ref_p = ET.Element('object', {'type': 'GO', 'name': 'objGOs', 'fromFile': fp})
         _insert_after(st, ref_c, last[-1], host)
         _insert_after(st, ref_p, ref_c, host)
-        for v in s.all('View'):         # vistas de países (p. ej. «minor»): entra donde estaba la plantilla
+        for v in s.all('View'):         # country views (e.g. «minor»): it goes where the template was
             al = [p for p in v if p.tag == 'property' and p.get('name') == 'strAliases']
             t = next((p for p in al if p.get('value') == template), None)
             if t is not None and not any(p.get('value') == name for p in al):
@@ -173,11 +173,11 @@ def create_country(s, name, template=None, color=None, ctype='Minor', gov=None, 
             notes.append('AVISO: gamestate.xml no tiene jugadores: falta añadir el Player de %s' % name)
         s._opts = None
         notes.append('país %s creado (country%s.xml + player%s.xml, plantilla %s), registrado en game.xml y gamestate.xml' % (name, name, name, template))
-        # ---- texto de la nación (nombre y descripción en el escenario)
+        # ---- nation text (name and description in the scenario)
         notes += sc.set_region_string(s, 'SID.Game.Country.Name.' + _slug(name), name)
         for k in ('Possessive', 'Adjective', 'People', 'Alliance'):
             notes += sc.set_region_string(s, 'SID.Game.Country.%s.%s' % (k, _slug(name)), name)
-        # el texto tiene que existir aunque esté vacío: un sidShortDescription sin texto impide cargar la partida
+        # the text must exist even if empty: a sidShortDescription without text prevents the game from loading
         notes += sc.set_region_string(s, 'SID.Game.Country.Description.%s.%s' % (_slug(s.name), _slug(name)), (description or '').strip())
     # ---- territorio y capital
     new = s.countries()[name]
@@ -188,7 +188,7 @@ def create_country(s, name, template=None, color=None, ctype='Minor', gov=None, 
     if regions:
         cult = list(dict.fromkeys(prop(land[r], 'strCulture') for r in regions if prop(land[r], 'strCulture')))
         cset = next((k for k in objs(new) if k.get('type') == 'CultureSet'), None)
-        if cult and cset is not None:       # culturas de las regiones recibidas (si no, la nación no las gobierna bien)
+        if cult and cset is not None:       # cultures of the received regions (otherwise the nation does not govern them well)
             for k in objs(cset):
                 st.remove(k)
             for cu in cult:
@@ -206,7 +206,7 @@ def create_country(s, name, template=None, color=None, ctype='Minor', gov=None, 
             st.set_prop(new, 'strCapital', capital)
             st.set_prop(new, 'strOriginalCapital', capital)
             notes.append('capital: %s' % capital)
-    elif new_capital:              # sin regiones: la capital nueva va en otra región y la nación queda rendida, liberable allí
+    elif new_capital:              # without regions: the new capital goes in another region and the nation is surrendered, liberable there
         notes += L.make_surrendered(s, name, _new_capital(s, name, new_capital, None, notes))
     elif capital:
         notes += L.make_surrendered(s, name, capital)
@@ -217,7 +217,7 @@ def create_country(s, name, template=None, color=None, ctype='Minor', gov=None, 
 
 
 def _new_capital(s, name, spec, default_region, notes):
-    """Crea la ciudad capital nueva (en un punto al azar de su región si no se dan coordenadas) y devuelve su nombre."""
+    """Creates the new capital city (at a random point of its region if no coordinates are given) and returns its name."""
     region = spec.get('region') or default_region
     x, y = spec.get('x'), spec.get('y')
     if x in (None, '') or y in (None, ''):
@@ -233,7 +233,7 @@ def _has_assets(s, name):
 
 
 def _setp(el, key, value):
-    """Fija (o quita si value es None) una propiedad de un elemento todavía sin indexar."""
+    """Sets (or removes if value is None) a property of a not yet indexed element."""
     for p in [p for p in el if p.tag == 'property' and p.get('name') == key]:
         el.remove(p)
     if value is None:
@@ -258,9 +258,9 @@ def _hsv(h, sat, v):
     return tuple(int(x * 255) for x in colorsys.hsv_to_rgb(h, sat, v))
 
 
-# ---------------------------------------------------------------------------------------- 2. flota nueva
+# ---------------------------------------------------------------------------------------- 2. new fleet
 def create_fleet(s, owner, name, region, units, city=None):
-    """Flota de 'owner' en una región de mar, o en puerto: región de tierra con una ciudad con puerto del mismo dueño (se pone strCity)."""
+    """Fleet of 'owner' in a sea region, or in port: land region with a port city of the same owner (strCity is set)."""
     st = s.s
     countries = s.countries()
     if owner not in countries:
@@ -311,7 +311,7 @@ def create_fleet(s, owner, name, region, units, city=None):
 
 
 def create_airforce(s, owner, name, region, units):
-    """Fuerza aérea de 'owner' en una región de tierra o de mar. Solo unidades aéreas (UNIT_TYPE_AIR_FORCE)."""
+    """Air force of 'owner' in a land or sea region. Only air units (UNIT_TYPE_AIR_FORCE)."""
     st = s.s
     countries = s.countries()
     if owner not in countries:
@@ -348,10 +348,10 @@ def create_airforce(s, owner, name, region, units):
     return st.eid(el), ['fuerza aérea %s de %s creada en %s con %s' % (name, owner, region, ', '.join('%d %s' % (int(u['n']), u['type']) for u in units))]
 
 
-# ---------------------------------------------------------------------------------------- ideología nueva
+# ---------------------------------------------------------------------------------------- new ideology
 def create_govtype(s, name, display=None, color=None, icon=None, base=None):
-    """Ideología (tipo de gobierno) nueva: copia de la plantilla 'base' (todas sus propiedades y reglas) con otro nombre,
-    color e icono. El nombre visible va al stringTable del escenario (SID.Game.GovTypeTemplate.Name.<nombre>)."""
+    """New ideology (government type): copy of template 'base' (all its properties and rules) with another name,
+    color and icon. The display name goes to the scenario's stringTable (SID.Game.GovTypeTemplate.Name.<nombre>)."""
     import copy
     st = s.s
     name = re.sub(r'[^A-Za-z0-9_]', '', (name or '').strip())
@@ -375,7 +375,7 @@ def create_govtype(s, name, display=None, color=None, icon=None, base=None):
         p.set('value', v)
     parent = st.parent[src]
     st.attach(el, parent, index=list(parent).index(src) + 1 + sum(1 for g in govs if st.parent[g] is parent and list(parent).index(g) > list(parent).index(src)))
-    s._opts = None              # el desplegable de Gobierno ya la incluye
+    s._opts = None              # the Government dropdown already includes it
     notes = ['ideología %s creada (copia de %s)' % (name, prop(src, 'strName'))]
     notes += sc.set_region_string(s, sid, (display or name).strip())
     if not icon:
@@ -383,7 +383,7 @@ def create_govtype(s, name, display=None, color=None, icon=None, base=None):
     return st.eid(el), notes
 
 
-# ---------------------------------------------------------------------------------------- 3. alianza nueva
+# ---------------------------------------------------------------------------------------- 3. new alliance
 def create_alliance(s, name, leader, members):
     name = (name or '').strip()
     if not name:
@@ -401,9 +401,9 @@ def create_alliance(s, name, leader, members):
     return r['id'], r['notes'] or ['alianza %s creada' % name]
 
 
-# ---------------------------------------------------------------------------------------- 4. guerra (con alianzas opcionales)
+# ---------------------------------------------------------------------------------------- 4. war (with optional alliances)
 def create_war(s, attackers, defenders, name=None, off_alliance=None, def_alliance=None):
-    """Una guerra inicial por cada pareja atacante–defensor; las alianzas (opcionales) se anotan en cada una."""
+    """One initial war per attacker–defender pair; the alliances (optional) are noted in each one."""
     countries = s.countries()
     attackers = list(dict.fromkeys(attackers or []))
     defenders = list(dict.fromkeys(defenders or []))
@@ -433,7 +433,7 @@ def create_war(s, attackers, defenders, name=None, off_alliance=None, def_allian
 
 # ---------------------------------------------------------------------------------------- 6. acceso militar
 def create_access(s, a, b, land=True, air=True, sea=True, date=None):
-    """Acuerdo de acceso militar a–b (TreatyAgreement ratificado con sus dos MilAccessTerm) en treaties.xml."""
+    """Military access agreement a–b (ratified TreatyAgreement with its two MilAccessTerm) in treaties.xml."""
     st = s.s
     countries = s.countries()
     for c in (a, b):
@@ -455,7 +455,7 @@ def create_access(s, a, b, land=True, air=True, sea=True, date=None):
         date = '%02d/%02d/%s' % (int(g('nStartMonth', '1') or 1), int(g('nStartDay', '1') or 1), g('nStartYear', '1936'))
     if not re.fullmatch(r'\d{2}/\d{2}/\d{4}', date):
         raise ValueError('fecha no válida (MM/DD/AAAA)')
-    # mismo formato que los acuerdos que ya tiene el escenario: «Treaty» corto (TMW, mods) o «TreatyAgreement» con nombre y fechas
+    # same format as the agreements the scenario already has: short «Treaty» (TMW, mods) or «TreatyAgreement» with name and dates
     short = bool(s.all('Treaty', lambda f: f == 'treaties.xml')) and not s.all('TreatyAgreement')
     t = ET.Element('object', {'type': 'Treaty' if short else 'TreatyAgreement', 'name': 'objGOs'})
     props = (('strToCountry', b), ('strFromCountry', a), ('eTreatyState', 'TREATY_RATIFIED')) if short else \
@@ -484,7 +484,7 @@ def _find_named(s, kind, name):
 
 
 def _clone_after(s, src, new_name, sid_prefix, display):
-    """Copia 'src' justo detrás, con strName nuevo y, si tiene sidDisplayName, un SID propio con el texto 'display'."""
+    """Copies 'src' right after it, with a new strName and, if it has sidDisplayName, its own SID with the text 'display'."""
     st = s.s
     new = copy.deepcopy(src)
     for p in new:
@@ -502,8 +502,8 @@ def _clone_after(s, src, new_name, sid_prefix, display):
 
 
 def copy_template(s, kind, source, new_name, display=None, bundle=True):
-    """kind: 'units' (UnitTemplate), 'outputs' (FactoryOutput*), 'research' (ResearchProj*). Copia 'source' con otro nombre.
-    Con bundle, una unidad se copia junto a su producción (FactoryOutputUnit), su proyecto de investigación y sus sprites."""
+    """kind: 'units' (UnitTemplate), 'outputs' (FactoryOutput*), 'research' (ResearchProj*). Copies 'source' under another name.
+    With bundle, a unit is copied along with its production (FactoryOutputUnit), its research project and its sprites."""
     st = s.s
     new_name = (new_name or '').strip()
     if not re.fullmatch(r'[A-Za-z][A-Za-z0-9_]*', new_name):

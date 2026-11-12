@@ -1,10 +1,10 @@
-// Wikidata en el editor de escenarios (se carga al final de escenario.html; envuelve renderObj):
-// - Ciudad: QID a mano o búsqueda por nombre; muestra coordenadas (P625), población del año más cercano al del escenario
-//   (solo si está a 20 años o menos; si no, enlace a worldcitypop.com) y el país de entonces (P17). Aplica solo al confirmar.
-// - País (también provincias reales, p. ej. Cataluña Q5705, y estados rendidos): capital, ciudades principales, población
-//   y bandera de Commons (P41), que se puede importar con la herramienta de banderas.
-// - La asociación nombre -> QID se anota en el changelog del regionpack (entrada «wikidata», por escenario).
-// Rutas /api/wikidata/* de editor_server.py (wikidata.py). Sin conexión usa la caché o avisa.
+// Wikidata in the scenario editor (loaded at the end of escenario.html; wraps renderObj):
+// - - City: QID by hand or search by name; shows coordinates (P625), population of the year closest to the scenario's
+//     (only if within 20 years; otherwise a link to worldcitypop.com) and the country at the time (P17). Applies only on confirm.
+// - - Country (also real provinces, e.g. Catalonia Q5705, and surrendered states): capital, main cities, population
+//     and Commons flag (P41), which can be imported with the flag tool.
+// - - The name -> QID association is noted in the regionpack changelog («wikidata» entry, per scenario).
+// /api/wikidata/* routes of editor_server.py (wikidata.py). Offline it uses the cache or warns.
 (() => {
   'use strict';
   const post = (u, b) => fetch(u, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(b) }).then(r => r.json());
@@ -80,7 +80,7 @@
     } else {
       h += `<label>${esc(t('Capital'))}</label><div>${e.capital.map(c => esc(c.label)).join(', ') || '—'}</div>`;
       if (e.located_in.length || e.country.length) h += `<label>${esc(t('Pertenece a'))}</label><div>${e.country.concat(e.located_in).map(c => esc(c.label)).join(', ')}</div>`;
-      h += popHtml(e.population, e.label).replace(/<input[^>]*id="wdPop"[^>]*>/, '');      // del país: solo informativo
+      h += popHtml(e.population, e.label).replace(/<input[^>]*id="wdPop"[^>]*>/, '');      // the country's: informational only
       h += `<label>${esc(t('Ciudades principales'))}</label><div>${e.cities_error ? `<span class="muted">${esc(e.cities_error)}</span>`
         : (e.cities || []).map(c => `${esc(c.label)} <span class="muted">${fmt(c.pop_now)}</span>`).join(' · ') || '—'}</div>`;
       if (e.flag) h += `<label>${esc(t('Bandera'))}</label><div><img src="${esc(e.flag.png.replace('width=512', 'width=96'))}" alt="" style="height:32px;vertical-align:middle;border:1px solid var(--line,#888)">
@@ -100,7 +100,7 @@
     const msg = x => { q('#wdMsg').textContent = t(x); };
     q('#wdLinkOnly').onclick = async () => { await link(e.id); msg('Asociación guardada en el changelog.'); };
     q('#wdUnlink').onclick = async () => { await link(''); msg('Asociación quitada.'); };
-    const imp = (which, img) => () => {      // abre la herramienta de banderas (escenario_imagenes.js) con la URL de Commons
+    const imp = (which, img) => () => {      // opens the flag tool (escenario_imagenes.js) with the Commons URL
       const b = document.querySelector(`#right [data-mh=${which}]`); if (!b) return msg('Este país no tiene sección de bandera.');
       q('#wdData').closest('dialog').close(); b.click();
       const u = document.querySelector('#mhUrl'); if (u) { u.value = img.png; document.querySelector('#mhUrlGo').click(); }

@@ -183,7 +183,7 @@ async function loadList() {
   catch (e) { msg(e.message, true); }
   loadChecks();
 }
-// Avisos del validador: unidades nuevas sin entrada en las tablas de modelo/decal de DisplayLibraries
+// Validator warnings: new units with no entry in the DisplayLibraries model/decal tables
 async function loadChecks() {
   try { const r = await api('/api/model/check?name=' + encodeURIComponent($('#scen').value));
     $('#checks').innerHTML = r.issues.map(x => `<div class="note err">⚠ ${esc(window.mhTr ? mhTr(x.msg) : x.msg)}</div>`).join(''); }
@@ -272,5 +272,6 @@ $('#filter').oninput = renderList; $('#onlyOwn').onchange = renderList;
   await loadList();
 })();
 </script>
+<script src="/ai_chat.js"></script>
 </body>
 </html>

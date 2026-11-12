@@ -37,6 +37,7 @@ Quick checks after editing: `python -c "import ast; ast.parse(open(F, encoding='
 ## Rules the maintainer cares about
 - The editor writes to the game folder **only** on an explicit **Save** / **Install**; everything else stays in memory or in the project folder.
 - Every UI string exists in **Spanish and English**: write Spanish in the page and add the English to `i18n_en.json`.
+- Code is in **English**: identifiers, comments and docstrings. UI strings stay Spanish (they are the translation keys), and so do on-disk/API names that already exist (`changelog.json` keys like `regiones_nuevas`, CLI flags like `--proyecto`, file and folder names).
 - Don't "repair" user data unasked; make the editor stop producing the problem instead.
 - Backups are the changelog plus undo/redo; don't add other backup copies.
 - `python tools/build_exe.py` builds `MHEditor.exe` (refuses while MHEditor is running); `python tools/exportar_github.py <out>` makes the public repo folder.

@@ -1,8 +1,8 @@
-"""Identifica cualquier archivo del juego y dice como abrirlo.
+"""Identifies any game file and says how to open it.
 
 identify(ruta) -> {kind, title, description, editor, facts, scenario?}
-  editor: 'escenario' (pestanas de ed.exe), 'arbol' (XML generico), 'regiones' (editor del mapa),
-          'imagen' (vista previa), 'info' (solo informacion)
+  editor: 'escenario' (ed.exe tabs), 'arbol' (generic XML), 'regiones' (map editor),
+          'imagen' (preview), 'info' (information only)
 """
 import os
 import re
@@ -13,7 +13,7 @@ from collections import Counter
 GAME = r"C:\Program Files (x86)\Steam\steamapps\common\Making History The Calm and The Storm"
 
 XML_KINDS = [
-    # (patron del nombre, tipo raiz o None, titulo, descripcion)
+    # (name pattern, root type or None, title, description)
     (r'^country(.+)\.xml$', 'MECountry', 'País: {0}', 'Gobierno, capital, regiones con sus ciudades y productores, ejércitos, fuerzas aéreas y flotas.'),
     (r'^player(.+)\.xml$', 'MEPlayerData', 'Jugador e IA: {0}', 'Comportamiento de la IA, diplomacia inicial e investigación ya completada.'),
     (r'^gamestate\.xml$', None, 'Estado inicial de la partida', 'Jugadores (colores, jugables), alianzas y guerras.'),

@@ -1,14 +1,14 @@
-"""Copia un regionpack de un juego a otro (MH1 -> Gold o al reves), con las texturas del juego de destino.
+"""Copies a regionpack from one game to another (MH1 -> Gold or vice versa), with the target game's textures.
 
-  xml\\   regions.bin, borders.brd, regions.nts y map.xml del regionpack de origen (el mapa es el mismo formato);
-         properties.xml del World de destino si el del origen es el de serie (Gold tiene bordes algo distintos).
-  art\\   las texturas del World de destino; los tiles de OperationalTerrain que el regionpack cambio respecto al
-         World original del juego de origen se trasladan con port_tiles (tabla de color origen -> destino).
+  xml\\   regions.bin, borders.brd, regions.nts and map.xml of the source regionpack (the map is the same format);
+         properties.xml of the target World if the source one is stock (Gold has slightly different borders).
+  art\\   the target World's textures; the OperationalTerrain tiles the regionpack changed relative to the
+         original World of the source game are carried over with port_tiles (source -> target color table).
 
-Original de cada tile en el origen: backup/<juego>/mapa_original/OperationalTerrain si el editor lo toco
-(p. ej. Chile Fixes instalado en World), si no el de World.
+Original of each tile in the source: backup/<juego>/mapa_original/OperationalTerrain if the editor touched it
+(e.g. Chile Fixes installed in World), otherwise World's.
 
-Uso: python port_regionpack.py WorldModern --de mh1 --a gold
+Usage: python port_regionpack.py WorldModern --de mh1 --a gold
 """
 import argparse
 import os

@@ -1,8 +1,8 @@
-"""Construye MHEditor.exe (carpeta making-history/MHEditor/) con PyInstaller.
+"""Builds MHEditor.exe (folder making-history/MHEditor/) with PyInstaller.
 
-Uso: python build_exe.py      (requiere: python -m pip install --user pywebview pyinstaller)
-El ejecutable usa como carpeta de datos la superior (making-history), así que los proyectos, respaldos y registros
-son los mismos que con los .bat.
+Usage: python build_exe.py      (requires: python -m pip install --user pywebview pyinstaller)
+The executable uses the parent folder (making-history) as its data folder, so projects, backups and logs
+are the same as with the .bat files.
 """
 import glob
 import os
@@ -17,7 +17,7 @@ WORK = os.path.join(ROOT, '_build')
 
 
 def make_icon(path):
-    """Icono sencillo: un globo con «MH»."""
+    """Simple icon: a globe with «MH»."""
     sizes = [256, 128, 64, 48, 32, 16]
     img = Image.new('RGBA', (256, 256), (0, 0, 0, 0))
     d = ImageDraw.Draw(img)
@@ -37,25 +37,26 @@ def main():
     import PyInstaller.__main__
     os.makedirs(WORK, exist_ok=True)
     ico = os.path.join(WORK, 'mheditor.ico')
-    # con MHEditor abierto, PyInstaller borraría a medias su carpeta (archivos en uso) y la dejaría rota
+    # with MHEditor open, PyInstaller would half-delete its folder (files in use) and leave it broken
     import subprocess
     running = subprocess.run(['tasklist', '/FI', 'IMAGENAME eq MHEditor.exe', '/NH'], capture_output=True).stdout.decode('latin-1', 'replace')
     if 'MHEditor.exe' in running:
         raise SystemExit('MHEditor está abierto: ciérralo y vuelve a compilar (no se ha tocado nada).')
     make_icon(ico)
-    # modulos que el servidor importa dentro de funciones (PyInstaller no los ve solo)
+    # modules the server imports inside functions (PyInstaller does not see them by itself)
     hidden = [os.path.splitext(os.path.basename(p))[0] for p in glob.glob(os.path.join(HERE, '*.py'))
-              if os.path.basename(p) not in ('build_exe.py', 'mheditor_app.py', 'editor_ventana.py', 'exportar_github.py', 'ai_chat.py')]
+              if os.path.basename(p) not in ('build_exe.py', 'mheditor_app.py', 'editor_ventana.py', 'exportar_github.py')]
     args = [os.path.join(HERE, 'mheditor_app.py'), '--name', 'MHEditor', '--onedir', '--windowed', '--noconfirm',
             '--icon', ico, '--distpath', ROOT, '--workpath', os.path.join(WORK, 'work'), '--specpath', WORK,
             '--paths', HERE, '--add-data', os.path.join(HERE, 'editor') + os.pathsep + 'editor',
             '--add-data', os.path.join(HERE, 'data') + os.pathsep + 'data',   # nif.xml (lector de modelos 3D)
-            '--exclude-module', 'ai_chat',
+            # the AI chat reads the routes from the server code (ai_chat.routes)
+            '--add-data', os.path.join(HERE, 'editor_server.py') + os.pathsep + '.',
             '--collect-submodules', 'webview', '--collect-data', 'webview']
     for h in hidden:
         args += ['--hidden-import', h]
     PyInstaller.__main__.run(args)
-    # el exe intermedio de _build\work no funciona solo (le falta _internal): se borra para no abrirlo por error
+    # the intermediate exe in _build\work does not work alone (lacks _internal): deleted so it is not opened by mistake
     import shutil
     shutil.rmtree(os.path.join(WORK, 'work'), ignore_errors=True)
     print('\nListo:', os.path.join(ROOT, 'MHEditor', 'MHEditor.exe'))

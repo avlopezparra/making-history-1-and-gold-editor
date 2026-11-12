@@ -1,10 +1,10 @@
-"""Textos que genera el servidor para eventos, IA, terrenos y culturas (scenario_events.py) en el idioma del editor.
+"""Texts the server generates for events, AI, terrains and cultures (scenario_events.py) in the editor language.
 
-El código produce frases en español con datos (países, regiones, fechas…). Si el editor está en inglés (idioma.json,
-que guarda el selector de idioma de la página), L() las pasa al inglés antes de enviarlas:
-- SHAPES: frase entera con huecos {} (los datos se traducen a su vez: «el país que recibe el evento», listas «a; b»);
-- PHRASES: trozos fijos que se sustituyen dentro de textos compuestos (planes de guerra, presión diplomática…).
-Una frase nueva en scenario_events.py necesita su entrada aquí.
+The code produces Spanish sentences with data (countries, regions, dates…). If the editor is in English (idioma.json,
+written by the page's language selector), L() turns them into English before sending them:
+- SHAPES: whole sentence with {} holes (the data are translated in turn: «el país que recibe el evento», lists «a; b»);
+- PHRASES: fixed chunks substituted inside composite texts (war plans, diplomatic pressure…).
+A new sentence in scenario_events.py needs its entry here.
 """
 import json
 import os
@@ -176,7 +176,7 @@ SHAPES = [
     ('{}: una fuerza aérea debe estar en una región de tierra', '{}: an air force must be in a land region'),
     ('solo ciudades y unidades tienen orientación', 'only cities and units have a heading'),
     ('Si {}: {}', 'If {}: {}'), ('{}: {}', '{}: {}'),
-    # ---- efectos (primera versión de cada uno en action_text) y avisos de event_add / move_unit
+    # ---- effects (first version of each in action_text) and event_add / move_unit warnings
     ('{} propone un pacto de defensa a {}', '{} proposes a defence pact to {}'), ('{} obtiene acceso militar de {}', '{} gets military access from {}'),
     ('cancela el pacto de defensa con {}', 'cancels the defence pact with {}'), ('{} cambia su postura internacional a {}', '{} changes its international stance to {}'),
     ('{} cambia su agresividad a {}', '{} changes its aggressiveness to {}'),
@@ -200,7 +200,7 @@ SHAPES = [
     ('decisión «{}» añadida: un país {} que conquiste la capital histórica de un país liberable podrá crearlo como aliado {}',
      'decision «{}» added: a {} country that conquers the historic capital of a liberable country can create it as an ally {}'),
 ]
-# trozos fijos dentro de frases compuestas (planes de guerra, presión diplomática, listas de eventos)
+# fixed chunks inside composite sentences (war plans, diplomatic pressure, event lists)
 PHRASES = [
     (' ataca las regiones de ', ' attacks the regions of '), (' ataca a ', ' attacks '), (' (regiones de ', ' (regions of '),
     (' cuando ', ' when '), (' esté en guerra con ', ' is at war with '), (', desde el ', ', from '), (' hasta el ', ' until '),
@@ -219,14 +219,14 @@ def _rx(shape):
     return re.compile('^' + re.escape(shape).replace(re.escape('{}'), '(.+?)') + '$', re.S)
 
 
-# las más específicas (más texto fijo) primero: «{} es {}» no debe comerse «Si {} es invadido, …»
-# (y las que empiezan y acaban con texto fijo antes que las que tienen un hueco en un extremo: «{} propone … a {}» no debe comerse ««…»: … (la IA elige esta, …)»)
+# the most specific (more fixed text) first: «{} es {}» must not swallow «Si {} es invadido, …»
+# (and those starting and ending with fixed text before those with a hole at one end: «{} propone … a {}» must not swallow ««…»: … (la IA elige esta, …)»)
 _SHAPES = [(_rx(es), en) for es, en in sorted(SHAPES, key=lambda x: (x[0].startswith('{}') + x[0].endswith('{}'), -len(x[0].replace('{}', ''))))]
 _LANG = [0.0, 'es']
 
 
 def lang():
-    """Idioma del editor (idioma.json lo escribe el selector de idioma de la página); se relee si cambia."""
+    """Editor language (idioma.json is written by the page's language selector); re-read if it changes."""
     f = os.path.join(gamepaths.ROOT, 'idioma.json')
     try:
         m = os.path.getmtime(f)
@@ -239,7 +239,7 @@ def lang():
 
 NOUNS = [('el país que recibe el evento', 'the country receiving the event'), ('un país liberable', 'a liberable country'),
          ('el país liberable', 'the liberable country')]
-# frases que llevan dentro uno de esos nombres («… de un país liberable, …»): se prueban antes de cambiar los nombres
+# sentences containing one of those names («… de un país liberable, …»): tried before replacing the names
 _NOUN_SHAPES = [(_rx(es), en) for es, en in SHAPES if any(n in es for n, _x in NOUNS)]
 
 
@@ -250,11 +250,11 @@ def _en(s, depth=0):
         m = rx.match(s)
         if m:
             return en.format(*[_en(g, depth + 1) for g in m.groups()])
-    for es, en in NOUNS:            # antes que las frases: «el país que recibe el evento posee Il de France» no es «{} recibe {} de {}»
+    for es, en in NOUNS:            # before the sentences: «el país que recibe el evento posee Il de France» is not «{} recibe {} de {}»
         s = s.replace(es, en)
-    if '; ' in s and not s.startswith('«'):      # listas de efectos: cada uno por su lado
+    if '; ' in s and not s.startswith('«'):      # effect lists: each one separately
         return '; '.join(_en(x, depth + 1) for x in s.split('; '))
-    m = re.match(r'^«(.*?)»: (.*?)( \(la IA elige esta, (\S+) %\))?$', s, re.S)      # «botón»: efectos (y la que elige la IA)
+    m = re.match(r'^«(.*?)»: (.*?)( \(la IA elige esta, (\S+) %\))?$', s, re.S)      # «botón»: effects (and the one the AI picks)
     if m and '; ' in m.group(2):
         return '«%s»: %s%s' % (m.group(1), _en(m.group(2), depth + 1), ' (the AI picks this one, %s %%)' % m.group(4) if m.group(3) else '')
     for rx, en in _SHAPES:
@@ -269,8 +269,8 @@ def _en(s, depth=0):
 
 
 def L(x, force=None):
-    """Pasa al idioma del editor los textos de un resultado (dict/list/str). Las claves 'label', 'text' de los textos del
-    jugador (título, botones), 'id' y similares no se tocan."""
+    """Translates the texts of a result (dict/list/str) into the editor language. The keys 'label', 'text' of the
+    player texts (title, buttons), 'id' and similar are left alone."""
     if (force or lang()) != 'en':
         return x
     return _walk(x)
@@ -278,7 +278,7 @@ def L(x, force=None):
 
 KEEP = {'label', 'id', 'file', 'type', 'name', 'country', 'a', 'b', 'targets', 'trig_a', 'trig_b', 'date', 'expires', 'region_list', 'sid',
         'units', 'nations', 'display', 'title', 'desc', 'ai', 'when', 'colors', 'dirty'}
-KEEP_DEEP = {'title', 'desc', 'ai', 'when', 'colors', 'dirty', 'nations', 'units', 'targets', 'trig_a', 'trig_b'}   # textos del jugador y datos
+KEEP_DEEP = {'title', 'desc', 'ai', 'when', 'colors', 'dirty', 'nations', 'units', 'targets', 'trig_a', 'trig_b'}   # player texts and data
 
 
 def _walk(x, key=None):
@@ -294,11 +294,11 @@ def _walk(x, key=None):
 
 
 def L_msg(s):
-    """Mensaje de error u aviso suelto: solo frases enteras conocidas (otros módulos tienen sus propios textos)."""
+    """Loose error or warning message: only known whole sentences (other modules have their own texts)."""
     if lang() != 'en' or not s:
         return s
     for rx, en in _SHAPES:
         m = rx.match(s)
-        if m and len(rx.pattern.replace('(.+?)', '').replace('\\', '')) >= 14:      # nada genérico tipo «{} es {}»
+        if m and len(rx.pattern.replace('(.+?)', '').replace('\\', '')) >= 14:      # nothing generic like «{} es {}»
             return en.format(*[_en(g) for g in m.groups()])
     return s

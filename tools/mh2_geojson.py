@@ -37,7 +37,7 @@ def main():
             fail.append((name, str(e))); continue
         if g.is_empty: fail.append((name, 'empty')); continue
         if g.geom_type == 'Polygon': g = MultiPolygon([g])
-        if g.bounds[2] > 180:   # el mapa de MH2 continua mas alla de 180E: partir y llevar la parte este a -180..
+        if g.bounds[2] > 180:   # the MH2 map continues beyond 180E: split and move the eastern part to -180..
             from shapely.geometry import box
             from shapely.affinity import translate
             g = unary_union([g.intersection(box(-360, -90, 180, 90)), translate(g.intersection(box(180, -90, 540, 90)), xoff=-360)])

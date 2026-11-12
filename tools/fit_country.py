@@ -1,21 +1,21 @@
-"""Ajusta las fronteras terrestres de un pais del juego a un poligono GeoJSON y anade sus islas de ultramar.
+"""Fits the land borders of a game country to a GeoJSON polygon and adds its overseas islands.
 
-La costa del juego NO se toca: solo se mueven trozos de tierra entre las regiones del pais y las
-regiones terrestres vecinas, y se anaden las islas que en el juego son mar.
+The game's coastline is NOT touched: only pieces of land move between the country's regions and the
+neighboring land regions, and the islands that are sea in the game are added.
 
-Uso:
+Usage:
   python fit_country.py <xml mapa ORIGINAL> <pais.geojson|.map> <salida> \
         --regions Magallanes Coquimbo Atacama --island Coquimbo --island-south Magallanes:-52
 
-  --regions       regiones del juego que forman el pais
-  --island        region que recibe las islas de ultramar
-  --island-south  REGION:LAT  las islas al sur de LAT van a REGION
-Escribe en <salida>: regions.bin, borders.brd, regions.nts y cambios.json (lineas e islas para la textura).
+  --regions       game regions that make up the country
+  --island        region that receives the overseas islands
+  --island-south  REGION:LAT  islands south of LAT go to REGION
+Writes to <salida>: regions.bin, borders.brd, regions.nts and cambios.json (lines and islands for the texture).
 
-Reglas que imita del mapa original (comprobadas):
-  - cada borde es exactamente la cadena de aristas que comparten las mallas de sus dos regiones;
-  - las mallas vecinas comparten los vertices bit a bit (sin uniones en T) y no hay pasos de longitud 0;
-  - un anillo cerrado (isla) se guarda sin repetir el primer punto.
+Rules it mimics from the original map (verified):
+  - each border is exactly the chain of edges shared by the meshes of its two regions;
+  - neighboring meshes share vertices bit for bit (no T-junctions) and there are no zero-length steps;
+  - a closed ring (island) is stored without repeating the first point.
 """
 import argparse
 import json
@@ -36,7 +36,7 @@ from transfer import apply_transfers, SEA, TOUCH, MIN_PIECE  # noqa: E402
 from move_border import triangulate, signed_area, MeshBuilder, EPS  # noqa: E402
 
 ISLAND_MIN_AREA = 1e-4  # grados2 (~1 km2): Sala y Gomez queda fuera
-ISLAND_MIN_DIST = 0.5   # grados desde la costa del juego para considerar una isla "de ultramar"
+ISLAND_MIN_DIST = 0.5   # degrees from the game's coast to consider an island "overseas"
 ISLAND_SIMPLIFY = 0.002
 
 
@@ -82,7 +82,7 @@ def main():
     print('pais:', [R[c].name for c in C], '| vecinos terrestres:', [R[n].name for n in N])
 
     def adds_new_coast(p, src, dst):
-        """True si la pieza toca un mar con el que la region destino no tenia costa."""
+        """True if the piece touches a sea the target region had no coast on."""
         for s in R[src].neighbors:
             if R[s].u_type == SEA and s not in R[dst].neighbors and touch_len(p, s) > 1e-6:
                 return True

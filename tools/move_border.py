@@ -1,19 +1,19 @@
-"""Pasa a otra region el territorio de una region que queda al oeste (o este) de una linea KML.
+"""Moves to another region the territory of a region lying west (or east) of a KML line.
 
-Uso:
+Usage:
   python move_border.py <carpeta xml del mapa> <archivo.kml> "<nombre de la linea>" \
          <region origen> <region destino> <west|east> <carpeta salida>
 
-Ejemplo (Campo de Hielo Sur):
+Example (Southern Patagonian Ice Field):
   python move_border.py ".../Maps/World/xml" hielo.kml "Traza en base a los hitos de 1898" \
          Patagonia Magallanes west ../mapa_mod
 
-Que cambia:
-  regions.nts  los triangulos de la region origen que cruzan la linea se recortan; la parte del lado
-               indicado pasa a la malla de la region destino. El resto de la malla no cambia.
-  borders.brd  el borde entre ambas regiones se rehace en el tramo afectado.
-  regions.bin  sin cambios (centro, vecinos y puntos de la region siguen valiendo para un ajuste pequeno).
-Requiere que las dos regiones ya sean vecinas y que el trozo movido solo toque a la region destino.
+What changes:
+  regions.nts  the source region's triangles crossing the line are clipped; the part on the
+               given side goes to the target region's mesh. The rest of the mesh does not change.
+  borders.brd  the border between both regions is redone in the affected stretch.
+  regions.bin  unchanged (center, neighbors and points of the region remain valid for a small adjustment).
+Requires the two regions to already be neighbors and the moved piece to touch only the target region.
 """
 import os
 import sys
@@ -41,7 +41,7 @@ def kml_line(path, name_prefix):
 
 
 def side_polygon(line, side):
-    """Poligono que cubre el lado 'west'/'east' de la linea, entre su latitud inicial y final."""
+    """Polygon covering the 'west'/'east' side of the line, between its start and end latitude."""
     far = (min(p[0] for p in line) - 5) if side == 'west' else (max(p[0] for p in line) + 5)
     ring = list(line) + [(far, line[-1][1]), (far, line[0][1])]
     poly = Polygon(ring)
@@ -54,7 +54,7 @@ def signed_area(tri):
 
 
 def triangulate(geom):
-    """Triangulos (lista de 3 puntos) que cubren exactamente un (Multi)Polygon."""
+    """Triangles (list of 3 points) exactly covering a (Multi)Polygon."""
     out = []
     for poly in getattr(geom, 'geoms', [geom]):
         if poly.geom_type != 'Polygon' or poly.area < EPS:
@@ -130,7 +130,7 @@ def main(src, kml_path, line_name, from_name, to_name, side, out):
         if d < 1e-6:
             raise SystemExit('el trozo movido toca a %s; no se hace el cambio' % R[n].name)
 
-    # mallas: origen = triangulos conservados; destino = los suyos + los movidos
+    # meshes: source = kept triangles; target = its own + the moved ones
     mb_a = MeshBuilder(sa, winding)
     for t in keep:
         mb_a.add(t)
@@ -141,8 +141,8 @@ def main(src, kml_path, line_name, from_name, to_name, side, out):
         mb_b.add(t)
     sb.indices = mb_b.indices
 
-    # borde entre ambas regiones: tramos fuera del corte + el contorno del corte dentro de la region
-    # origen (la linea KML y los cierres en sus extremos)
+    # border between both regions: stretches outside the cut + the cut outline inside the region
+    # source (the KML line and the closures at its ends)
     border = next(x for x in m['borders'] if set(x.regions) == {a.index, b.index})
     new_line = cut.boundary.intersection(poly_a_old)
     segs = []
@@ -162,7 +162,7 @@ def main(src, kml_path, line_name, from_name, to_name, side, out):
     border.segments = segs
 
     mhmap.save_map(m, out)
-    check = mhmap.load_map(out)  # se relee para validar el resultado
+    check = mhmap.load_map(out)  # re-read to validate the result
     print('guardado en %s y releido: %d regiones, %d bordes, %d shapes' % (
         out, len(check['regions']), len(check['borders']), len(check['shapes'])))
 

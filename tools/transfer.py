@@ -1,13 +1,13 @@
-"""Traspaso de trozos de mapa entre regiones respetando las reglas del formato.
+"""Transfer of map pieces between regions respecting the format rules.
 
-apply_transfers(m, transfers, islands, P) recorta las mallas, unifica vertices (float32, sin uniones en T),
-regenera los bordes afectados desde las aristas compartidas (con sus banderas) y crea las vecindades nuevas.
-Devuelve (erase, paint, new_pairs): lineas a borrar/pintar en la textura como (tipo, LineString) con tipo
-'land' (tierra-tierra) o 'sea' (mar-mar); las costas no se pintan.
+apply_transfers(m, transfers, islands, P) clips the meshes, unifies vertices (float32, no T-junctions),
+regenerates the affected borders from the shared edges (with their flags) and creates the new neighborships.
+Returns (erase, paint, new_pairs): lines to erase/paint on the texture as (type, LineString) with type
+'land' (land-land) or 'sea' (sea-sea); coasts are not painted.
 
-  transfers: lista de (poligono, region_origen, region_destino)
-  islands:   lista de (poligono, region_destino, region_mar) para colocar el ancla de bordes nuevos
-  P:         funcion region -> poligono de su malla (con cache)
+  transfers: list of (polygon, source_region, target_region)
+  islands:   list of (polygon, target_region, sea_region) to place the anchor of new borders
+  P:         function region -> polygon of its mesh (cached)
 """
 import math
 import os
@@ -24,11 +24,11 @@ import mhmap  # noqa: E402
 from move_border import triangulate, signed_area, MeshBuilder, EPS  # noqa: E402
 
 SEA = 0
-TOUCH = 1e-6            # tolerancia para decidir si dos poligonos se tocan
-ZONE = 1e-3             # margen alrededor de las piezas movidas
+TOUCH = 1e-6            # tolerance to decide whether two polygons touch
+ZONE = 1e-3             # margin around the moved pieces
 MIN_PIECE = 1e-7        # grados2: piezas menores se ignoran
-SNAP = 5e-5             # grados (~5 m): vertices nuevos a menos de esto se funden con uno existente
-ON_EDGE = 2e-5          # grados: un vertice a menos de esto de una arista se considera sobre ella
+SNAP = 5e-5             # degrees (~5 m): new vertices closer than this merge with an existing one
+ON_EDGE = 2e-5          # degrees: a vertex closer than this to an edge is considered on it
 
 
 
@@ -47,7 +47,7 @@ def lines(g):
 
 
 class Snapper:
-    """Redondea a float32 y funde puntos nuevos con vertices existentes cercanos (rejilla de SNAP)."""
+    """Rounds to float32 and merges new points with nearby existing vertices (SNAP grid)."""
 
     def __init__(self):
         self.grid = defaultdict(list)
@@ -89,7 +89,7 @@ def boundary_edges(tris):
 
 
 def split_tjunctions(tris, pool, zone_box, zone_geom=None):
-    """Parte los triangulos cuyas aristas de contorno tienen vertices ajenos encima (uniones en T)."""
+    """Splits the triangles whose outline edges have foreign vertices on them (T-junctions)."""
     pts = list(pool)
     tree = STRtree([Point(p) for p in pts])
     changed = True
@@ -138,7 +138,7 @@ def split_tjunctions(tris, pool, zone_box, zone_geom=None):
 
 
 def chains(edges):
-    """Descompone un conjunto de aristas en polilineas (los anillos cerrados sin repetir el inicio)."""
+    """Decomposes a set of edges into polylines (closed rings without repeating the start)."""
     adj = defaultdict(list)
     for e in edges:
         a, b = tuple(e)
@@ -180,17 +180,17 @@ def apply_transfers(m, transfers, islands, P, cache=None):
     R = m["regions"]
     # ------------------------------------------------------------ mallas: recorte
     all_tris = [t for s in m['shapes'] for t in s.triangles()]
-    # el juego solo dibuja (y deja elegir) triangulos en sentido antihorario (World: 100 %); en un mapa vacío no hay de donde
-    # deducirlo y antes salía horario: regiones invisibles e imposibles de seleccionar (Probando3, 2026-10-22)
+    # the game only draws (and lets select) counterclockwise triangles (World: 100 %); in an empty map there is nothing to
+    # deduce it from and it used to come out clockwise: invisible, unselectable regions (Probando3, 2026-10-22)
     winding = not all_tris or sum(signed_area(t) > 0 for t in all_tris) * 2 >= len(all_tris)
     by_src = defaultdict(list)
     for p, s, d in transfers:
         by_src[s].append((p, d))
     work = {}          # indice de shape -> triangulos (tuplas de puntos)
-    dest_geom = {}     # region destino -> (malla preparada, malla) tal como estaba antes del traspaso
+    dest_geom = {}     # target region -> (prepared mesh, mesh) as it was before the transfer
     incoming = defaultdict(list)
     for src, items in by_src.items():
-        if src is None:   # area que sale de la nada (rellenar un hueco o lago)
+        if src is None:   # area coming out of nothing (filling a hole or lake)
             for p, d in items:
                 if d is not None:
                     incoming[d].extend(tuple(map(tuple, q)) for q in triangulate(p))
@@ -201,8 +201,8 @@ def apply_transfers(m, transfers, islands, P, cache=None):
             for t in sh.triangles():
                 tp = Polygon(t)
                 if tp.area < EPS:
-                    # triángulo diminuto: antes se quedaba siempre en su región (un resto de Podelia de 1e-8 grados² dentro de
-                    # Polissia no había forma de quitarlo); si cae dentro de lo que se traspasa, se va con ello
+                    # tiny triangle: it used to always stay in its region (a 1e-8 degrees² Podelia leftover inside
+                    # Polissia could not be removed); if it falls inside what is transferred, it goes with it
                     c = Point(sum(p_[0] for p_ in t) / 3, sum(p_[1] for p_ in t) / 3)
                     hit = next((items[i] for i in tree.query(c.buffer(1e-7)) if items[i][0].buffer(1e-7).contains(c)), None)
                     if hit is None:
@@ -212,7 +212,7 @@ def apply_transfers(m, transfers, islands, P, cache=None):
                         if d not in dest_geom:
                             from shapely.prepared import prep
                             dest_geom[d] = (prep(P(d)), P(d))
-                        if not dest_geom[d][0].contains(c):      # si el destino ya cubre ese punto, basta con quitarlo del origen
+                        if not dest_geom[d][0].contains(c):      # if the target already covers that point, removing it from the source is enough
                             incoming[d].append(tuple(map(tuple, t)))
                     continue
                 hits = [items[i] for i in tree.query(tp) if items[i][0].intersects(tp)]
@@ -221,8 +221,8 @@ def apply_transfers(m, transfers, islands, P, cache=None):
                     inter = rem.intersection(p)
                     if inter.area > EPS:
                         if d is not None:   # d None: el area se elimina (queda un hueco)
-                            # lo que la región destino ya tiene (mallas que se solapan, p. ej. las «formas raras» entre
-                            # Podelia y Polissia) no se le vuelve a añadir: duplicaría triángulos y su malla quedaría rota
+                            # what the target region already has (overlapping meshes, e.g. the «odd shapes» between
+                            # Podelia and Polissia) is not added again: it would duplicate triangles and its mesh would be broken
                             if d not in dest_geom:
                                 from shapely.prepared import prep
                                 dest_geom[d] = (prep(P(d)), P(d))
@@ -241,13 +241,13 @@ def apply_transfers(m, transfers, islands, P, cache=None):
         work.setdefault(sh.index, [tuple(t) for t in sh.triangles()]).extend(tris)
     affected = (set(by_src) | set(incoming)) - {None}
 
-    # ------------------------------------------------------------ mallas: vertices exactos y sin uniones en T
+    # ------------------------------------------------------------ meshes: exact vertices and no T-junctions
     zone = unary_union([p for p, _, _ in transfers]).buffer(ZONE)
     zb = zone.bounds
     group = set(affected)
     for r in affected:
         group |= set(R[r].neighbors)
-    # regiones que tocan la zona aunque no fueran vecinas (contactos nuevos, p. ej. al rellenar un lago)
+    # regions touching the area even if they were not neighbors (new contacts, e.g. when filling a lake)
     for i, row in enumerate(m['shape_table']):
         if i in group:
             continue
@@ -272,7 +272,7 @@ def apply_transfers(m, transfers, islands, P, cache=None):
             if len(set(q)) == 3 and abs(signed_area(q)) > 1e-14:
                 fixed.append(q)
         work[si] = fixed
-    # vertices de contorno de todas las regiones del grupo, para detectar uniones en T
+    # outline vertices of all regions in the group, to detect T-junctions
     def region_tris(r):
         return [t for sh in mhmap.region_shapes(m, r)
                 for t in (work[sh.index] if sh.index in work else [tuple(x) for x in sh.triangles()])]
@@ -284,7 +284,7 @@ def apply_transfers(m, transfers, islands, P, cache=None):
                     pool.add(v)
     zone_box = (zb[0] - 0.01, zb[1] - 0.01, zb[2] + 0.01, zb[3] + 0.01)
     from shapely.prepared import prep
-    zone_near = prep(zone.buffer(0.01))   # solo aristas que tocan la zona realmente modificada
+    zone_near = prep(zone.buffer(0.01))   # only edges touching the actually modified area
     n_split = 0
     for r in sorted(group):
         for sh in mhmap.region_shapes(m, r):
@@ -308,7 +308,7 @@ def apply_transfers(m, transfers, islands, P, cache=None):
     for r in group | affected:
         bedges[r] = boundary_edges([tuple(map(tuple, t)) for sh in mhmap.region_shapes(m, r) for t in
                                     ([(s[0], s[1], s[2]) for s in sh.triangles()])])
-    # se usan los valores tal como quedaran en float32
+    # values are used as they will end up in float32
     def f32e(e):
         return frozenset((f32(p[0]), f32(p[1])) for p in e)
     bedges = {r: {f32e(e) for e in es} for r, es in bedges.items()}
@@ -331,7 +331,7 @@ def apply_transfers(m, transfers, islands, P, cache=None):
             continue
         land_land = R[r].u_type != SEA and R[s].u_type != SEA
         sea_sea = R[r].u_type == SEA and R[s].u_type == SEA
-        kind = 'land' if land_land else ('sea' if sea_sea else None)  # las costas no se pintan
+        kind = 'land' if land_land else ('sea' if sea_sea else None)  # coasts are not painted
         old_flag = {}
         for f, pts in (old.segments if old else []):
             for p, q in zip(pts, pts[1:]):
@@ -373,7 +373,7 @@ def apply_transfers(m, transfers, islands, P, cache=None):
                 isl = [p for p, d, sx in islands if d == land and sx == sea]
                 c = unary_union(isl).centroid if isl else LineString(pts_all).centroid
                 sc = P(sea).representative_point()
-                if sc.is_empty or c.is_empty:        # mar sin contorno (vacio): ancla en medio de la frontera
+                if sc.is_empty or c.is_empty:        # sea without outline (empty): anchor in the middle of the border
                     sc = c = LineString(pts_all).centroid if len(pts_all) > 1 else Point(pts_all[0])
                 dx, dy = sc.x - c.x, sc.y - c.y
                 k = 0.8 / max((dx * dx + dy * dy) ** 0.5, 1e-9)
@@ -388,7 +388,7 @@ def apply_transfers(m, transfers, islands, P, cache=None):
             new_pairs.append(pr)
             if kind:
                 paint += [(kind, x) for x in lines(unary_union([LineString(p) for f, p in segs if len(p) > 1]))]
-    # vecindades que desaparecen: se quita el borde y se renumeran los posteriores
+    # neighborships that disappear: the border is removed and the following ones renumbered
     for pr in sorted(gone, key=lambda x: -border_of[x].index):
         r, s = pr
         b = border_of.pop(pr)
@@ -407,8 +407,8 @@ def apply_transfers(m, transfers, islands, P, cache=None):
         print('vecindades eliminadas:', [(R[x].name, R[y].name) for x, y in gone])
     print('vecindades nuevas:', [(R[x].name, R[y].name) for x, y in new_pairs])
 
-    # lo que se borra de la textura es ancho (ERASE_WIDTH): se lleva también trozos de fronteras que siguen existiendo
-    # (p. ej. al borrar una región y sumarla a otra). Esas fronteras vivas se repintan donde cae el borrado.
+    # what is erased from the texture is wide (ERASE_WIDTH): it also takes pieces of borders that still exist
+    # (e.g. when deleting a region and adding it to another). Those live borders are repainted where the erase falls.
     if erase:
         eu = unary_union([x for _, x in erase]).buffer(0.13)
         have = unary_union([x for _, x in paint]).buffer(1e-4) if paint else None
@@ -417,7 +417,7 @@ def apply_transfers(m, transfers, islands, P, cache=None):
                 continue
             ra, rb = b.regions
             if (R[ra].u_type == SEA) != (R[rb].u_type == SEA):
-                continue                                  # las costas no se pintan
+                continue                                  # coasts are not painted
             kind = 'sea' if R[ra].u_type == SEA else 'land'
             for f, pts in b.segments:
                 if len(pts) < 2:

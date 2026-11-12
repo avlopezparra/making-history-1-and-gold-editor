@@ -1,12 +1,12 @@
-"""Partidas guardadas de Making History (.mlc): lectura y conversión en una versión nueva del escenario.
+"""Making History saved games (.mlc): reading and conversion into a new version of the scenario.
 
-Formato (ingeniería inversa, ver ESCENARIOS_NOTAS.md «Partidas guardadas»):
-  cabecera fija de 0xA28 bytes (versión, turno, hora, textos UTF-16 de 512 bytes) + un bloque zlib con los objetos de la
-  partida serializados en binario: objeto = <marca u32> <tipo u32> <id u32> <nº propiedades u32>, propiedad =
-  <id u32> <0 u32> <-1 i32> <valor>. Los números de tipo/propiedad son los de esta versión del motor: los tipos se
-  reconocen por su contenido (nombres de ciudades, plantillas de unidades...) y no se dan por fijos.
+Format (reverse engineered, see ESCENARIOS_NOTAS.md «Partidas guardadas»):
+  fixed 0xA28-byte header (version, turn, time, 512-byte UTF-16 texts) + a zlib block with the game's
+  objects serialized in binary: object = <marker u32> <type u32> <id u32> <no. of properties u32>, property =
+  <id u32> <0 u32> <-1 i32> <value>. Type/property numbers are those of this engine version: types are
+  recognized by their content (city names, unit templates...) and not assumed fixed.
 
-Las partidas originales nunca se modifican: solo se leen.
+The original saves are never modified: only read.
 """
 import os
 import re
@@ -24,7 +24,7 @@ _PROP = re.compile(rb'(.)\x00\x00\x00\x00\x00\x00\x00\xff\xff\xff\xff', re.S)
 
 
 def list_saves(root=None):
-    """Partidas de todos los jugadores: [{jugador, archivo, ruta, tamaño, fecha, escenario, turno}]."""
+    """Saves of all players: [{player, file, path, size, date, scenario, turn}]."""
     root = root or SAVES_ROOT
     out = []
     if not os.path.isdir(root):
@@ -69,10 +69,10 @@ def read_body(path):
 
 
 class SaveData:
-    """Objetos de la partida que interesan al editor (leídos por patrones; los tipos se reconocen por su contenido)."""
+    """Game objects the editor cares about (read by patterns; types are recognized by their content)."""
 
     def __init__(self, path, cities=(), templates=None, regions=()):
-        """cities: nombres de ciudades del escenario; templates: {plantilla: eType}; regions: nombres de regiones."""
+        """cities: scenario city names; templates: {template: eType}; regions: region names."""
         self.path = path
         self.header = read_header(path)
         self.d = read_body(path)
@@ -84,7 +84,7 @@ class SaveData:
 
     # ------------------------------------------------------------ bajo nivel
     def props(self, off, n):
-        """{id propiedad: bytes del valor}; el valor llega hasta la cabecera de la siguiente propiedad (la última, 64 bytes)."""
+        """{property id: value bytes}; the value runs up to the next property's header (the last, 64 bytes)."""
         d = self.d
         p = off + 16
         pid = d[p]
@@ -122,17 +122,17 @@ class SaveData:
     def vec(b):
         return struct.unpack_from('<3f', b) if b is not None and len(b) >= 12 else None
 
-    # ------------------------------------------------------------ interpretación
+    # ------------------------------------------------------------ interpretation
     def _decode(self, cities, templates, region_names):
         S, I, V = self.s, self.i, self.vec
-        named = []          # (off, tipo, props) de objetos con nombre (p1), dueño (p2) y posición (p14)
+        named = []          # (off, type, props) of objects with name (p1), owner (p2) and position (p14)
         by_type = defaultdict(list)
         for off, t, n in self._objs:
             by_type[t].append((off, n))
-        # regiones: p0 índice interno, p1 nombre, p2/p3 dueño/controlador, p14 índice del mapa
+        # regions: p0 internal index, p1 name, p2/p3 owner/controller, p14 map index
         self.regions = {}
         self.map_index = {}
-        # ciudades: tipo cuyo p1 coincide con más ciudades del escenario
+        # cities: type whose p1 matches the most scenario cities
         votes = Counter()
         cache = {}
         for off, t, n in self._objs:
@@ -149,7 +149,7 @@ class SaveData:
                 votes[('R', t)] += 1
         self.city_type = max((k for k in votes if not isinstance(k, tuple)), key=lambda k: votes[k], default=None)
         rtypes = {k[1] for k in votes if isinstance(k, tuple) and votes[k] >= 3}
-        # plantillas de unidad: tipo (con muchas propiedades) cuyo p0 es el nombre de una plantilla
+        # unit templates: type (with many properties) whose p0 is a template name
         uvotes = Counter()
         for off, t, n in self._objs:
             if n >= 8 and S(cache.get(off, {}).get(0)) in templates:
@@ -196,14 +196,14 @@ class SaveData:
                 tn = S(pr.get(0))
                 k = I(pr.get(12)) if len(pr.get(12) or b'') >= 4 else None
                 if tn:
-                    cur_force['units'][tn] += k if k and 0 < k < 10000 else 1     # pila: p12 = número de unidades
+                    cur_force['units'][tn] += k if k and 0 < k < 10000 else 1     # stack: p12 = number of units
                 continue
             name, owner, pos = S(pr.get(1)), S(pr.get(2)), pr.get(14)
             if name and owner and pos is not None and len(pos) == 12 and 15 in pr and t != self.city_type and n >= 20:
                 cur_force = {'name': name, 'owner': owner, 'pos': V(pos), 'map': I(pr.get(15)), 'type_id': t, 'units': Counter()}
                 self.forces.append(cur_force)
                 cur_city = None
-        # tipo de fuerza: por las plantillas de sus unidades (UNIT_TYPE_NAVY / UNIT_TYPE_AIR_FORCE / ejército)
+        # force type: by the templates of its units (UNIT_TYPE_NAVY / UNIT_TYPE_AIR_FORCE / army)
         kind_votes = defaultdict(Counter)
         for f in self.forces:
             for u, k in f['units'].items():
@@ -216,7 +216,7 @@ class SaveData:
             f['kind'] = kinds[f['type_id']]
             f['region'] = self.map_index.get(f['map'])
             if f['region'] is None and f['pos'] and city_map:
-                # en puerto (índice -1): la región de la ciudad más cercana
+                # in port (index -1): the region of the nearest city
                 (x, y, _), m = min(city_map, key=lambda c: (c[0][0] - f['pos'][0]) ** 2 + (c[0][1] - f['pos'][1]) ** 2)
                 if (x - f['pos'][0]) ** 2 + (y - f['pos'][1]) ** 2 < 1.0:
                     f['region'] = self.map_index[m]
@@ -230,13 +230,13 @@ class SaveData:
                 'countries_with_land': sorted(owners)}
 
 
-# ---------------------------------------------------------------------------------------- escenario nuevo
+# ---------------------------------------------------------------------------------------- new scenario
 def _scenario_facts(s):
-    """Lo que hace falta del escenario para reconocer la partida."""
+    """What is needed from the scenario to recognize the save."""
     from scenario_core import prop
     cities = [prop(c, 'strName') for c in s.all('City')]
     templates = {prop(t, 'strName'): prop(t, 'eType') or '' for t in s.all('UnitTemplate')}
-    if not templates:     # plantillas en ScenarioDefaults del juego (copias de prueba sin esa carpeta)
+    if not templates:     # templates in the game's ScenarioDefaults (test copies without that folder)
         import glob
         import scenario_core as sc
         for f in glob.glob(os.path.join(sc.GAME, 'Modern Europe', 'system', 'scenarios', 'ScenarioDefaults', '*.xml')):
@@ -251,7 +251,7 @@ def _scenario_facts(s):
 
 
 def _pack_names(s):
-    """Regiones del regionpack del escenario y las que su changelog quitó: así se reconocen en partidas antiguas."""
+    """Regions of the scenario's regionpack and those its changelog removed: so they are recognized in old saves."""
     import scenario_core as sc
     import scenario_layers
     try:
@@ -263,7 +263,7 @@ def _pack_names(s):
 
 
 def _deleted(pm):
-    """[(región quitada, la que la absorbió)] del changelog (claves en inglés o en español, según la versión)."""
+    """[(removed region, the one that absorbed it)] from the changelog (keys in English or Spanish, depending on the version)."""
     out = []
     for e in pm.changelog:
         for x in e.get('deleted_regions') or e.get('regiones_eliminadas') or []:
@@ -280,9 +280,9 @@ def load_for(s, path):
 
 
 def pack_report(s, save):
-    """¿La partida cuadra con el regionpack actual del escenario? El juego valida por nombre y además guarda el número
-    de cada región del mapa: si se quitó o añadió una región, cambian los números de las siguientes y la partida no carga.
-    'alias': región de la partida que ya no existe -> región que la absorbió (changelog «delete_region»)."""
+    """Does the save fit the scenario's current regionpack? The game validates by name and also stores the number
+    of each map region: if a region was removed or added, the numbers of the following ones change and the save does not load.
+    'alias': save region that no longer exists -> region that absorbed it (changelog «delete_region»)."""
     import scenario_core as sc
     pm, _ = _pack_names(s)
     if pm is None:
@@ -295,7 +295,7 @@ def pack_report(s, save):
     alias = {}
     for n in missing:
         a, seen = absorbed.get(n), {n}
-        while a and a not in pm.idx and a in absorbed and a not in seen:      # absorbida por otra que luego también se quitó
+        while a and a not in pm.idx and a in absorbed and a not in seen:      # absorbed by another that was later removed too
             seen.add(a)
             a = absorbed[a]
         if a and a in pm.idx:
@@ -305,7 +305,7 @@ def pack_report(s, save):
 
 
 def plan(s, save, opts=None):
-    """Diferencias entre el escenario 's' y la partida: [{kind, ...}] (no cambia nada)."""
+    """Differences between scenario 's' and the save: [{kind, ...}] (changes nothing)."""
     from scenario_core import prop
     opts = opts or {}
     P = prop
@@ -337,7 +337,7 @@ def plan(s, save, opts=None):
     regions = {P(r, 'strName') for r in s.regions()}
     alias = opts.get('alias') or {}
     for f in save.forces:
-        if f['region'] in alias:            # región quitada del regionpack: la que la absorbió
+        if f['region'] in alias:            # region removed from the regionpack: the one that absorbed it
             f = dict(f, region=alias[f['region']])
         bad = [u for u in f['units'] if u not in templates]
         out['forces_new'].append({'kind': f['kind'], 'name': f['name'], 'owner': f['owner'], 'region': f['region'],
@@ -386,7 +386,7 @@ def apply(s, save, pl, owners=True, ipus=True, forces=True):
         if pl['cities']:
             notes.append('%d ciudad(es) con IPUs de la partida' % len(pl['cities']))
     if forces:
-        # se quitan las fuerzas del escenario y se ponen las de la partida (con su posición)
+        # the scenario's forces are removed and the save's are put in (with their position)
         old = [g for t in ('Army', 'AirForce', 'Fleet') for g in s.all(t)]
         for g in old:
             st.remove(g)
@@ -398,8 +398,8 @@ def apply(s, save, pl, owners=True, ipus=True, forces=True):
                 continue
             region, port = f['region'], None
             if f['kind'] == 'Fleet' and region not in seas:
-                # flota atracada: el juego espera la ciudad-puerto (strCity) de la región; si esa región no tiene puerto,
-                # el puerto más cercano a su posición
+                # docked fleet: the game expects the region's port city (strCity); if that region has no port,
+                # the port nearest its position
                 reg = next((r for r in s.regions(sea=False) if P(r, 'strName') == region), None)
                 port = next((c for c in objs(reg) if c.get('type') == 'City' and P(c, 'strPortForRegion')), None) if reg is not None else None
                 if port is None:
@@ -432,9 +432,9 @@ def apply(s, save, pl, owners=True, ipus=True, forces=True):
 
 
 def create_scenario(scen_root, base, save_path, new_name, owners=True, ipus=True, forces=True, adapt=True):
-    """Copia el escenario 'base' a <scen_root>/<new_name> y le aplica la partida. Solo escribe la carpeta nueva.
-    adapt: las regiones de la partida que el regionpack ya no tiene se traducen por el changelog y el escenario nuevo
-    se adecua al regionpack (como «Adecuar»), para que el juego lo cargue."""
+    """Copies scenario 'base' to <scen_root>/<new_name> and applies the save to it. Only writes the new folder.
+    adapt: save regions the regionpack no longer has are translated via the changelog and the new scenario
+    is adapted to the regionpack (like «Adecuar»), so the game loads it."""
     import scenario_core as sc
     import scenario_layers
     new_name = (new_name or '').strip()

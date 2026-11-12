@@ -1,10 +1,10 @@
-"""Uganda jugable + investigación secreta «Secret Weapon» (unidad Ugandan Knuckles) en un escenario donde Uganda ya existe.
+"""Playable Uganda + secret research «Secret Weapon» (Ugandan Knuckles unit) in a scenario where Uganda already exists.
 
     python tools/uganda_secret.py <carpeta del escenario> <carpeta con Uganda Knuckles.nif/.kf y su Sprite>
 
-Edita la carpeta dada en sitio (usar sobre una copia; instalar aparte con copia de seguridad).
-Los demás países ven «Secret Weapon» y su requisito «Classified», pero el requisito es inalcanzable
-y nada dice qué es; solo Uganda empieza con «Classified» completado.
+Edits the given folder in place (use on a copy; install separately with a backup).
+The other countries see «Secret Weapon» and its prerequisite «Classified», but the prerequisite is unreachable
+and nothing says what it is; only Uganda starts with «Classified» completed.
 """
 import re
 import shutil
@@ -62,7 +62,7 @@ if 'value="Classified"' not in pl:
                    '\t\t</object>\n') + pl[i:]
 wr('playerUganda.xml', pl)
 
-# --- textos (sin decir qué es)
+# --- texts (without saying what it is)
 st = rd('game/stringTable.xml')
 strings = {
     'SID.Game.ResearchProject.Name.Classified': 'Classified',
@@ -79,7 +79,7 @@ st = st.replace('</stringTable>', ''.join('\t<string id="%s" value="%s"/>\n' % k
                                           if 'id="%s"' % kv[0] not in st) + '</stringTable>')
 wr('game/stringTable.xml', st)
 
-# --- investigación
+# --- research
 rs = rd('sharedDataResearch.xml')
 if 'value="SecretWeapon"' not in rs:
     end = '\t\t</object>\n\t</object>\n</objects>'
@@ -117,7 +117,7 @@ if 'value="SecretWeapon"' not in rs:
 ''' + end + '\n'
     wr('sharedDataResearch.xml', rs)
 
-# --- fábrica, plantilla, gráficos
+# --- factory, template, graphics
 fa = rd('sharedDataFactories.xml')
 if 'value="UgandanKnuckles"' not in fa:
     _, b = block(fa, '<property name="strUnitType" value="Militia"/>')

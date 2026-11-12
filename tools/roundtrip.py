@@ -1,7 +1,7 @@
-"""Prueba de ida y vuelta: leer -> escribir -> comparar bytes con el original.
+"""Round-trip test: read -> write -> compare bytes with the original.
 
-Uso: python -I roundtrip.py <carpeta xml del mapa>
-No escribe nada en la carpeta del juego: compara en memoria.
+Usage: python -I roundtrip.py <carpeta xml del mapa>
+Writes nothing to the game folder: compares in memory.
 """
 import hashlib
 import os
@@ -26,7 +26,7 @@ def main(folder):
             hashlib.sha256(new).hexdigest()[:16],
             '' if same else '  (tam. nuevo %d, primera diferencia en %s)' % (len(new), first_diff)))
 
-    # comprobaciones de coherencia entre los tres archivos
+    # consistency checks between the three files
     regions, borders, st = m['regions'], m['borders'], m['shape_table']
     assert len(regions) == len(m['border_table']) == len(st), 'numero de regiones distinto entre archivos'
     pairs_bin = {tuple(sorted((g.index, n))) for g in regions for n in g.neighbors}

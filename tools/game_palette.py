@@ -1,9 +1,9 @@
-"""Paleta del terreno de cada juego para el mapa del editor.
+"""Terrain palette of each game for the editor map.
 
-Las texturas OperationalTerrain de Gold son las de MH1 con otro color (mar y terreno mas apagados; ver port_tiles).
-Si el escenario abierto es de un juego y el editor trabaja con la carpeta del otro (p. ej. un escenario de Gold copiado
-en MH1), las texturas se muestran con la paleta del juego del escenario: tabla de color aprendida de unos tiles de World
-de los dos juegos (los mismos pixeles en ambos), calculada una vez y guardada en memoria.
+Gold's OperationalTerrain textures are MH1's with another color (duller sea and terrain; see port_tiles).
+If the open scenario is from one game and the editor works with the other's folder (e.g. a Gold scenario copied
+into MH1), the textures are shown with the scenario game's palette: a color table learned from some World tiles
+of both games (the same pixels in both), computed once and kept in memory.
 """
 import os
 import threading
@@ -15,9 +15,9 @@ import gamepaths
 from fix_texture import decode
 from port_tiles import ColorMap
 
-# tiles de World sin mods con mar, costa, desierto, selva, montana y nieve (la tabla sale de pixeles iguales en ambos)
+# unmodded World tiles with sea, coast, desert, jungle, mountain and snow (the table comes from pixels equal in both)
 SAMPLE = ('03-03', '08-05', '10-06', '12-03', '12-07', '13-05', '16-04', '19-04', '20-08', '07-11')
-LEVEL = 2          # mipmap de 256 px: suficiente para la tabla y rapido de leer
+LEVEL = 2          # 256 px mipmap: enough for the table and fast to read
 _MAPS = {}
 _LOCK = threading.Lock()
 
@@ -32,7 +32,7 @@ def _pixels(game, names):
 
 
 def color_map(src, dst):
-    """ColorMap de la paleta de 'src' a la de 'dst' (o None si falta alguno de los dos juegos)."""
+    """ColorMap from 'src' palette to 'dst' palette (or None if either game is missing)."""
     key = (src, dst)
     with _LOCK:
         if key not in _MAPS:
@@ -46,7 +46,7 @@ def color_map(src, dst):
 
 
 def recolor(img, src, dst):
-    """Imagen (PIL) con los colores del terreno de 'src' pasados a la paleta de 'dst'."""
+    """Image (PIL) with 'src' terrain colors converted to the 'dst' palette."""
     cm = color_map(src, dst) if src != dst else None
     if cm is None:
         return img

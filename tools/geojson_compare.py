@@ -1,7 +1,7 @@
-"""Datos derivados para el GeoJSON del editor de regiones: comparación del mapa con el regionpack World, naciones por región,
-fronteras y análisis de contornos que se van a importar.
+"""Derived data for the region editor's GeoJSON: comparison of the map with the World regionpack, nations per region,
+borders and analysis of outlines about to be imported.
 
-El changelog del regionpack puede estar en español (regiones_nuevas…) o en inglés (new_regions…): se leen las dos formas.
+The regionpack changelog may be in Spanish (regiones_nuevas…) or English (new_regions…): both forms are read.
 """
 import os
 
@@ -15,10 +15,10 @@ import outlines
 from transfer import SEA
 from scenario_core import prop
 
-MIN_PCT = 0.01        # fracciones del área por debajo de esto no se citan
-PART_PCT = 0.05       # una parte cuenta como «trozo» de una división / fusión a partir de este porcentaje
+MIN_PCT = 0.01        # area fractions below this are not mentioned
+PART_PCT = 0.05       # a part counts as a «piece» of a split / merge from this percentage on
 
-# clave española -> inglesa (el JSON sale en el idioma del editor; el changelog se lee en cualquiera de los dos)
+# Spanish key -> English key (the JSON comes out in the editor language; the changelog is read in either)
 ALIASES = {
     'regiones_nuevas': ['new_regions'], 'regiones_eliminadas': ['removed_regions', 'deleted_regions'], 'traspasos': ['transfers'],
     'vecindades_nuevas': ['new_neighbors', 'new_neighbours'], 'centros': ['centers'], 'renombradas': ['renamed', 'renamed_regions'],
@@ -54,7 +54,7 @@ def tr_keys(x, lang):
 
 
 def norm_entry(e):
-    """Una entrada de changelog con las claves en español, venga como venga (español o inglés), también las de dentro."""
+    """A changelog entry with Spanish keys, whatever it comes in (Spanish or English), nested ones too."""
     inv = {en: es for es, ens in ALIASES.items() for en in ens}
 
     def conv(x):
@@ -67,7 +67,7 @@ def norm_entry(e):
 
 
 def _project_geoms(project):
-    """{nombre: (poligono, es_mar)} del proyecto, con los contornos en caché (se vacía al recargar el mapa)."""
+    """{name: (polygon, is_sea)} of the project, with outlines cached (cleared on map reload)."""
     with project.lock:
         c = project.outline_cache.get('_geoms')
         if c is None:
@@ -76,7 +76,7 @@ def _project_geoms(project):
 
 
 def _geoms(m, renames, project=None):
-    """{nombre: (poligono, es_mar)} del mapa m (contorno principal de cada región)."""
+    """{name: (polygon, is_sea)} of map m (main outline of each region)."""
     out = {}
     for g in m['regions']:
         main, _ = project.outline(g.index)[:2] if project is not None else outlines.region_polygons(m, g.index)
@@ -93,7 +93,7 @@ def _geoms(m, renames, project=None):
 
 
 def _overlaps(A, B):
-    """{a: {b: área común}} entre dos diccionarios de {nombre: (poligono, mar)} (solo se comparan regiones del mismo tipo)."""
+    """{a: {b: common area}} between two dicts of {name: (polygon, sea)} (only regions of the same type are compared)."""
     names = list(B)
     tree = STRtree([B[n][0] for n in names])
     out = {}
@@ -115,8 +115,8 @@ def _overlaps(A, B):
 
 
 def compare_with_base(project, base='World', lang='es'):
-    """Regiones del mapa abierto frente al regionpack base: nuevas (de qué regiones de la base salen y con qué % del área),
-    eliminadas (a dónde fue su área), divididas, fusionadas y modificadas."""
+    """Regions of the open map against the base regionpack: new (which base regions they come from and with what % of area),
+    deleted (where their area went), split, merged and modified."""
     bdir = os.path.join(editor_core.MAPS, base)
     bm = mhmap.load_map(os.path.join(bdir, 'xml'))
     B = _geoms(bm, editor_core.load_renames(bdir))
@@ -163,7 +163,7 @@ def compare_with_base(project, base='World', lang='es'):
             continue
         dest = pct_list(ov_bc.get(b, {}), pb.area)
         removed.append({'nombre': b, 'tipo': 'mar' if sea else 'tierra', 'repartida_en': dest})
-    # divisiones: región de la base cuya área se reparte entre varias regiones actuales (cuenta la propia si sigue existiendo)
+    # splits: base region whose area is spread among several current regions (its own counts if it still exists)
     splits = []
     for b, row in ov_bc.items():
         parts = [d for d in pct_list(row, B[b][0].area) if d['porcentaje_del_area'] >= 100 * PART_PCT]
@@ -174,7 +174,7 @@ def compare_with_base(project, base='World', lang='es'):
         big = [s for s in it['procede_de'] if s['porcentaje_del_area'] >= 100 * PART_PCT]
         if len(big) > 1:
             merges.append({'nombre': it['nombre'], 'partes': big})
-    for it in modified:      # una existente que absorbió buena parte de otra
+    for it in modified:      # an existing one that absorbed a good part of another
         big = [s for s in it['gana_area_desde'] if s['porcentaje_del_area'] >= 100 * PART_PCT]
         if big:
             merges.append({'nombre': it['nombre'], 'partes': big})
@@ -191,7 +191,7 @@ def compare_with_base(project, base='World', lang='es'):
 
 
 def nations(s, project, scen_name, lang='es'):
-    """Por cada región: la nación que la posee, la que la controla y su población; y por nación sus regiones."""
+    """For each region: the nation that owns it, the one that controls it and its population; and per nation its regions."""
     P = prop
     regs, by_nation = {}, {}
     data = {P(r, 'strName'): r for r in s.regions()}
@@ -216,7 +216,7 @@ def nations(s, project, scen_name, lang='es'):
 
 
 def borders(project):
-    """Fronteras entre regiones vecinas: una línea por pareja (a, b); 'coast' si una es mar y la otra tierra."""
+    """Borders between neighboring regions: one line per pair (a, b); 'coast' if one is sea and the other land."""
     polys = {}
     for g in project.m['regions']:
         main, _ = project.outline(g.index)[:2]
@@ -252,7 +252,7 @@ def borders(project):
 
 
 def _project_centers(project):
-    """{nombre: (lon, lat, es_mar)}: centro de cada región del mapa, en caché por mapa (se vacía al recargarlo)."""
+    """{name: (lon, lat, is_sea)}: center of each map region, cached per map (cleared on reload)."""
     C = _project_geoms(project)
     with project.lock:
         c = project.outline_cache.get('_centers')
@@ -269,7 +269,7 @@ def _km(a, b):
 
 
 def nearest_center(project, poly, sea=None):
-    """Región del mapa cuyo centro está más cerca del centro de 'poly' (del mismo tipo si se da 'sea'): {region, km, sea}."""
+    """Map region whose center is closest to the center of 'poly' (same type if 'sea' is given): {region, km, sea}."""
     P = _project_centers(project)
     c = poly.centroid
     best = min(((n, v) for n, v in P.items() if sea is None or v[2] == sea), key=lambda nv: _km((c.x, c.y), nv[1][:2]), default=None)
@@ -277,9 +277,9 @@ def nearest_center(project, poly, sea=None):
 
 
 def analyze_shapes(project, shapes):
-    """Para cada contorno a importar ({geometry, props}): si ya existe una región con ese nombre y cuánto se parece a ella
-    (iou), de qué regiones del mapa sale su área (porcentaje del contorno y de la región de origen) y la región del mapa con
-    el centro más cercano ('nearest': {region, km, sea, pct_source})."""
+    """For each outline to import ({geometry, props}): whether a region with that name already exists and how similar it is
+    (iou), which map regions its area comes from (percentage of the outline and of the source region) and the map region with
+    the closest center ('nearest': {region, km, sea, pct_source})."""
     C = _project_geoms(project)
     names = list(C)
     tree = STRtree([C[n][0] for n in names])
@@ -303,7 +303,7 @@ def analyze_shapes(project, shapes):
         if name in C:
             u = poly.union(C[name][0]).area
             iou = round(poly.intersection(C[name][0]).area / u, 4) if u else 0
-        # la región del mapa más parecida: el centro más cercano (del mismo tipo que la que más área le da); «Mauritius 2» -> Mauritius
+        # the most similar map region: the closest center (of the same type as the one giving most area); «Mauritius 2» -> Mauritius
         near = nearest_center(project, poly, src[0]['sea'] if src else None)
         if near:
             near['pct_source'] = next((x['pct_source'] for x in src if x['region'] == near['region']), 0)
@@ -311,17 +311,17 @@ def analyze_shapes(project, shapes):
     return out
 
 
-SLIVER_AREA = 1e-8     # grados²: lo que el guardado ignora (editor_core: migas); un exclave más pequeño nunca se traspasaría
-SLIVER_THIN = 0.01     # área / perímetro²: por debajo es una tira (un roce del borde dibujado con la frontera), no un exclave
+SLIVER_AREA = 1e-8     # degrees²: what the save ignores (editor_core: crumbs); a smaller exclave would never be transferred
+SLIVER_THIN = 0.01     # area / perimeter²: below this it is a strip (the drawn edge grazing the border), not an exclave
 
 
 def exclaves(project, polygon, max_pct=0.05, sources=None):
-    """Trozos sueltos (exclaves) que dejaría recortar un contorno nuevo en las regiones de tierra de las que de verdad sale
-    ('sources': nombres; None = todas las que toca): partes de una región que quedan separadas de su cuerpo principal y miden menos
-    de max_pct de ella. Las astillas (menores que lo que traspasa el guardado, o tiras finas que deja un borde dibujado sobre la
-    frontera) no se preguntan: van en 'cleaned' (el contorno con ellas dentro), para que no queden migas sueltas.
-    Para cada exclave: la vecina con la que más frontera comparte (best) y cuánta comparte con el contorno nuevo (touch_new).
-    'merged' es el contorno con las astillas y todos los exclaves incluidos."""
+    """Loose pieces (exclaves) a new outline would cut off in the land regions it really comes from
+    ('sources': names; None = all it touches): parts of a region left separated from its main body and smaller
+    than max_pct of it. Slivers (smaller than what the save transfers, or thin strips left by an edge drawn over the
+    border) are not asked about: they go in 'cleaned' (the outline with them inside), so no loose crumbs remain.
+    For each exclave: the neighbor it shares the most border with (best) and how much it shares with the new outline (touch_new).
+    'merged' is the outline with the slivers and all exclaves included."""
     from shapely.geometry import mapping
     from shapely.ops import unary_union
     C = _project_geoms(project)
@@ -345,7 +345,7 @@ def exclaves(project, polygon, max_pct=0.05, sources=None):
             if q.area > max_pct * gr.area:
                 continue
             if any(abs(q.area - o.area) <= 1e-6 * o.area and q.intersects(o) for o in orig):
-                continue          # ya era una parte aparte (isla, enclave deliberado): no la genera este recorte
+                continue          # it was already a separate part (island, deliberate enclave): not produced by this cut
             if q.area < SLIVER_AREA or q.area / max(q.length ** 2, 1e-30) < SLIVER_THIN:
                 slivers.append(q)
                 continue

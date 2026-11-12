@@ -1,8 +1,8 @@
-"""Lee un registro del juego (logs/juego_<fecha>.log, de game_log.py) y dice por qué no se creó la partida.
+"""Reads a game log (logs/juego_<fecha>.log, from game_log.py) and says why the game was not created.
 
-Cada intento de cargar un escenario empieza cuando el juego añade sus «filename substitution» (…/scenarios/<X>/ui/…) y acaba
-en «Created game» (bien) o «Error creating game» (mal). De los intentos fallidos se sacan los mensajes de nivel 1 (errores)
-y, si se reconocen, una explicación y qué hacer. Solo lee; no toca nada.
+Each attempt to load a scenario starts when the game adds its «filename substitution» (…/scenarios/<X>/ui/…) and ends
+in «Created game» (good) or «Error creating game» (bad). From the failed attempts the level 1 messages (errors) are taken
+and, if recognized, an explanation and what to do. Only reads; touches nothing.
 """
 import glob
 import os
@@ -14,7 +14,7 @@ LOGS = os.path.join(os.environ.get('MH_ROOT') or os.path.join(HERE, '..'), 'logs
 START = re.compile(r'Adding filename substitution "\.\./system/ui/sounds/" -> "\.\./Modern Europe/system/scenarios/([^/]+)/')
 NOISE = ('CPropStringID::SetFromString', 'Found no StringID', 'MusicPlayList', 'PlayListLobbies', 'CSoundPack', 'Failed to load texture',
          'that has no game state', 'Listener already built', 'Found second font', 'Initializing program')
-# (patrón, explicación, qué hacer) — de los casos ya resueltos (EDITOR.md, «Mapa y escenario a la vez»)
+# (pattern, explanation, what to do) from already solved cases (EDITOR.md, «Mapa y escenario a la vez»)
 KNOWN = [
     (r'is not valid for a property of type "Enum".*named "eCountryType"',
      'eCountryType con un valor que el juego no tiene (válidos: COUNTRYTYPE_PLAYABLE, _FEATURED, _NON_FEATURED).',
@@ -44,7 +44,7 @@ KNOWN = [
      'El juego no pudo leer el escenario.',
      'Revisa los errores de archivo anteriores.'),
 ]
-# nombres que se juntan en la lista de un mismo fallo
+# names grouped into the list of a single failure
 ITEMS = [r'player named "([^"]+)"', r'for country \d+ (.+?) in \d+', r'Project (\w+) \d+ ResearchProj', r'for map (\w+)']
 SKIP = r'InitGame failed|AddGame|CreateGame|failed to execute|InitGameValidation - failed|InitGameOld - Failed'
 
@@ -93,7 +93,7 @@ def analyze(path=None):
         if cur is None or cur['result']:
             if 'Finished running game loop' in msg or 'failed to execute' in msg:
                 continue
-            cur = new(None)                # intento sin carpeta ui/: el registro no da el nombre del escenario
+            cur = new(None)                # attempt without ui/ folder: the log does not give the scenario name
         text = lvl.group(2)
         st = re.search(r'failed on (\w+)', text)
         if st and not cur['stage']:
@@ -115,7 +115,7 @@ def analyze(path=None):
                 lst.append(x)
     for a in attempts:
         if a['result'] == 'ok':
-            a['problems'] = []         # cargó: lo demás son avisos que el juego tolera
+            a['problems'] = []         # loaded: the rest are warnings the game tolerates
         for p in a['problems']:
             p.pop('key')
         a['problems'].sort(key=lambda p: p['why'] is None)
