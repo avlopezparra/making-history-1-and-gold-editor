@@ -1088,8 +1088,17 @@ async function applyAreaFate(regions, f) {
   }
   return false;
 }
+// unsaved changes block an action that rewrites the scenarios of the regionpack: offer to save or revert them here
+// (the page's own «Guardar escenario» / revert) instead of an OK-only warning. true when the scenario is clean afterwards.
+async function cleanScenFirst(msg) {
+  if ($('#save').disabled) return true;
+  const c = await mhChoice(msg, [['save', 'Guardar y seguir', true], ['revert', 'Revertir y seguir'], [null, 'Cancelar']]);
+  if (c === 'save') await $('#save').onclick();
+  else if (c === 'revert') { await api('/api/scen/revert', { name: S.scen }); await openScenario(S.scen); }
+  return $('#save').disabled;
+}
 async function mergeRegions(items, into, del = false, quiet = false) {
-  if (!$('#save').disabled) return alert('Guarda o revierte antes los cambios de este escenario: al unificar se reescriben los escenarios que usan el regionpack.');
+  if (!await cleanScenFirst('Hay cambios sin guardar en este escenario, y al unificar se reescriben los escenarios que usan el regionpack.')) return;
   const others = items.filter(x => x !== into);
   const msg = del
     ? `¿Eliminar ${others.join(', ')}?\n\nDesaparecen del regionpack «${S.pack}» y de los escenarios que lo usan. ` + (into ? `Su área, ciudades, población y unidades pasan a «${into}».` : 'Su área queda vacía (hueco); sus unidades van a la región más cercana de su país y sus ciudades y recursos se pierden.') + ' El mapa del juego cambia al «Instalar» en el editor de regiones.'
@@ -1165,7 +1174,7 @@ async function multiAction(what, items) {
       if (!f) return;
       var dest = $('#mDest').value;
       if (f.mode !== 'transfer') {
-        if (!$('#save').disabled) return alert('Guarda o revierte antes los cambios de este escenario: al eliminar regiones se reescriben los escenarios que usan el regionpack.');
+        if (!await cleanScenFirst('Hay cambios sin guardar en este escenario, y al eliminar regiones se reescriben los escenarios que usan el regionpack.')) return;
         if (!await applyAreaFate(regs, f)) return;
         // a new land region still belongs to the deleted country: «country_delete» moves it to 'dest' with the rest
       }
@@ -1202,7 +1211,7 @@ async function multiAction(what, items) {
   }
   if (what === 'merge') return mergeRegions(items, $('#mInto').value);
   if (what === 'delregs') {
-    if (!$('#save').disabled) return alert('Guarda o revierte antes los cambios de este escenario: al eliminar regiones se reescriben los escenarios que usan el regionpack.');
+    if (!await cleanScenFirst('Hay cambios sin guardar en este escenario, y al eliminar regiones se reescriben los escenarios que usan el regionpack.')) return;
     const f = await areaFateDialog(`¿Qué hacer con el área de las ${items.length} región(es) que se eliminan?`, items);
     if (f) await applyAreaFate(items, f);
     return;
@@ -1463,7 +1472,13 @@ async function showScale3D(msg) {
     const x = await api('/api/scen/sprites', { op: 'save' }); if (x.error) return alert(x.error); showScale3D(x.notes.join('; ')); };
   $('#scDiscard').onclick = async () => { const x = await api('/api/scen/sprites', { op: 'discard' }); showScale3D((x.notes || [x.error]).join('; ')); };
   $('#scUndo').onclick = async () => { if (!confirm('¿Deshacer el último cambio de escalas guardado en el juego?')) return;
-    const x = await api('/api/scen/sprites', { op: 'undo' }); if (x.error) return alert(x.error); showScale3D(x.notes.join('; ')); };
+    let x = await api('/api/scen/sprites', { op: 'undo' });
+    if (x.error && /cambios sin guardar/.test(x.error)) {
+      if (!await mhChoice('Hay cambios de escala sin guardar en esos archivos: hay que descartarlos para deshacer el último cambio guardado.',
+        [['discard', 'Descartarlos y deshacer', true], [null, 'Cancelar']])) return;
+      await api('/api/scen/sprites', { op: 'discard' }); x = await api('/api/scen/sprites', { op: 'undo' });
+    }
+    if (x.error) return alert(x.error); showScale3D(x.notes.join('; ')); };
 }
 // click on a row of the 3D Scale tab: edit only that model
 function scaleOne(id) {
@@ -2402,6 +2417,17 @@ $('#newScen').onclick = async () => {
   const ok = await new Promise(res => { dlg.onclose = () => res(dlg.returnValue === 'ok'); dlg.returnValue = ''; dlg.showModal(); });
   if (!ok || !$('#nsName').value.trim()) return;
   const base = $('#nsBase').value;
+  // the copy is made from the saved files: a base with unsaved changes is saved or discarded first (server /api/scen/save, /api/scen/revert)
+  const bd = base ? await api('/api/scen/dirty', { name: base }).catch(() => null) : null;
+  if (bd && bd.dirty && bd.dirty.length) {
+    const c = await mhChoice(`«${base}» tiene cambios sin guardar (${bd.dirty.join(', ')}) y la copia se hace de lo guardado. ¿Qué hacer con ellos?`,
+      [['save', 'Guardarlos y crear la copia', true], ['revert', 'Descartarlos y crear la copia'], [null, 'Cancelar']]);
+    if (!c) return;
+    const x = c === 'revert' ? await api('/api/scen/revert', { name: base }) : base === S.scen ? await saveScen({ name: base }) : await api('/api/scen/save', { name: base });
+    if (x.cancelled) return;
+    if (x.error || x.needs_fit || x.needs_choice) return alert(x.error || `No se pudo guardar «${base}» desde aquí: ábrelo y usa «Guardar escenario».`);
+    if (base === S.scen) setDirty([]);
+  }
   const r = base ? await api('/api/scen/new_from', { src: base, name: $('#nsName').value.trim(), display: $('#nsDisp').value.trim() || null })
     : await api('/api/scen/new_scratch', { name: $('#nsName').value.trim(), pack: $('#nsPack').value, display: $('#nsDisp').value.trim() || null });
   if (r.error) return alert(r.error);
@@ -2866,8 +2892,17 @@ window.addEventListener('focus', async () => {
   }
 });
 $('#gameSel').onchange = async e => {
-  const r = await api('/api/game/select', { game: e.target.value });
-  if (r.error) { alert(r.error); $('#gameSel').value = G.info.current; return; }
+  let r = await api('/api/game/select', { game: e.target.value });
+  // unsaved scenario changes block the switch: offer to save (this page's «Guardar escenario») or discard them, then retry
+  if (r.error && /cambios sin guardar/.test(r.error)) {
+    const c = await mhChoice('Hay cambios sin guardar en el editor de escenarios: hay que guardarlos o descartarlos antes de cambiar de juego.',
+      [['save', 'Guardar y cambiar', true], ['revert', 'Descartar y cambiar'], [null, 'Cancelar']]);
+    if (c === 'save' && S.scen) await $('#save').onclick();
+    else if (c === 'revert') await api('/api/scen/revert', {});
+    if (c) r = await api('/api/game/select', { game: e.target.value });
+    else r = { error: '' };
+  }
+  if (r.error !== undefined) { if (r.error) alert(r.error); $('#gameSel').value = G.info.current; return; }
   location.href = '/scenario';
 };
 $('#scen').addEventListener('change', () => { $('#convert').disabled = !$('#scen').value; });

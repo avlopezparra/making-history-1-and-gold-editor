@@ -1566,7 +1566,7 @@ async function askRenameRegion(R) {
   if (!both) {
     const sidToo = confirm(`¿Cambiar también el código del texto (SID) a «SID.Game.Region.Name.${plain.replace(/[^A-Za-z0-9]/g, '')}»?\n\nAceptar: código nuevo (más claro en los archivos).\nCancelar: solo la apariencia (el código sigue igual).`);
     const r = await scenPost('/api/region/rename', { region: old, new_name: old, text: text.trim(), change_sid: sidToo }); if (!r) return;
-    report(`«${old}» se verá como «${text.trim()}» (el nombre interno no cambia).\n\n` + scenarioNotes(r.scenarios), 'ok');
+    report(`«${old}» se verá como «${text.trim()}» (el nombre interno no cambia). Ya está guardado en los escenarios: no hace falta «Guardar» ni «Instalar».\n\n` + scenarioNotes(r.scenarios), 'ok');
     if (S.scenName) refreshScen(); return;
   }
   const name = prompt('Nombre interno (sin acentos; es el que usan los escenarios):', plain); if (name == null || !name.trim()) return;
@@ -1579,6 +1579,10 @@ async function askRenameRegion(R) {
 
 ` + scenarioNotes(r.scenarios), 'ok');
   S.version++; await reloadMeta(); await reloadAll(); loadChangelog(); if (S.scenName) refreshScen(); else checkScenSync();
+  // the rename is saved at once (map.xml of the project and the scenarios), so «Guardar» stays disabled: say so and offer «Instalar»
+  if (await mhChoice(window.mhTr ? mhTr(`«${old}» ya se llama «${name.trim()}» y está guardado: no hace falta «Guardar». Para que el juego use el nombre nuevo hay que «Instalar» el mapa.`)
+      : `«${old}» ya se llama «${name.trim()}» y está guardado: no hace falta «Guardar». Para que el juego use el nombre nuevo hay que «Instalar» el mapa.`,
+      [['install', 'Instalar ahora', true], ['later', 'Más tarde']]) === 'install') $('#install').click();
 }
 // import a GeoJSON as new regions: each outline (Polygon / MultiPolygon) goes through the same dialog as a drawn region
 function geojsonShapes(j) {
@@ -1939,9 +1943,11 @@ async function saveRun() {
     centers: S.centers, topo: S.topo, paint: $('#paint').checked, register: $('#register').checked, scenario: S.scenName || null, new_scenario: S.newScen || null, fix: S.saveFix || null };
   S.saveFix = null;
   // World is the unmodified game regionpack: not changed without confirmation (the normal thing is «Guardar como…» another regionpack)
-  if ($('#pack').value === 'World' && (body.assigns.length || Object.keys(modified).length) &&
-      !confirm('Estás a punto de cambiar «World», el regionpack original del juego (lo usan todos los escenarios vanilla).\n\nAceptar: guardar en World igualmente.\nCancelar: no guardar; usa «Guardar como…» para hacer una copia con otro nombre y edita esa.')) {
-    report('No se guardó: World no se ha tocado. Usa «Guardar como…» (Archivo) para crear un regionpack propio.', 'err'); return;
+  if ($('#pack').value === 'World' && (body.assigns.length || Object.keys(modified).length)) {
+    const c = await mhChoice('Estás a punto de cambiar «World», el regionpack original del juego (lo usan todos los escenarios vanilla). Lo normal es hacer una copia con otro nombre («Guardar como…») y editar esa: los cambios siguen pendientes y se guardan en la copia.',
+      [['copy', 'Guardar como…', true], ['world', 'Guardar en World igualmente'], [null, 'No guardar']]);
+    if (c === 'copy') { $('#packCopy').click(); return; }
+    if (c !== 'world') { report('No se guardó: World no se ha tocado. Usa «Guardar como…» (Archivo) para crear un regionpack propio.', 'err'); return; }
   }
   if (body.register && body.assigns.some(o => o.kind === 'new_region' || o.kind === 'delete_region')) {
     const info = await (await fetch('/api/pack/info')).json().catch(() => ({}));
@@ -2027,7 +2033,9 @@ Cancelar: dejarlos; se pueden cerrar después con «Cerrar huecos» o «Validar�
   const o = r.open_other_pack;   // the open scenario uses another regionpack: the new region is not in it
   if (o && (await (await fetch('/api/pack/info')).json()).virtual) { report($('#report').textContent + `
 
-«${o.name}» usa «${o.pack || '—'}» y «${$('#pack').value}» aún no está instalado en el juego: pulsa «Instalar» y marca «${o.name}» para que lo use.`, 'ok'); return; }
+«${o.name}» usa «${o.pack || '—'}» y «${$('#pack').value}» aún no está instalado en el juego: pulsa «Instalar» y marca «${o.name}» para que lo use.`, 'ok');
+    if (await mhChoice(`«${$('#pack').value}» aún no está instalado en el juego. ¿Instalarlo ahora? En el diálogo de «Instalar», marca «${o.name}» para que lo use.`, [['install', 'Instalar…', true], [null, 'Ahora no']])) $('#install').click();
+    return; }
   if (o) {
     const pack = $('#pack').value, names = (r.new_regions || []).map(c => c.text || c.name).join(', ');
     if (confirm(`«${o.name}» usa el regionpack «${o.pack || '—'}», no «${pack}», así que no se le ha añadido ${names}.\n\n¿Pasar «${o.name}» a «${pack}»? Se añaden las regiones que le faltan y se quitan las que sobran (falta «Guardar escenario»).`)) {
@@ -2178,6 +2186,7 @@ $('#packCopy').onclick = async () => {
   const ok = await waitDialog(dlg);
   if (!ok) return;
   const body = { name: $('#pcName').value.trim(), scenarios: [...$('#pcScen').querySelectorAll('input:checked')].map(i => i.value), project: $('#pcProj').checked };
+  if ((await savePendingScen(body.scenarios, true)).length) return;   // the copy rewrites their scenario.xml: unsaved changes there are saved or discarded first
   const r = await (await fetch('/api/pack/copy', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })).json();
   if (r.error) return report('No se hizo la copia: ' + r.error, 'err');
   report(r.notes.join(String.fromCharCode(10)), 'ok'); S.editPack = (await loadPacks()).pack;
@@ -2387,7 +2396,14 @@ $('#undoSave').onclick = async () => {
 $('#install').onclick = async () => {
   const info = await (await fetch('/api/pack/info')).json();
   { const uses = (info.users || {})[info.pack] || [], miss = S.scenName && uses.includes(S.scenName) ? gjMissing() : [];
-    if (miss.length && !confirm(`Hay ${miss.length} región(es) de tierra sin nación en el escenario «${S.scenName}» (${miss.slice(0, 6).map(m => m.name).join(', ')}${miss.length > 6 ? '…' : ''}). Asígnalas antes de instalar en GeoJSON → Importar → «Regiones sin nación…». ¿Instalar igualmente?`)) return; }
+    // offer the fix instead of an OK/Cancel warning: assign them here («Regiones sin nación…»), or install and let the adaptation
+    // give each one the nation of most of its neighbours (scenario_layers.pack_sync_apply, with an AVISO note)
+    if (miss.length) {
+      const c = await mhChoice(`Hay ${miss.length} región(es) de tierra sin nación en el escenario «${S.scenName}» (${miss.slice(0, 6).map(m => m.name).join(', ')}${miss.length > 6 ? '…' : ''}). ¿Asignarles nación antes de instalar, o darles la de sus vecinas?`,
+        [['assign', 'Asignar nación…', true], ['neighbours', 'Dar la nación de sus vecinas'], [null, 'Cancelar']]);
+      if (c === 'assign') return gjNoOwner();
+      if (!c) return;
+    } }
   if (info.virtual) {
     const T = t => (window.mhTr ? window.mhTr(t) : t);      // (before T did not exist here and «Instalar» a new regionpack failed without warning)
     if (!confirm(`${T('Se creará la carpeta del regionpack nuevo')} «${info.pack}» (DisplayLibraries/Maps/${info.pack}) ${T('con el mapa, la imagen de fondo y los archivos necesarios. ¿Instalar?')}`)) return;
@@ -2453,34 +2469,18 @@ async function askOwners(scens) {
 }
 // scenarios with unsaved changes in the scenario editor: the map save/install does not touch them (and the new region was not
 // registered in them, leaving them mismatched with the map). Offers to save them first.
-// dialog with several (translated) buttons; returns the 'value' of the chosen one or null
-function mhChoice(msg, buttons) {
-  const tr = t => (window.mhTr ? mhTr(t) : t);
-  const d = document.createElement('dialog');
-  d.style.cssText = 'border:1px solid var(--line);border-radius:10px;background:var(--panel);color:var(--ink);max-width:560px';
-  d.innerHTML = '<div style="white-space:pre-wrap;margin-bottom:12px"></div><div style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap"></div>';
-  d.firstChild.textContent = tr(msg);
-  document.body.appendChild(d);
-  return new Promise(res => {
-    const finish = v => { if (d.open) d.close(); d.remove(); res(v); };
-    for (const [v, label, primary] of buttons) {
-      const b = document.createElement('button'); b.type = 'button'; b.textContent = tr(label);
-      if (primary) b.style.cssText = 'background:#0ea5e9;color:#fff;border:0;border-radius:6px;padding:5px 12px';
-      b.onclick = () => finish(v); d.lastChild.appendChild(b);
-    }
-    d.addEventListener('cancel', () => finish(null));
-    d.showModal();
-  });
-}
 // scenarios with unsaved changes in the scenario editor before registering regions: save them, discard them or register
 // anyway (kept in memory, with those changes, for «Guardar escenario»). Returns those going «igualmente».
-async function savePendingScen(names) {
+async function savePendingScen(names, forCopy = false) {   // forCopy: before «Guardar como…», where they can't be left unsaved
   const force = [];
   for (const n of [...new Set((names || []).filter(Boolean))]) {
     const d = await (await fetch('/api/scen/dirty', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: n }) })).json().catch(() => null);
     if (!d || !d.dirty || !d.dirty.length) continue;
-    const c = await mhChoice(`«${n}» tiene cambios sin guardar en el editor de escenarios (${d.dirty.join(', ')}). ¿Qué hacer antes de registrar en él las regiones?`,
-      [['save', 'Guardarlos', true], ['discard', 'Descartarlos'], ['force', 'Registrar igualmente']]);
+    const c = forCopy
+      ? await mhChoice(`«${n}» tiene cambios sin guardar en el editor de escenarios (${d.dirty.join(', ')}), y la copia del regionpack reescribe su scenario.xml. ¿Qué hacer con ellos?`,
+        [['save', 'Guardarlos', true], ['discard', 'Descartarlos'], [null, 'Cancelar']])
+      : await mhChoice(`«${n}» tiene cambios sin guardar en el editor de escenarios (${d.dirty.join(', ')}). ¿Qué hacer antes de registrar en él las regiones?`,
+        [['save', 'Guardarlos', true], ['discard', 'Descartarlos'], ['force', 'Registrar sin guardar el escenario']]);
     if (c === 'force' || c == null) { force.push(n); continue; }
     const r = await (await fetch(c === 'save' ? '/api/scen/save' : '/api/scen/revert', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: n }) })).json().catch(e => ({ error: e.message }));
     if (r.error) { report(`No se pudo ${c === 'save' ? 'guardar' : 'descartar'} «${n}»: ${r.error}`, 'err'); force.push(n); }
@@ -2493,12 +2493,28 @@ async function doInstall(body) {
   if (!r.ok) return report('Error: ' + (r.msg || ''), 'err');
   report(`Instalado en el regionpack «${r.regionpack}»:\n  ${r.files.length > 40 ? r.files.length + ' ' + mhTr('archivos (mapa, map.xml, properties.xml y texturas)') : r.files.join('\n  ')}${r.escenarios && r.escenarios.length ? '\n\nEscenarios que ahora usan «' + r.regionpack + '»:\n  ' + r.escenarios.join('\n  ') : ''}\n\nEl changelog se guardó en el regionpack.` + (r.scenarios ? '\n\n' + scenarioNotes(r.scenarios) : ''), 'ok');
   if (S.scenName && r.scenarios && r.scenarios[S.scenName]) await refreshScen(); else checkScenSync();
-  const inc = Object.entries(r.incompatibles || {});
-  if (inc.length) {   // scenarios using this regionpack that do not match its map: the game would not load them
-    const nl = String.fromCharCode(10);
-    alert('ATENCIÓN: estos escenarios usan «' + r.regionpack + '» pero no cuadran con su mapa, y el juego no los cargará:' + nl + nl +
-      inc.map(([n, x]) => '• ' + n + (x.faltan && x.faltan.length ? ': les falta ' + x.faltan.join(', ') : '') + (x.sobran && x.sobran.length ? '; les sobra ' + x.sobran.join(', ') : '') + (x.error ? ': ' + x.error : '')).join(nl) +
-      nl + nl + 'Ábrelos en el editor de escenarios y usa «Compatibilidad con el mapa» (y luego «Guardar»).');
+  // scenarios that use this regionpack but do not match the map just installed (the game would not load them): a popup offers
+  // to fix them right here (= «Compatibilidad con el mapa» + «Guardar» in the scenario editor, server /api/adapt_scenarios)
+  const tr = t => (window.mhTr ? mhTr(t) : t), nl = String.fromCharCode(10);
+  const listInc = inc => Object.entries(inc).map(([n, x]) => '• ' + n + nl + [
+    x.faltan && x.faltan.length ? '   ' + tr('Le faltan:') + ' ' + x.faltan.join(', ') : '',
+    x.sobran && x.sobran.length ? '   ' + tr('Le sobran:') + ' ' + x.sobran.join(', ') : '',
+    x.error ? '   ' + x.error : ''].filter(Boolean).join(nl)).join(nl);
+  let inc = r.incompatibles || {};
+  if (Object.keys(inc).length) {
+    const msg = tr('Estos escenarios usan este regionpack pero no cuadran con el mapa recién instalado, y el juego no los cargará así:') + nl + nl + listInc(inc) + nl + nl +
+      tr('«Adaptar y guardar» hace lo mismo que «Compatibilidad con el mapa» en el editor de escenarios y los guarda (también los cambios que tuvieran pendientes en el editor de escenarios).');
+    if (await mhChoice(msg, [['fix', 'Adaptar y guardar', true], ['leave', 'Dejarlos así']]) === 'fix') {
+      const a = await fetch('/api/adapt_scenarios', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ names: Object.keys(inc), pack: r.regionpack }) })
+        .then(x => x.json()).catch(e => ({ error: e.message }));
+      if (a.error) report(tr('No se pudieron adaptar los escenarios:') + ' ' + a.error, 'err');
+      else {
+        report(scenarioNotes(a.scenarios || {}), 'ok');
+        inc = a.incompatibles || {};
+        if (S.scenName && (a.scenarios || {})[S.scenName]) await refreshScen();
+      }
+    }
+    if (Object.keys(inc).length) report(tr('Siguen sin cuadrar con el mapa (el juego no los cargará):') + nl + listInc(inc), 'err');
   }
   // the server switches to editing the installed regionpack (same map): without this, every later «Guardar» was rejected («cambió en otra ventana»)
   S.editPack = (await loadPacks()).pack;
@@ -2810,8 +2826,17 @@ document.getElementById('instGo').onclick = async () => {
   sel.innerHTML = info.games.map(g => `<option value="${g.key}"${g.installed ? '' : ' disabled'}>${g.short}${g.installed ? '' : ' (no instalado)'}</option>`).join('');
   sel.value = info.current; sel.title = info.games.find(g => g.key === info.current).path;
   sel.onchange = async () => {
-    const r = await (await fetch('/api/game/select', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ game: sel.value }) })).json();
-    if (r.error) { alert(r.error); sel.value = info.current; return; }
+    const pick = () => fetch('/api/game/select', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ game: sel.value }) }).then(x => x.json());
+    let r = await pick();
+    // unsaved changes in the scenario editor block the switch: offer to go and save them there, or discard them and switch
+    if (r.error && /cambios sin guardar/.test(r.error)) {
+      const c = await mhChoice('Hay cambios sin guardar en el editor de escenarios: hay que guardarlos o descartarlos antes de cambiar de juego.',
+        [['open', 'Abrir el editor de escenarios', true], ['revert', 'Descartar y cambiar'], [null, 'Cancelar']]);
+      if (c === 'open') { sel.value = info.current; location.href = '/scenario'; return; }
+      if (c === 'revert') r = await fetch('/api/scen/revert', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }).then(pick);
+      else r = { error: '' };
+    }
+    if (r.error !== undefined) { if (r.error) alert(r.error); sel.value = info.current; return; }
     location.href = '/';
   };
   // «Invalid License Key» error: an old license in the virtualized registry copy hides the good one (Steam guide 645617172)

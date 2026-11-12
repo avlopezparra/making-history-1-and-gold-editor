@@ -1181,8 +1181,19 @@ def pack_sync_apply(s, pack, switch=True, pop_mode='area'):
                 notes += _add_owned_region(s, pm, x['name'], c)
                 continue
             if not x['mother']:
-                notes.append('AVISO: %s no se ha añadido: no sale de ninguna región con datos y el changelog no dice de qué país es '
-                             '(revisa el changelog o créala de nuevo con su propietario)' % x['name'])
+                # drawn without a nation and from no other region: it gets the nation that owns most of its neighbours, so the
+                # scenario still matches the map and the game loads it (before it was left out and «Instalar» could never fix it)
+                nbs = set(pm.nb.get(x['name'], []))
+                owners = [prop(r, 'strOwner') for r in s.regions(sea=False) if prop(r, 'strName') in nbs]
+                owners = [o for o in owners if o and o in s.countries()]
+                if owners:
+                    own = max(set(owners), key=owners.count)
+                    notes += _add_owned_region(s, pm, x['name'], dict(c, nombre=x['name'], pais=own))
+                    notes.append('AVISO: %s no tenía país; se le ha dado el de sus vecinas (%s). Cámbialo en el editor de escenarios si no es el que quieres'
+                                 % (x['name'], own))
+                    continue
+                notes.append('AVISO: %s no se ha añadido: no sale de ninguna región con datos, el changelog no dice de qué país es '
+                             'y no tiene vecinas con país (revisa el changelog o créala de nuevo con su propietario)' % x['name'])
                 continue
             if pm.geom(x['mother']) is not None and pm.geom(x['name']) is not None and pm.geom(x['mother']).distance(pm.geom(x['name'])) > 1e-3:
                 notes.append('%s: sin vecinas de tierra con datos; sus datos salen de %s' % (x['name'], x['mother']))

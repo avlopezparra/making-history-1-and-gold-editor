@@ -638,10 +638,17 @@ class Handler(BaseHTTPRequestHandler):
                     # the scenarios chosen on install switch to the regionpack with their regions adjusted, and are saved
                     rep['scenarios'] = adapt_scenarios(payload['apply_scenarios'], rep['regionpack'], payload.get('pop_mode') or 'area')
                 if rep.get('ok'):
-                    rep['incompatibles'] = pack_incompatibles(rep['regionpack'])
+                    rep['incompatibles'] = pack_incompatibles(rep['regionpack'])    # the page offers to fix them (/api/adapt_scenarios)
                 if rep.get('ok') and rep.get('nuevo_proyecto'):
                     select_pack(rep['regionpack'])      # editing continues on the new regionpack, in its own project
                     PROJECT_VERSION[0] += 1
+                return self.send(200, rep)
+            if u.path == '/api/adapt_scenarios':
+                # after «Instalar»: scenarios that use the regionpack but do not match its map (the game would not load them) are
+                # adapted and saved, like «Compatibilidad con el mapa» + «Guardar»; the user chose it in the page's popup
+                pack = payload['pack']
+                rep = {'scenarios': adapt_scenarios(payload.get('names') or [], pack, payload.get('pop_mode') or 'area', include_dirty=True)}
+                rep['incompatibles'] = pack_incompatibles(pack)
                 return self.send(200, rep)
             if u.path == '/api/changelog/owner':
                 try:
@@ -1407,9 +1414,9 @@ def delete_from_scenarios(deleted, names, pf=None, pops=None, project=None):
     return out
 
 
-def adapt_scenarios(names, pack, pop_mode='area'):
+def adapt_scenarios(names, pack, pop_mode='area', include_dirty=False):
     """Switches the scenarios to regionpack 'pack', adding and removing the needed regions, and saves them.
-    Those with unsaved changes in the scenario editor are not touched."""
+    Those with unsaved changes in the scenario editor are not touched, unless include_dirty (then those changes are saved too)."""
     out = {}
     with SCEN_LOCK:
         for k, name in enumerate(names):
@@ -1417,7 +1424,7 @@ def adapt_scenarios(names, pack, pop_mode='area'):
             try:
                 s = scenario(name)
                 st = scenario_core.STORE
-                if any(x in st.dirty for x in s.paths):
+                if not include_dirty and any(x in st.dirty for x in s.paths):
                     out[name] = ['no se ha tocado: tiene cambios sin guardar en el editor de escenarios']
                     continue
                 notes = scenario_layers.pack_sync_apply(s, pack, True, pop_mode)['notes']

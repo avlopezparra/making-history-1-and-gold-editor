@@ -163,6 +163,25 @@
     return s.replace(t0, words(r));
   };
   window.mhTr = s => (TR ? tr(s) : s);   // for texts set without going through the observed DOM
+  // in-page dialog with several (translated) buttons, shared by every page: [[value, label, primary], ...] -> value or null.
+  // Used instead of an OK-only alert when the editor can offer the fix itself.
+  window.mhChoice = (msg, buttons) => {
+    const d = document.createElement('dialog');
+    d.style.cssText = 'border:1px solid var(--line,#888);border-radius:10px;background:var(--panel,#fff);color:var(--ink,#111);max-width:560px';
+    d.innerHTML = '<div style="white-space:pre-wrap;margin-bottom:12px"></div><div style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap"></div>';
+    d.firstChild.textContent = window.mhTr(msg);
+    document.body.appendChild(d);
+    return new Promise(res => {
+      const finish = v => { if (d.open) d.close(); d.remove(); res(v); };
+      for (const [v, label, primary] of buttons) {
+        const b = document.createElement('button'); b.type = 'button'; b.textContent = window.mhTr(label);
+        if (primary) b.style.cssText = 'background:#0ea5e9;color:#fff;border:0;border-radius:6px;padding:5px 12px';
+        b.onclick = () => finish(v); d.lastChild.appendChild(b);
+      }
+      d.addEventListener('cancel', () => finish(null));
+      d.showModal();
+    });
+  };
   if (TR) {   // browser dialogs (confirm / alert / prompt)
     const c = window.confirm.bind(window), a = window.alert.bind(window), p = window.prompt.bind(window);
     window.confirm = m => c(tr(String(m ?? '')));
@@ -259,7 +278,7 @@
     else { Object.assign(sel.style, { position: 'fixed', right: '8px', bottom: '8px', zIndex: 9999 }); document.body.appendChild(sel); }
   }
   // credits, Discord (news and updates) and where to report bugs
-  const VERSION = '3.7';
+  const VERSION = '3.8';
   const DISCORD = 'https://discord.com/invite/gFJyCjWEnr', BUGS = 'alopezcl@protonmail.com',
     UPDATES = 'https://github.com/avlopezparra/making-history-1-and-gold-editor/releases/', HUB = 'https://gamebanana.com/games/6530';
   // separate «Join Discord» button, in Discord purple
