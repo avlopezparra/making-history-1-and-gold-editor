@@ -52,7 +52,9 @@ def main():
             '--add-data', os.path.join(HERE, 'data') + os.pathsep + 'data',   # nif.xml (lector de modelos 3D)
             # the AI chat reads the routes from the server code (ai_chat.routes)
             '--add-data', os.path.join(HERE, 'editor_server.py') + os.pathsep + '.',
-            '--collect-submodules', 'webview', '--collect-data', 'webview']
+            '--collect-submodules', 'webview', '--collect-data', 'webview',
+            # only offline scripts (hoi4_geojson, mh2_plan) use scipy; matplotlib comes with it, bloats the zip and its hook can crash the build
+            '--exclude-module', 'scipy', '--exclude-module', 'matplotlib']
     for h in hidden:
         args += ['--hidden-import', h]
     PyInstaller.__main__.run(args)

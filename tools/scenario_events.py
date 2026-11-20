@@ -738,7 +738,9 @@ def _action(spec, owner):
     g = lambda n, d=None: (spec.get(n) if spec.get(n) not in (None, '') else d)
     if k == 'war':
         a, b = g('from', owner), g('to')
-        return ('<object type="ActProposeDeclareWar" name="objActions"><property name="strFromCountry" value="%s"/><property name="strToCountry" value="%s"/></object>' % (_x(a), _x(b)),
+        # strPlayer = the proposing player: without it the treaty fails, the decision stays unanswered and the turn hangs
+        return ('<object type="ActProposeDeclareWar" name="objActions"><property name="strPlayer" value="%s"/><property name="strFromCountry" value="%s"/>'
+                '<property name="strToCountry" value="%s"/></object>' % (_x(a), _x(a), _x(b)),
                 [a, b], [], [_not_at_war_set(a, b)], '%s declares war on %s' % (a, b))
     if k in ('embargo', 'lift'):
         rel = 'TRADE_RELATIONS_EMBARGOED' if k == 'embargo' else 'TRADE_RELATIONS_NEUTRAL'

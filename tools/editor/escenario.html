@@ -119,6 +119,7 @@
     <select id="scen" title="Escenario"><option value="">Abrir escenario…</option></select>
     <img id="scenGameIcon" alt="" style="display:none;height:18px;vertical-align:middle">
     <button id="newScen" type="button" title="Crear un escenario vacío (sin naciones) sobre un regionpack">＋ Nuevo escenario</button>
+    <button id="mh2Scen" type="button" title="Crear un escenario de MH1 a partir de uno de Making History II (necesita el regionpack WorldMoreRegions o WorldMoreRegionsRivers)">⇪ Desde MH2</button>
     <button id="selRegs" type="button" title="Elegir una o varias regiones en el mapa (clic para añadir o quitar)">▦ Seleccionar regiones</button>
     <label class="pill" title="Regionpack (mapa) del escenario: strMapName de scenario.xml">regionpack <select id="pack" disabled style="padding:0 4px"><option>—</option></select></label>
     <button id="openScenDir" type="button" title="Abrir la carpeta del escenario en el Explorador">📁 Escenario</button>
@@ -255,7 +256,18 @@
     <p class="muted" id="nsHelp">Se crea vacío, sin naciones: luego se añaden naciones y se les asignan regiones (aquí o en el editor de regiones).</p>
     <div style="display:flex;gap:8px;justify-content:flex-end"><button value="cancel" class="btn" formnovalidate>Cancelar</button><button value="ok" class="btn primary">Crear</button></div></form>
 </dialog>
-<dialog id="genDlg" style="border:1px solid var(--line);border-radius:10px;background:var(--panel);color:var(--ink);width:min(640px,94vw)">
+<dialog id="mh2Dlg" style="border:1px solid var(--line);border-radius:10px;background:var(--panel);color:var(--ink);width:min(560px,94vw)">
+  <form method="dialog"><h3 style="margin-top:0">Escenario desde Making History II</h3>
+    <div class="grid"><label>Escenario de MH2</label><select id="m2Src"></select>
+      <label>Regionpack</label><select id="m2Pack"></select>
+      <label>Unidades, investigación e IA de</label><select id="m2Tpl"></select>
+      <label>Nombre (carpeta)</label><input id="m2Name" required placeholder="p. ej. Modern World MH2">
+      <label>Nombre visible</label><input id="m2Disp"></div>
+    <p class="muted" id="m2Help">Se copian las naciones (con color, gobierno y bandera de MH2), los dueños y la población de las regiones, las ciudades, los recursos, las unidades, las guerras y alianzas que tenga, y la investigación que necesitan sus unidades. Los escenarios de MH2 del Workshop son obra de sus autores: para publicar la conversión hace falta su permiso.</p>
+    <p class="err-t" id="m2Err"></p>
+    <div style="display:flex;gap:8px;justify-content:flex-end"><button value="cancel" class="btn" formnovalidate>Cancelar</button><button value="ok" class="btn primary" id="m2Ok">Convertir</button></div></form>
+</dialog>
+<dialog id="genDlg"style="border:1px solid var(--line);border-radius:10px;background:var(--panel);color:var(--ink);width:min(640px,94vw)">
   <h3 id="gnTitle" style="margin-top:0"></h3><div id="gnHelp" class="muted"></div><div id="gnBody" class="grid"></div><div id="gnErr" class="err-t" style="margin-top:6px"></div>
   <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px"><button class="btn" id="gnCancel" type="button">Cancelar</button><button class="btn primary" id="gnOk" type="button">Crear</button></div>
 </dialog>
@@ -2434,6 +2446,31 @@ $('#newScen').onclick = async () => {
   const o = document.createElement('option'); o.value = o.textContent = r.name; $('#scen').appendChild(o);
   $('#scen').value = r.name; await openScenario(r.name);
   note(base ? `Escenario «${r.name}» creado como copia de «${base}» (regionpack ${r.pack || '?'}).` : `Escenario «${r.name}» creado sobre ${$('#nsPack').value}. Añade naciones con «＋ Nuevo» en la pestaña Naciones.`);
+};
+// new scenario from a Making History II one: only on the regionpacks made from MH2's map (server /api/scen/mh2_import)
+$('#mh2Scen').onclick = async () => {
+  const info = await api('/api/scen/mh2_list'), dlg = $('#mh2Dlg');
+  if (info.error) return alert(info.error);
+  const have = info.packs.installed || [];
+  if (!have.length) return alert(`Para importar escenarios de Making History II hace falta tener instalado el regionpack ${info.packs.needed.join(' o ')} (hechos con el mapa de MH2). Instálalo desde el editor de regiones y vuelve a intentarlo.`);
+  if (!(info.scenarios || []).length) return alert('No se encuentra ningún escenario de Making History II (ni del juego ni del Workshop).');
+  $('#m2Src').innerHTML = info.scenarios.map((x, i) => `<option value="${i}">${esc(x.name)} (${esc(x.source)}${x.date ? ', ' + esc(x.date) : ''})</option>`).join('');
+  $('#m2Pack').innerHTML = have.map(p => `<option>${esc(p)}</option>`).join('');
+  const scens = [...$('#scen').options].map(o => o.value).filter(Boolean);
+  $('#m2Tpl').innerHTML = `<option value="">${'las del editor (1936)'}</option>` + scens.map(n => `<option value="${esc(n)}">${esc(n)}</option>`).join('');
+  $('#m2Src').onchange = () => { const x = info.scenarios[+$('#m2Src').value]; $('#m2Name').value = x.name; $('#m2Disp').value = x.name; };
+  $('#m2Src').onchange();
+  $('#m2Err').textContent = '';
+  const ok = await new Promise(res => { dlg.onclose = () => res(dlg.returnValue === 'ok'); dlg.returnValue = ''; dlg.showModal(); });
+  if (!ok || !$('#m2Name').value.trim()) return;
+  note('Convirtiendo el escenario de MH2… (varios minutos)');
+  const r = await api('/api/scen/mh2_import', { src: info.scenarios[+$('#m2Src').value].path, pack: $('#m2Pack').value, template: $('#m2Tpl').value || null,
+                                                name: $('#m2Name').value.trim(), display: $('#m2Disp').value.trim() || null });
+  if (r.error) return alert(r.error);
+  const o = document.createElement('option'); o.value = o.textContent = r.name; $('#scen').appendChild(o);
+  $('#scen').value = r.name; await openScenario(r.name);
+  const warn = r.warnings.length ? `. Avisos (${r.warnings.length}): ${r.warnings.slice(0, 8).join('; ')}${r.warnings.length > 8 ? '…' : ''}` : '';
+  note(`Escenario «${r.name}» creado desde MH2: ${r.notes.join('; ')}${warn}`);
 };
 // if the scenario's regions don't match its regionpack, the game won't load it: offer to adapt it before saving
 async function saveScen(body) {

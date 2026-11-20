@@ -23,6 +23,11 @@ from urllib.parse import urlparse, parse_qs
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.abspath(os.environ.get('MH_ROOT') or os.path.join(HERE, '..'))   # data (in the .exe, next to it)
 sys.path.insert(0, HERE)
+for _st in (sys.stdout, sys.stderr):    # the .exe console is cp1252: print('→') must not abort the request
+    try:
+        _st.reconfigure(errors='replace')
+    except AttributeError:
+        pass
 import editor_core  # noqa: E402
 import gamepaths  # noqa: E402
 import progress  # noqa: E402
@@ -117,7 +122,8 @@ class Handler(BaseHTTPRequestHandler):
             if u.path == '/api/meta':
                 return self.send(200, {'pack': PROJECT.pack, 'regions': PROJECT.meta(), 'project': os.path.abspath(PROJECT.dir),
                                        'history': len([d for d in os.listdir(PROJECT.history) if d.isdigit()]),
-                                       'can_redo': PROJECT.can_redo(), 'save_history': editor_core.SAVE_HISTORY})
+                                       'can_redo': PROJECT.can_redo(), 'save_history': editor_core.SAVE_HISTORY,
+                                       'border_style': PROJECT.border_style()})
             if u.path == '/api/region_at':
                 # region under a point (so a click selects it even if that region is not loaded in the browser map)
                 from shapely.geometry import Point, shape
@@ -518,8 +524,9 @@ class Handler(BaseHTTPRequestHandler):
                         world = os.path.join(editor_core.MAPS, 'World')
                         done = background_restore.restore(PROJECT.m, mhmap.load_map(os.path.join(ref, 'xml')), PROJECT.tiles,
                                                           lambda n: vanilla_ref.tile_path(n, orig, world), bb, log,
-                                                          map_tile=lambda n: os.path.join(PROJECT.map_dir, 'art', 'OperationalTerrain', n))
-                        lines = background_restore.repaint_tiles(PROJECT.m, PROJECT.tiles, only_bbox=bb, log=log) \
+                                                          map_tile=lambda n: os.path.join(PROJECT.map_dir, 'art', 'OperationalTerrain', n),
+                                                          style=PROJECT.border_style())
+                        lines = background_restore.repaint_tiles(PROJECT.m, PROJECT.tiles, only_bbox=bb, log=log, style=PROJECT.border_style()) \
                             if payload.get('lines') else []          # «Dibujar las líneas de las regiones» option
                     except Exception as e:
                         traceback.print_exc()
@@ -627,10 +634,20 @@ class Handler(BaseHTTPRequestHandler):
                     keep_game_loadable(rep)
                 return self.send(200, rep)
             if u.path == '/api/changelog/apply':
-                news = [x for e in PROJECT.changelog() for x in e.get('regiones_nuevas', [])]
-                if not news:
+                cl = PROJECT.changelog()
+                news = [x for e in cl for x in e.get('regiones_nuevas', [])]
+                out = register_regions(news, [payload['scenario']], check_pack=True) if news else {}
+                with SCEN_LOCK:      # visible region names («textos») recorded in the changelog
+                    s_, st = scenario(payload['scenario']), scenario_core.STORE
+                    pending = any(x in st.dirty for x in s_.paths)     # the user's unsaved edits are not saved behind their back
+                    tn = scenario_layers.apply_texts(s_, cl)
+                    if tn:
+                        if not pending:
+                            st.save([x for x in s_.paths if x in st.dirty])
+                        out.setdefault(payload['scenario'], []).extend(tn + (['sin guardar: el escenario tenía cambios pendientes; usa «Guardar escenario»'] if pending else []))
+                if not news and not out:
                     return self.send(200, {'scenarios': {}, 'msg': 'el changelog no tiene regiones nuevas'})
-                return self.send(200, {'scenarios': register_regions(news, [payload['scenario']], check_pack=True)})
+                return self.send(200, {'scenarios': out})
             if u.path == '/api/install':
                 rep = PROJECT.install(payload.get('target', 'same'), payload.get('name'), payload.get('scenarios') or [],
                                       backup_root=scenario_core.BACKUP_ROOT)
@@ -686,7 +703,7 @@ class Handler(BaseHTTPRequestHandler):
                 # «Redibujar fronteras»: lines of all borders in the project tiles/ (the game, only on Install)
                 try:
                     r = payload.get('region')
-                    out = PROJECT.redraw_borders(None if r is None else int(r), log=log)
+                    out = PROJECT.redraw_borders(None if r is None else int(r), log=log, style=payload.get('style'))
                     PROJECT_VERSION[0] += 1
                     return self.send(200, out)
                 except Exception as e:      # any failure with its text (before, the page showed «Cannot read properties of undefined»)
@@ -786,6 +803,7 @@ class Handler(BaseHTTPRequestHandler):
                             except Exception as e:
                                 traceback.print_exc()
                                 out[name] = ['ERROR: %s' % e]
+                    PROJECT.record_texts({old: text})      # changelog «textos»: «Adecuar» applies it to other scenarios too
                     return self.send(200, {'ok': True, 'scenarios': out, 'only_text': True})
                 try:
                     PROJECT.rename_region(old, new, text)
@@ -916,7 +934,7 @@ class Handler(BaseHTTPRequestHandler):
                         tiles = terrain_image.import_image(PROJECT, data, [float(x) for x in payload['bbox']], log=log)
                         if payload.get('lines') and tiles:       # «Dibujar las líneas de las regiones» option
                             import background_restore
-                            background_restore.repaint_tiles(PROJECT.m, PROJECT.tiles, set(tiles), log=log)
+                            background_restore.repaint_tiles(PROJECT.m, PROJECT.tiles, set(tiles), log=log, style=PROJECT.border_style())
                 except (ValueError, KeyError, OSError) as e:
                     return self.send(200, {'error': str(e)})
                 with TILE_LOCK:
@@ -1706,17 +1724,21 @@ def scen_get(path, q):
             return {'ranges': scenario_events.air_ranges(scenario(q['name']))}
         if path == '/api/scen/terrain_colors':
             return scenario_i18n.L(scenario_events.terrain_colors(scenario(q['name'])))
+        if path == '/api/scen/mh2_list':
+            import mh2_import
+            return {'scenarios': mh2_import.scenarios(), 'packs': mh2_import.packs()}
         if path == '/api/scen/cultures':
             return {'cultures': scenario_events.cultures(scenario(q['name']))}
         if path == '/api/scen/ai':
             return scenario_layers.ai_summary(scenario(q['name']), q['country'])
         if path == '/api/scen/validate':
+            import event_lint
             import models_api
             names, adj = map_info()
             sc_ = scenario(q['name'])
             issues = (sc_.validate(names, adj) + scenario_layers.surrendered_issues(sc_) + scenario_layers.diplomacy_issues(sc_)
                     + scenario_layers.unknown_nation_issues(sc_) + scenario_layers.duplicate_issues(sc_)
-                    + icon_defaults.issues(sc_.dir) + models_api.land_display_issues(sc_.dir))
+                    + icon_defaults.issues(sc_.dir) + models_api.land_display_issues(sc_.dir) + event_lint.issues(sc_))
             if q.get('id'):
                 root = sc_.s.get(q['id'])
                 if sc_.s.doc_of.get(root) not in sc_.paths:
@@ -1806,6 +1828,13 @@ def scen_post(path, p):
                 raw = re.sub(r'(name="strDisplayName" value=")[^"]*(")', lambda m: m.group(1) + p['display'].replace('"', "'") + m.group(2), raw, count=1)
                 open(f, 'wb').write(raw.encode('utf-8'))
             return {'name': r['scenario'], 'pack': scenario_core.pack_of(scenario(r['scenario']))}
+        if path == '/api/scen/mh2_import':
+            # new scenario from a Making History II one, on WorldMoreRegions / WorldMoreRegionsRivers (made from MH2's map)
+            import mh2_import
+            r = mh2_import.convert(mh2_import.check_source(p.get('src')), p.get('pack'), p.get('name'), p.get('template') or None,
+                                   p.get('display') or None, open_scenario=scenario, progress=progress.step)
+            scenario_extra.ensure_dirs(os.path.join(scenario_core.SCEN_ROOT, r['name']))
+            return r
         if path == '/api/scen/new_scratch':
             # empty scenario on a regionpack (no nations): nations are added later when creating regions
             name = scenario_new.create_scenario(p['name'], p['pack'], p.get('template') or None, p.get('display') or None, p.get('description') or None)
@@ -2480,6 +2509,8 @@ def img_post(path, p):
             return image_tools.flag_preview(p)
         elif path == '/api/img/flag/write':
             rep = image_tools.flag_write(p)
+        elif path == '/api/img/flag/fill':          # missing / compressed flag files, from the flags it already has
+            rep = image_tools.flag_fill(p)
         elif path == '/api/img/icon/preview':
             return image_tools.icon_preview(p)
         elif path == '/api/img/icon/write':

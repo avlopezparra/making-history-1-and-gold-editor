@@ -104,6 +104,21 @@ def _rekey(st, old, new):
             coll.add(new)
 
 
+def rename_copy(dst, new_name, local_shared=False):
+    """Gives a copied scenario folder its own name in scenario.xml and scenarioInfo.xml (the game menu reads the latter;
+    with the base's name the copy does not show up). local_shared: shared data paths point inside the folder."""
+    for fn in ('scenario.xml', 'scenarioInfo.xml'):
+        f = os.path.join(dst, fn)
+        if not os.path.exists(f):
+            continue
+        raw = open(f, 'rb').read().decode('utf-8')
+        if local_shared and fn == 'scenario.xml':
+            raw = re.sub(r'(name="fileSharedData" value=")[^"]*[\\/]([^"\\/]+")', r'\1\2', raw)
+        for k in ('strName', 'strDisplayName'):
+            raw = re.sub(r'(name="%s" value=")[^"]*(")' % k, lambda m: m.group(1) + new_name + m.group(2), raw, count=1)
+        open(f, 'wb').write(raw.encode('utf-8'))
+
+
 def save_as_new(s, new_name):
     """Copies the scenario to scenarios/<new_name> with its shared data inside (like a mod) and writes there
     the unsaved changes. The original scenario stays as it was on disk."""
@@ -129,13 +144,7 @@ def save_as_new(s, new_name):
             moved.append(q)
             st.open(p)      # the original (unchanged, from disk) remains available for other scenarios
     written = st.save(moved) if moved else {'written': [], 'history': None}
-    # scenario.xml of the new one: local shared data and new name
-    f = os.path.join(dst, 'scenario.xml')
-    raw = open(f, 'rb').read().decode('utf-8')
-    raw = re.sub(r'(name="fileSharedData" value=")[^"]*[\\/]([^"\\/]+")', r'\1\2', raw)
-    for k in ('strName', 'strDisplayName'):
-        raw = re.sub(r'(name="%s" value=")[^"]*(")' % k, lambda m: m.group(1) + new_name + m.group(2), raw, count=1)
-    open(f, 'wb').write(raw.encode('utf-8'))
+    rename_copy(dst, new_name, local_shared=True)
     import scenario_extra
     scenario_extra.ensure_dirs(dst)      # game/ and ui/ with namespace.xml and UICommand*.xml, like ed.exe
     return {'scenario': new_name, 'written': written['written'], 'history': written['history']}
@@ -315,7 +324,7 @@ def add_sea_region(s, name, mother=None, text=None):
         ET.SubElement(new, 'property', {'name': k, 'value': v})
     st.attach(new, par, path=st.doc_of[ref] if ref is not None else ww, index=list(par).index(ref) + 1 if ref is not None else None)   # par es la raiz <objects>
     notes = ['%s registrada en waterWorld.xml' % name]
-    notes += sc.set_region_string(s, sid, text or name)
+    notes += sc.set_region_string(s, sid, text or sc.spaced_name(name))
     s._opts = None
     return notes
 
@@ -533,27 +542,45 @@ def alliance_add(s, countries, alliance_id=None, new_name=None):
     return {'notes': notes, 'id': st.eid(a)}
 
 
+def alliance_of(s, country):
+    """strINITAllianceName of the starting alliance the country belongs to ('' if none)."""
+    for al in s.all('Alliance'):
+        if any(m.get('type') == 'AllianceMember' and prop(m, 'strINITCountryName') == country for m in objs(al)):
+            return prop(al, 'strINITAllianceName') or ''
+    return ''
+
+
 def create_wars(s, attacker, defenders, name=None):
-    """Initial wars (gamestate): one per defender, as in the game scenarios."""
+    """Initial wars (gamestate): one per defender, as in the game scenarios. A side whose country is in a starting alliance
+    names that alliance: with the field empty the engine deletes the war on load («had alliance facade … lone country»)."""
     st = s.s
     wars = s.all('War')
     mgr = st.parent[wars[0]] if wars else (st.parent[s.all('Alliance')[0]] if s.all('Alliance') else None)
     if mgr is None:
         raise ValueError('no encuentro dónde van las guerras (AllianceManager de gamestate.xml)')
     notes = []
+    off = alliance_of(s, attacker)
     for d in defenders:
         if d == attacker:
             continue
-        if any(prop(w, 'strINITAttackerCountryName') == attacker and prop(w, 'strINITDefenderCountryName') == d for w in wars):
+        dfn = alliance_of(s, d)
+        if off and off == dfn:
+            notes.append('%s y %s están en la misma alianza (%s): no pueden estar en guerra' % (attacker, d, off))
+            continue
+        # one war per pair of sides: a country of an alliance already at war stands for all its members
+        mine = {off or attacker, dfn or d}
+        if any({prop(w, 'strINITOffenseAllianceName') or prop(w, 'strINITAttackerCountryName'),
+                prop(w, 'strINITDefenseAllianceName') or prop(w, 'strINITDefenderCountryName')} == mine for w in wars):
             notes.append('%s y %s ya están en guerra' % (attacker, d))
             continue
         w = ET.Element('object', {'type': 'War', 'name': 'objAllWars'})
-        for k, v in (('strDisplayName', name or '%s - %s War' % (attacker, d)), ('strINITOffenseAllianceName', ''),
-                     ('strINITDefenseAllianceName', ''), ('strINITAttackerCountryName', attacker), ('strINITDefenderCountryName', d)):
+        for k, v in (('strDisplayName', name or '%s - %s War' % (attacker, d)), ('strINITOffenseAllianceName', off),
+                     ('strINITDefenseAllianceName', dfn), ('strINITAttackerCountryName', attacker), ('strINITDefenderCountryName', d)):
             ET.SubElement(w, 'property', {'name': k, 'value': v})
         st.attach(w, mgr, index=(list(mgr).index(wars[-1]) + 1) if wars else None)
         wars.append(w)
-        notes.append('guerra: %s ataca a %s' % (attacker, d))
+        notes.append('guerra: %s ataca a %s' % (attacker, d) + (' (con toda su alianza: %s)' % ' / '.join(x for x in (off, dfn) if x)
+                                                                   if off or dfn else ''))
     return notes
 
 
@@ -806,6 +833,128 @@ def set_population_from(s, name, mother, amount):
 
 
 # ---------------------------------------------------------------------------------------- compatibility with a regionpack
+class Projection:
+    """Regionpack drawn in its own coordinates (proyeccion.json): real lon/lat -> map coordinates, as a grid
+    {lon0, lat0, step, x: [[...] per latitude row], y: [[...]]} interpolated bilinearly."""
+    def __init__(self, d):
+        import numpy as np
+        self.lon0, self.lat0, self.step = float(d['lon0']), float(d['lat0']), float(d['step'])
+        self.X, self.Y = np.asarray(d['x'], dtype=float), np.asarray(d['y'], dtype=float)
+
+    @staticmethod
+    def load(folder):
+        f = os.path.join(folder, 'proyeccion.json')
+        if not os.path.exists(f):
+            return None
+        return Projection(json.load(open(f, encoding='utf-8')))
+
+    def coords(self, c):
+        """(n, 2) array of real lon/lat -> (n, 2) map coordinates."""
+        import numpy as np
+        c = np.asarray(c, dtype=float).reshape(-1, 2)
+        ny, nx = self.X.shape
+        fx = np.clip((c[:, 0] - self.lon0) / self.step, 0, nx - 1 - 1e-9)
+        fy = np.clip((c[:, 1] - self.lat0) / self.step, 0, ny - 1 - 1e-9)
+        i, j = fy.astype(int), fx.astype(int)
+        ty, tx = fy - i, fx - j
+        def bil(A):
+            return (A[i, j] * (1 - tx) * (1 - ty) + A[i, j + 1] * tx * (1 - ty)
+                    + A[i + 1, j] * (1 - tx) * ty + A[i + 1, j + 1] * tx * ty)
+        return np.column_stack([bil(self.X), bil(self.Y)])
+
+    def point(self, x, y):
+        p = self.coords([[x, y]])[0]
+        return float(p[0]), float(p[1])
+
+    def geom(self, g):
+        import shapely
+        g = shapely.transform(g, self.coords)
+        return g if g.is_valid else g.buffer(0)
+
+
+def project_positions(s, proj):
+    """Moves every vecPosition of the scenario (cities, resources, units...) from real lon/lat to the map's coordinates."""
+    n = 0
+    for p in s.paths:
+        for el in s.s.docs[p].getroot().iter('property'):
+            if el.get('name') == 'vecPosition':
+                v = (el.get('value') or '').strip('[] ').split(',')
+                try:
+                    x, y = float(v[0]), float(v[1])
+                except (ValueError, IndexError):
+                    continue
+                nx_, ny_ = proj.point(x, y)
+                el.set('value', '[%s, %s, %s]' % (repr(nx_), repr(ny_), (v[2].strip() if len(v) > 2 else '0')))
+                s.s.dirty.add(p)
+                n += 1
+    return ['%d posiciones (ciudades, recursos, unidades) pasadas a las coordenadas del regionpack' % n] if n else []
+
+
+def city_owners(s):
+    """{city element: owner of its region}."""
+    return {c: prop(s.s.parent[c], 'strOwner') for c in s.all('City') if s.s.parent.get(c) is not None}
+
+
+def keep_city_owners(s, pm, before, max_dist=2.5):
+    """Projected map: a city that landed in another country's region only because the projection is approximate (Buenos Aires
+    in Montevideo) moves to the nearest region of its former owner within max_dist, at the nearest point inside it."""
+    from shapely.geometry import Point
+    from shapely.ops import nearest_points
+    land = [r for r in s.regions(sea=False)]
+    notes = []
+    for c, owner in before.items():
+        par = s.s.parent.get(c)
+        if par is None or not owner or prop(par, 'strOwner') == owner:
+            continue
+        xy = sc.parse_vec(prop(c, 'vecPosition'))
+        if xy is None:
+            continue
+        pt = Point(xy)
+        best = None
+        for r in land:
+            if prop(r, 'strOwner') != owner:
+                continue
+            g = pm.geom(prop(r, 'strName'))
+            if g is None:
+                continue
+            d = g.distance(pt)
+            if d <= max_dist and (best is None or d < best[0]):
+                best = (d, r, g)
+        if best is None:
+            continue
+        d, r, g = best
+        inner = g.buffer(-0.05)
+        q = nearest_points(inner if not inner.is_empty else g, pt)[0]
+        old = prop(par, 'strName')
+        s.update(s.s.eid(c), {'__region': prop(r, 'strName')})
+        el = next((p for p in c.iter('property') if p.get('name') == 'vecPosition'), None)
+        if el is not None:
+            v = (el.get('value') or '').strip('[] ').split(',')
+            el.set('value', '[%s, %s, %s]' % (repr(q.x), repr(q.y), v[2].strip() if len(v) > 2 else '0'))
+            s.s.dirty.add(s.s.doc_of[c])
+        notes.append('ciudad %s: vuelve a %s (%s) en vez de %s; la proyección del mapa la dejaba %.1f° fuera'
+                     % (prop(c, 'strName'), prop(r, 'strName'), owner, old, d))
+    return notes
+
+
+def fix_ports(s, pm, max_dist=3.0):
+    """Port cities whose port sea is not in the scenario any more: port in the nearest sea region of the map (or none if too far)."""
+    from shapely.geometry import Point
+    seas = {prop(r, 'strName') for r in s.regions(sea=True)}
+    cand = [(n, pm.geom(n)) for n in seas if pm.sea.get(n) and pm.geom(n) is not None]
+    notes = []
+    for c in s.all('City'):
+        port = prop(c, 'strPortForRegion')
+        if not port or port in seas:
+            continue
+        xy = sc.parse_vec(prop(c, 'vecPosition'))
+        best = min(((g.distance(Point(xy)), n) for n, g in cand), default=None) if xy else None
+        new = best[1] if best and best[0] <= max_dist else ''
+        s.s.set_prop(c, 'strPortForRegion', new)
+        notes.append('puerto de %s: %s ya no existe; pasa a %s' % (prop(c, 'strName'), port, new or '(sin puerto)'))
+    return notes
+
+
 class PackMap:
     """Regions of an installed regionpack: names (with RegionRename), whether they are sea, neighbors and geometry."""
     def __init__(self, pack, folder=None):
@@ -829,11 +978,16 @@ class PackMap:
         p = os.path.join(self.dir, 'changelog.json')
         import changelog_keys
         self.changelog = changelog_keys.load(p)
+        self.proj = Projection.load(self.dir)    # None: the map uses real lon/lat like World
+        self.to = None                           # Projection applied to this map's shapes (to compare them with a projected map)
 
     def geom(self, name):
         if name not in self._geo:
             i = self.idx.get(name)
-            self._geo[name] = self._mesh(self.m, i) if i is not None else None
+            g = self._mesh(self.m, i) if i is not None else None
+            if g is not None and self.to is not None:
+                g = self.to.geom(g)
+            self._geo[name] = g
         return self._geo[name]
 
     def region_at(self, x, y, sea=False):
@@ -874,6 +1028,8 @@ def pack_sync_plan(s, pack):
         try:
             pa = PackMap(cur)
             logs += pa.changelog                # the creation of the extra ones is in the current map changelog
+            if pm.proj is not None and pa.proj is None:
+                pa.to = pm.proj                 # compare in the new map's coordinates
         except ValueError:
             pass
     for e in logs:
@@ -884,67 +1040,67 @@ def pack_sync_plan(s, pack):
     remove, add = [], []
     import progress
     tick = progress.part(5, 30)
+    geo_into, geo_src, clash = {}, {}, set()
+    if pa is not None:
+        # same name, different place (WMR «Piedmont» is in North Carolina, the old map's is Italy's): it goes away and is added again
+        for n in land:
+            ga, gb = pa.geom(n), pm.geom(n) if n in pm.sea and not pm.sea[n] else None
+            if ga is not None and gb is not None and pa.to is not None:
+                # projected map: shapes only roughly match (North Island lands a few degrees south), so a same-named region
+                # is another place only when it is far away (Georgia the US state vs Georgia the country)
+                if ga.distance(gb) > 20:     # the projection can be ~10 degrees off in the Pacific
+                    clash.add(n)
+            elif ga is not None and gb is not None:
+                try:
+                    if ga.intersection(gb).area < 0.1 * min(ga.area, gb.area):
+                        clash.add(n)
+                except Exception:       # invalid geometry: compare the fixed shapes
+                    if ga.buffer(0).intersection(gb.buffer(0)).area < 0.1 * min(ga.area, gb.area):
+                        clash.add(n)
+        # translation by geometry between both maps: each region that goes away ends in the new-map region overlapping it most,
+        # and each new-map region comes from the scenario region overlapping it most, even when that one is going away
+        # (pack_sync_apply adds before removing), so the owner and cities follow the land and nothing is lost
+        gone = [n for n in land if not (n in pm.sea and not pm.sea[n]) or n in clash]
+        geo_into = _overlap_best(pa, gone, pm, [m for m, is_sea in pm.sea.items() if not is_sea and m not in skip], nearest=True)
+        geo_src = _overlap_best(pm, [m for m, is_sea in pm.sea.items() if not is_sea and (m not in land or m in clash) and m not in skip],
+                                pa, list(land))
     for k, (n, r) in enumerate(land.items()):
         if k % 25 == 0:
             tick(k, len(land), 'Comparando las regiones del escenario con el mapa')
-        if n in pm.sea and not pm.sea[n]:
+        if n in pm.sea and not pm.sea[n] and n not in clash:
             continue        # on the map it is sea (e.g. a lake created as land): the land one is removed and the sea one added
-        # where it goes: the map region containing most of its cities / its mother in the changelog
-        votes = {}
-        for c in objs(r):
-            xy = sc.parse_vec(P(c, 'vecPosition')) if c.get('type') in ('City', 'Producer') else None
-            if xy:
-                t = pm.region_at(xy[0], xy[1])
-                if t and t in land and t != n:
-                    votes[t] = votes.get(t, 0) + 1
-        into = None
-        ga = pa.geom(n) if pa is not None else None
-        if ga is not None:
-            # by geometry: the region of the new map (which the scenario already has) overlapping this one most; so two regions
-            # of one regionpack that were one in the other (or vice versa) are translated without depending on names or changelogs
-            best, area = None, 0.0
-            for m in land:
-                gm = pm.geom(m) if m != n and m in pm.sea and not pm.sea[m] else None
-                if gm is not None:
-                    a_ = ga.intersection(gm).area
-                    if a_ > area:
-                        best, area = m, a_
-            into = best
+        into = geo_into.get(n)
         if into is None:
+            # where it goes: the map region containing most of its cities / its mother in the changelog
+            votes = {}
+            for c in objs(r):
+                xy = sc.parse_vec(P(c, 'vecPosition')) if c.get('type') in ('City', 'Producer') else None
+                if xy:
+                    t = pm.region_at(xy[0], xy[1])
+                    if t and t in land and t != n:
+                        votes[t] = votes.get(t, 0) + 1
             into = max(votes, key=votes.get) if votes else None
         if into is None:
             # its mother in some known changelog, if it exists on the map
             into = next((m for m in [madre.get(n)] if m and m in land and m in pm.sea and not pm.sea[m]), None)
-        remove.append({'name': n, 'sea': False, 'into': into, 'owner': P(r, 'strOwner'),
+        remove.append({'name': n, 'sea': False, 'into': into, 'owner': P(r, 'strOwner'), 'clash': n in clash,
                        'cities': [P(c, 'strName') for c in objs(r) if c.get('type') == 'City']})
-    for n in seas:
-        if n not in pm.sea or not pm.sea[n]:        # nor if on the map it is now land
-            remove.append({'name': n, 'sea': True, 'into': None, 'owner': '', 'cities': []})
+    gone_seas = [n for n in seas if n not in pm.sea or not pm.sea[n]]       # nor if on the map it is now land
+    # fleets of a sea that goes away move to the new-map sea overlapping it most (before they pointed to a missing region)
+    sea_into = _overlap_best(pa, gone_seas, pm, [m for m, is_sea in pm.sea.items() if is_sea], nearest=True) if pa is not None else {}
+    for n in gone_seas:
+        remove.append({'name': n, 'sea': True, 'into': sea_into.get(n), 'owner': '', 'cities': []})
     for n, is_sea in pm.sea.items():
         if n in skip:
             continue
         if is_sea and n not in seas:
             add.append({'name': n, 'sea': True, 'mother': next((x for x in pm.nb[n] if x in seas), None)})
-        elif not is_sea and n not in land:
-            m = None
-            gn_ = pm.geom(n)
-            if pa is not None and gn_ is not None:
-                # source region by geometry: the current map one where this area was; if it is already being removed, its content
-                # is in the region it goes to (into)
-                landing = {x['name']: x['into'] for x in remove if not x['sea']}
-                best, area = None, 0.0
-                for r_ in land:
-                    gr = pa.geom(r_)
-                    if gr is not None:
-                        a_ = gn_.intersection(gr).area
-                        if a_ > area:
-                            best, area = r_, a_
-                if best is not None:
-                    m = landing.get(best, best) if best in landing else best
-                    if m not in land or m in landing:
-                        m = None
-            if m is None:
-                m = madre.get(n)
+        elif not is_sea and (n not in land or n in clash):
+            m = geo_src.get(n)
+            if m is not None:
+                add.append({'name': n, 'sea': False, 'mother': m, 'geo': True, 'clash': n in clash})
+                continue
+            m = madre.get(n)
             if not (m and m in land):
                 cand = [x for x in pm.nb[n] if x in land]
                 g = pm.geom(n)
@@ -953,6 +1109,32 @@ def pack_sync_plan(s, pack):
                 m = island_source(pm, n, land, eqs)
             add.append({'name': n, 'sea': False, 'mother': m})
     return {'pack': pack, 'remove': remove, 'add': add, 'current_pack': sc.pack_of(s)}
+
+
+def _overlap_best(src, names, dst, dst_names, nearest=False):
+    """{name: the 'dst_names' region overlapping it most}, with each name's geometry from PackMap 'src' and the others' from 'dst'."""
+    from shapely.strtree import STRtree
+    fix = lambda g: g if g is None or g.is_valid else g.buffer(0)
+    dn = [n for n in dst_names if dst.geom(n) is not None]
+    dg = [fix(dst.geom(n)) for n in dn]
+    if not dg:
+        return {}
+    tree = STRtree(dg)
+    out = {}
+    for n in names:
+        g = fix(src.geom(n))
+        if g is None:
+            continue
+        best, area = None, 0.0
+        for i in tree.query(g):
+            a = g.intersection(dg[i]).area
+            if a > area and dn[i] != n:
+                best, area = dn[i], a
+        if best is None and nearest:
+            best = dn[tree.nearest(g)]      # e.g. a small island the other map lacks: its content goes to the closest region
+        if best is not None:
+            out[n] = best
+    return out
 
 
 def _add_owned_region(s, pm, name, c):
@@ -1123,6 +1305,23 @@ def for_scenario(c, scen):
     return c
 
 
+def apply_texts(s, changelog):
+    """Changelog «textos» of a regionpack (visible names, e.g. «Bay of Bangkok» for BayOfBangkok): written into the
+    scenario's stringTable for the regions it has. In memory; the caller saves."""
+    want = {}
+    for e in changelog or []:
+        for t in e.get('textos', []):
+            if t.get('region') and t.get('texto'):
+                want[t['region']] = t['texto']
+    n = 0
+    for r in s.regions():
+        name, sid = prop(r, 'strName'), prop(r, 'sidName')
+        if name in want and sid and s.strings.get(sid) != want[name]:
+            sc.set_region_string(s, sid, want[name])
+            n += 1
+    return ['%d nombre(s) visible(s) de región aplicado(s) desde el changelog' % n] if n else []
+
+
 def pack_sync_apply(s, pack, switch=True, pop_mode='area'):
     """Applies pack_sync_plan in memory (still needs saving): removes, adds and, if 'switch', changes the scenario regionpack.
     pop_mode (population of new regions taken from another): 'area' (default) splits the inhabitants the source region
@@ -1145,7 +1344,21 @@ def pack_sync_apply(s, pack, switch=True, pop_mode='area'):
                 notes += rename_region(s, r['de'], r['a'], r.get('texto'))
                 have.discard(r['de'])
                 have.add(r['a'])
-    notes += apply_equivalences(s, pm)
+    cur = sc.pack_of(s)
+    import editor_core
+    owners_before = None
+    if pm.proj is not None and cur != pack:
+        try:
+            cur_proj = PackMap(cur).proj if cur else None
+        except ValueError:
+            cur_proj = None
+        if cur_proj is None:        # scenario in real lon/lat -> map drawn in its own coordinates
+            progress.step(9, 'Pasando las posiciones a las coordenadas del regionpack')
+            notes += project_positions(s, pm.proj)
+            owners_before = city_owners(s)
+    if not (cur and cur != pack and os.path.exists(os.path.join(editor_core.MAPS, cur, 'xml', 'regions.bin'))):
+        # the changelog equivalences only when there is no map to translate by geometry (they move whole regions)
+        notes += apply_equivalences(s, pm)
     plan = pack_sync_plan(s, pack)
     pdata = pack_pop_table(pack) if pop_mode in ('ref', 'ref_abs') else {}
     pending = {}      # source region -> new regions still to be taken from it (to split correctly among several)
@@ -1153,11 +1366,45 @@ def pack_sync_apply(s, pack, switch=True, pop_mode='area'):
         if x_['mother'] and not x_['sea']:
             pending.setdefault(x_['mother'], []).append(x_['name'])
     # what was chosen when creating each region (owner, controller, terrain, population) according to the regionpack changelog
-    made = {x['nombre']: for_scenario(x, s.name) for e in pm.changelog for x in e.get('regiones_nuevas', [])}
-    import progress
+    log = {x['nombre']: x for e in pm.changelog for x in e.get('regiones_nuevas', [])}
     total = len(plan['remove']) + len(plan['add']) or 1
-    for i, x in enumerate(plan['remove']):
-        progress.part(30, 98)(i, total, 'Quitando la región %s' % x['name'])
+    tick = progress.part(30, 98)
+    done = [0]
+
+    def add(x):
+        tick(done[0], total, 'Añadiendo la región %s' % x['name'])
+        done[0] += 1
+        c = log.get(x['name'], {})
+        own = (c.get('pais_por_escenario') or {}).get(s.name)
+        own = (own, (c.get('controlador_por_escenario') or {}).get(s.name) or own) if own else None
+        try:
+            return _pack_add_one(s, pm, x, for_scenario(c, s.name), pending, pdata, pop_mode, own)
+        except ValueError as e:
+            return ['ERROR %s: %s' % (x['name'], e)]
+    # land regions coming from another map's region (by geometry) are added while their source still exists; then the regions
+    # that go away are removed (their leftovers go into the new ones); then the rest (seas, and names that change between sea and land)
+    seas_now = {prop(r, 'strName') for r in s.regions(sea=True)}
+    going = {x['name'] for x in plan['remove'] if not x['sea']}
+    # also those whose source (changelog mother, e.g. Falklands for Falkland Islands) is about to be removed
+    first = [x for x in plan['add'] if (x.get('geo') or (not x['sea'] and x['mother'] in going))
+             and x['name'] not in seas_now and not x.get('clash')]
+    for x in first:
+        notes += add(x)
+    # a same-named region of another place: the old one leaves first (into the new region where it really is), then the new one
+    # is added from its own source, before the other removals take that source away
+    clashing = [x for x in plan['remove'] if x.get('clash')]
+    for x in clashing:
+        notes += sc.remove_new_region(s, x['name'], x['into'])
+        notes.append('%s del mapa anterior es otro lugar que %s del mapa nuevo: sus datos pasan a %s' % (x['name'], x['name'], x['into']))
+    for x in plan['add']:
+        if x.get('clash'):
+            first.append(x)
+            notes += add(x)
+    for x in plan['remove']:
+        if x.get('clash'):
+            continue
+        tick(done[0], total, 'Quitando la región %s' % x['name'])
+        done[0] += 1
         pop_ = 0
         if not x['sea'] and not x['into']:
             reg_ = next((r for r in s.regions(sea=False) if prop(r, 'strName') == x['name']), None)
@@ -1167,82 +1414,96 @@ def pack_sync_apply(s, pack, switch=True, pop_mode='area'):
             notes.append('AVISO: %s no tiene región del mapa nuevo adonde ir: se pierden sus %s habitantes' % (x['name'], format(pop_, ',').replace(',', '.')))
         if not x['sea'] and not x['into'] and x['cities']:
             notes.append('AVISO: %s no tenía adónde volver; se pierden %s' % (x['name'], ', '.join(x['cities'])))
-    for i, x in enumerate(plan['add']):
-        progress.part(30, 98)(len(plan['remove']) + i, total, 'Añadiendo la región %s' % x['name'])
-        try:
-            if x['sea']:
-                notes += add_sea_region(s, x['name'], x['mother'])
-                notes += reassign_by_geometry(s, x['name'], pm.geom(x['name']), sea=True)
-                notes += reassign_ports(s, x['name'], pm.geom(x['name']), pm.geom)
-                continue
-            c = made.get(x['name'], {})
-            if c and (not c.get('madre') or not x['mother']) and c.get('pais') and (match_country(s, c['pais']) or not x['mother']):     # without a mother in the scenario (e.g. it came from the sea)
-                # region created without a source region (e.g. an island in the sea): with the owner, terrain and population from the changelog
-                notes += _add_owned_region(s, pm, x['name'], c)
-                continue
-            if not x['mother']:
-                # drawn without a nation and from no other region: it gets the nation that owns most of its neighbours, so the
-                # scenario still matches the map and the game loads it (before it was left out and «Instalar» could never fix it)
-                nbs = set(pm.nb.get(x['name'], []))
-                owners = [prop(r, 'strOwner') for r in s.regions(sea=False) if prop(r, 'strName') in nbs]
-                owners = [o for o in owners if o and o in s.countries()]
-                if owners:
-                    own = max(set(owners), key=owners.count)
-                    notes += _add_owned_region(s, pm, x['name'], dict(c, nombre=x['name'], pais=own))
-                    notes.append('AVISO: %s no tenía país; se le ha dado el de sus vecinas (%s). Cámbialo en el editor de escenarios si no es el que quieres'
-                                 % (x['name'], own))
-                    continue
-                notes.append('AVISO: %s no se ha añadido: no sale de ninguna región con datos, el changelog no dice de qué país es '
-                             'y no tiene vecinas con país (revisa el changelog o créala de nuevo con su propietario)' % x['name'])
-                continue
-            if pm.geom(x['mother']) is not None and pm.geom(x['name']) is not None and pm.geom(x['mother']).distance(pm.geom(x['name'])) > 1e-3:
-                notes.append('%s: sin vecinas de tierra con datos; sus datos salen de %s' % (x['name'], x['mother']))
-            gn, gm = pm.geom(x['name']), pm.geom(x['mother'])
-            land = {prop(r, 'strName') for r in s.regions(sea=False)}
-            pops = {k: v for k, v in (c.get('poblacion') or {}).items() if k in land}
-            sib = [n_ for n_ in pending.get(x['mother'], []) if n_ != x['name']]
-            pending[x['mother']] = sib
-            def _w(n_):      # split weight: reference population or, if missing, area
-                g_ = pm.geom(n_)
-                return (pdata[n_]['pop'] if n_ in pdata else None), (g_.area if g_ is not None else 0)
-            ws = [_w(n_) for n_ in [x['name'], x['mother']] + sib]
-            use_ref = bool(pdata) and all(w[0] is not None for w in ws) and sum(w[0] for w in ws) > 0
-            if use_ref:
-                rest = sum(w[0] for w in ws)
-                fr = ws[0][0] / rest if rest else 0
-            else:
-                rest = sum(w[1] for w in ws)       # its area + that of the source region + that of the ones still missing
-                fr = ws[0][1] / rest if rest else 0
-            fixed = c.get('fraccion') if not pdata and pop_mode == 'area' else None   # fraction chosen when creating it in the editor
-            notes += sc.add_new_region(s, x['name'], mother=x['mother'], fraction=0 if pops else (fixed or fr),
-                                       text=c.get('texto'), terrain=c.get('terreno'))
-            if pops:
-                notes += move_population(s, x['name'], pops)
-            elif pop_mode == 'ref_abs' and use_ref:
-                notes += set_population_from(s, x['name'], x['mother'], pdata[x['name']]['pop'])
-            if c.get('poblacion_manual') is not None and not pops:
-                notes += set_region_population(s, x['name'], c['poblacion_manual'])
-            if c.get('historicos') is not None:
-                notes += set_historic(s, x['name'], c['historicos'])
-            vals = {k: v for k, v in (('strOwner', c.get('pais')), ('strController', c.get('controlador') or c.get('pais'))) if v}
-            reg = next((r for r in s.regions(sea=False) if prop(r, 'strName') == x['name']), None)
-            if reg is not None and vals and any(prop(reg, k) != v for k, v in vals.items()):
-                if 'strOwner' in vals:
-                    vals = {k: (match_country(s, v) or v) for k, v in vals.items()}
-                if vals['strOwner'] in s.countries() if 'strOwner' in vals else True:
-                    s.update(s.s.eid(reg), vals)
-                else:
-                    notes.append('%s: el país %s no existe en este escenario; se queda con el de %s' % (x['name'], vals['strOwner'], x['mother']))
-            notes += reassign_by_geometry(s, x['name'], gn)
-            notes += _city_and_liberate(s, x['name'], c, gn)
-        except ValueError as e:
-            notes.append('ERROR %s: %s' % (x['name'], e))
+    for x in plan['add']:
+        if not any(x is y for y in first):
+            notes += add(x)
     notes += rehome_transferred(s, pm)
+    if owners_before is not None:
+        notes += keep_city_owners(s, pm, owners_before)
+    notes += fix_ports(s, pm)
+    notes += apply_texts(s, pm.changelog)
     if switch and sc.pack_of(s) != pack:
         notes += set_pack(s, pack)
     else:
         notes += fix_sprite_map(s)
     return {'notes': notes, 'plan': plan}
+
+
+def _pack_add_one(s, pm, x, c, pending, pdata, pop_mode, own_scen):
+    """Adds one region of pack_sync_plan's 'add' list to the scenario (see pack_sync_apply); 'c' is its changelog entry.
+    A region whose source was found by geometry (x['geo']) keeps that source's data in this scenario (owner, controller,
+    historic countries, population share): the changelog owner is the one it had when the regionpack was made, so it only
+    counts if the changelog names this scenario («pais_por_escenario»: own_scen = (owner, controller))."""
+    notes = []
+    if x['sea']:
+        notes += add_sea_region(s, x['name'], x['mother'])
+        notes += reassign_by_geometry(s, x['name'], pm.geom(x['name']), sea=True)
+        notes += reassign_ports(s, x['name'], pm.geom(x['name']), pm.geom)
+        return notes
+    if x.get('geo'):
+        c = {k: v for k, v in c.items() if k in ('nombre', 'texto', 'terreno', 'ciudad')}
+        if own_scen:
+            c.update(pais=own_scen[0], controlador=own_scen[1])
+    elif c and (not c.get('madre') or not x['mother']) and c.get('pais') and (match_country(s, c['pais']) or not x['mother']):     # without a mother in the scenario (e.g. it came from the sea)
+        # region created without a source region (e.g. an island in the sea): with the owner, terrain and population from the changelog
+        return _add_owned_region(s, pm, x['name'], c)
+    if not x['mother']:
+        # drawn without a nation and from no other region: it gets the nation that owns most of its neighbours, so the
+        # scenario still matches the map and the game loads it (before it was left out and «Instalar» could never fix it)
+        nbs = set(pm.nb.get(x['name'], []))
+        owners = [prop(r, 'strOwner') for r in s.regions(sea=False) if prop(r, 'strName') in nbs]
+        owners = [o for o in owners if o and o in s.countries()]
+        if owners:
+            own = max(set(owners), key=owners.count)
+            notes += _add_owned_region(s, pm, x['name'], dict(c, nombre=x['name'], pais=own))
+            notes.append('AVISO: %s no tenía país; se le ha dado el de sus vecinas (%s). Cámbialo en el editor de escenarios si no es el que quieres'
+                         % (x['name'], own))
+            return notes
+        notes.append('AVISO: %s no se ha añadido: no sale de ninguna región con datos, el changelog no dice de qué país es '
+                     'y no tiene vecinas con país (revisa el changelog o créala de nuevo con su propietario)' % x['name'])
+        return notes
+    gn, gm = pm.geom(x['name']), pm.geom(x['mother'])
+    if gm is not None and gn is not None and gm.distance(gn) > 1e-3:
+        notes.append('%s: sin vecinas de tierra con datos; sus datos salen de %s' % (x['name'], x['mother']))
+    land = {prop(r, 'strName') for r in s.regions(sea=False)}
+    pops = {k: v for k, v in (c.get('poblacion') or {}).items() if k in land}
+    sib = [n_ for n_ in pending.get(x['mother'], []) if n_ != x['name']]
+    pending[x['mother']] = sib
+
+    def _w(n_):      # split weight: reference population or, if missing, area
+        g_ = pm.geom(n_)
+        return (pdata[n_]['pop'] if n_ in pdata else None), (g_.area if g_ is not None else 0)
+    ws = [_w(n_) for n_ in [x['name'], x['mother']] + sib]
+    use_ref = bool(pdata) and all(w[0] is not None for w in ws) and sum(w[0] for w in ws) > 0
+    if use_ref:
+        rest = sum(w[0] for w in ws)
+        fr = ws[0][0] / rest if rest else 0
+    else:
+        rest = sum(w[1] for w in ws)       # its area + that of the source region + that of the ones still missing
+        fr = ws[0][1] / rest if rest else 0
+    fixed = c.get('fraccion') if not pdata and pop_mode == 'area' else None   # fraction chosen when creating it in the editor
+    notes += sc.add_new_region(s, x['name'], mother=x['mother'], fraction=0 if pops else (fixed or fr),
+                               text=c.get('texto'), terrain=c.get('terreno'))
+    if pops:
+        notes += move_population(s, x['name'], pops)
+    elif pop_mode == 'ref_abs' and use_ref:
+        notes += set_population_from(s, x['name'], x['mother'], pdata[x['name']]['pop'])
+    if c.get('poblacion_manual') is not None and not pops:
+        notes += set_region_population(s, x['name'], c['poblacion_manual'])
+    if c.get('historicos') is not None:
+        notes += set_historic(s, x['name'], c['historicos'])
+    vals = {k: v for k, v in (('strOwner', c.get('pais')), ('strController', c.get('controlador') or c.get('pais'))) if v}
+    reg = next((r for r in s.regions(sea=False) if prop(r, 'strName') == x['name']), None)
+    if reg is not None and vals and any(prop(reg, k) != v for k, v in vals.items()):
+        if 'strOwner' in vals:
+            vals = {k: (match_country(s, v) or v) for k, v in vals.items()}
+        if vals['strOwner'] in s.countries() if 'strOwner' in vals else True:
+            s.update(s.s.eid(reg), vals)
+        else:
+            notes.append('%s: el país %s no existe en este escenario; se queda con el de %s' % (x['name'], vals['strOwner'], x['mother']))
+    notes += reassign_by_geometry(s, x['name'], gn)
+    notes += _city_and_liberate(s, x['name'], c, gn)
+    return notes
 
 
 def rehome_transferred(s, pm):
@@ -1481,7 +1742,7 @@ def create_producer(s, name, resource, x, y, output=1):
     name = (name or '').strip()
     if not name:
         raise ValueError('el recurso necesita un nombre')
-    res = {prop(p, 'strResource') for p in s.all('Producer')}
+    res = {prop(p, 'strResource') for p in s.all('Producer')} | {'Coal', 'Metals', 'Oil'}     # the game's raw materials (a new scenario has no producers yet)
     if resource not in res:
         raise ValueError('recurso desconocido: %s (hay: %s)' % (resource, ', '.join(sorted(r for r in res if r))))
     reg, rname = _land_region_at(s, x, y)

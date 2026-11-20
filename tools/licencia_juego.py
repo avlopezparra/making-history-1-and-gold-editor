@@ -2,9 +2,9 @@
 
 The game (32-bit, no admin) reads the registry with UAC virtualization: the values in
 HKCU\\Software\\Classes\\VirtualStore\\MACHINE\\SOFTWARE\\WOW6432Node\\Muzzy Lane Software\\<clave>
-win over HKLM. If an old or empty «License Key» (or CustomerID) was left there, the game does not see the good key
-Steam writes to HKLM and says «Invalid License Key». The guide deletes the whole folder; here only those
-values are deleted (the Locale written by idioma_juego.py is kept) and the key is first exported to a backup .reg.
+win over HKLM, per key: once the game key exists there (even with only Locale), the game does not see the LicenseKey
+Steam writes to HKLM and says «Invalid License Key». Like the guide, fix() deletes that copy, but first exports it to a
+backup .reg and, when HKLM is writable, moves its language and folders there.
 
 Permanent fix (permanente()): with a single admin prompt it gives users write permission on
 HKLM\\...\\Muzzy Lane Software, moves to HKLM what the game saw in VirtualStore (without the old license) and deletes the copy.
@@ -23,7 +23,7 @@ import winreg
 import gamepaths
 from idioma_juego import KEYS, BASE, VSTORE
 
-LIC = ('license key', 'customerid')   # license values; the others (Locale, folders) do not affect the license
+LIC = ('license key', 'licensekey', 'customerid')   # license values; the others (Locale, folders) do not affect the license
 
 
 def _values(root, sub):
@@ -42,19 +42,23 @@ def _values(root, sub):
 
 
 def check():
-    """[{game, key, values: [names hiding the HKLM license]}] (without showing the key)."""
+    """[{game, key, values}]: games whose VirtualStore key hides the HKLM license (without showing the key).
+    Virtualization works per key, not per value: once the VirtualStore key exists the game reads only that key,
+    so a copy with Locale but no LicenseKey already gives «Invalid License Key»."""
     res = []
     for game, name in KEYS.items():
-        vs = _values(winreg.HKEY_CURRENT_USER, VSTORE + '\\' + name) or {}
+        vs = _values(winreg.HKEY_CURRENT_USER, VSTORE + '\\' + name)
+        if vs is None:
+            continue
+        vsl = {n.lower(): v for n, v in vs.items()}
         lm = {n.lower(): v for n, v in (_values(winreg.HKEY_LOCAL_MACHINE, BASE + '\\' + name) or {}).items()}
-        bad = [n for n, v in vs.items() if n.lower() in LIC and lm.get(n.lower()) != v]
-        if bad:
-            res.append({'game': game, 'key': name, 'values': bad, 'installed': gamepaths.installed(game)})
+        if any(lm.get(n) and vsl.get(n) != lm[n] for n in LIC):
+            res.append({'game': game, 'key': name, 'values': sorted(vs), 'installed': gamepaths.installed(game)})
     return res
 
 
 def fix():
-    """Backs up the virtualized key and deletes only the license values hiding HKLM. -> {fixed, backups}"""
+    """Backs up the virtualized key, moves its non-license values to HKLM when allowed and deletes it. -> {fixed, backups}"""
     fixed, backups = [], []
     for p in check():
         sub = VSTORE + '\\' + p['key']
@@ -63,9 +67,15 @@ def fix():
         if r.returncode or not os.path.exists(bak):
             raise OSError('no se pudo respaldar %s; no se ha borrado nada' % p['key'])
         backups.append(bak)
-        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, sub, 0, winreg.KEY_SET_VALUE) as k:
-            for n in p['values']:
-                winreg.DeleteValue(k, n)
+        try:  # keeps language and folders when HKLM is writable (permanent fix done); otherwise they are lost, as in the guide
+            with winreg.CreateKeyEx(winreg.HKEY_LOCAL_MACHINE, BASE + '\\' + p['key'], 0, winreg.KEY_SET_VALUE) as k:
+                for n, v in _values(winreg.HKEY_CURRENT_USER, sub).items():
+                    if n.lower() not in LIC:
+                        winreg.SetValueEx(k, n, 0, winreg.REG_SZ, v)
+        except OSError:
+            pass
+        if subprocess.run(['reg', 'delete', 'HKCU\\' + sub, '/f'], capture_output=True).returncode:
+            raise OSError('no se pudo borrar %s (respaldo: %s)' % (p['key'], bak))
         fixed.append(p)
     return {'fixed': fixed, 'backups': backups}
 
@@ -89,14 +99,16 @@ if (Test-Path $VS) {
     $dst = Join-Path $LM $k.PSChildName
     if (-not (Test-Path $dst)) { New-Item $dst -Force | Out-Null }
     foreach ($n in $k.GetValueNames()) {
-      if ('license key', 'customerid' -notcontains $n.ToLower()) { Set-ItemProperty $dst -Name $n -Value $k.GetValue($n) }
+      if ('license key', 'licensekey', 'customerid' -notcontains $n.ToLower()) { Set-ItemProperty $dst -Name $n -Value $k.GetValue($n) }
     }
   }
 }
 $acl = Get-Acl $LM
-$acl.AddAccessRule((New-Object System.Security.AccessControl.RegistryAccessRule((New-Object System.Security.Principal.SecurityIdentifier('%(who)s')), 'SetValue,CreateSubKey,ReadKey', 'ContainerInherit', 'None', 'Allow')))
+$acl.AddAccessRule((New-Object System.Security.AccessControl.RegistryAccessRule((New-Object System.Security.Principal.SecurityIdentifier('%(who)s')), 'FullControl', 'ContainerInherit', 'None', 'Allow')))
 Set-Acl $LM $acl
 if (Test-Path $VS) { Remove-Item $VS -Recurse -Force }
+$MVS = 'HKLM:\SOFTWARE\Classes\VirtualStore\MACHINE\SOFTWARE\WOW6432Node\Muzzy Lane Software'
+if (Test-Path $MVS) { reg export ($MVS -replace ':', '') "$BAK`_virtualstore_machine.reg" /y | Out-Null; Remove-Item $MVS -Recurse -Force }
 '''
 
 

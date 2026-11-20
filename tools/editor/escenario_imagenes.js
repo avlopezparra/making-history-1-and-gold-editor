@@ -166,7 +166,7 @@
     const sec = document.createElement('div'); sec.className = 'sec';
     sec.innerHTML = `<h3>Bandera y escarapela</h3><div class="muted"><span>Carpeta</span> <code>ui/art/2D/countries/${esc(folder)}/</code> (strFlagName) · <b>${Object.keys(files).length}</b> <span>imágenes</span></div>
       ${figs ? `<div class="mhimgs">${figs}</div>` : '<div class="note err">Este país no tiene carpeta de banderas: el juego mostrará huecos. Importa una bandera.</div>'}
-      <div class="row"><button class="btn" data-mh="flag">Importar bandera…</button><button class="btn" data-mh="decal">Importar escarapela…</button>
+      <div class="row"><button class="btn" data-mh="flag">Importar bandera…</button><button class="btn" data-mh="decal">Importar escarapela…</button>${figs ? '<button class="btn" data-mh="fill" title="Genera las imágenes de bandera que faltan (p. ej. la del chat) a partir de las que ya hay, y guarda sin comprimir las que el juego no muestra">Completar las que faltan</button>' : ''}
       ${files['flag-256-128.bmp'] ? dlLink(rawUrl(files['flag-256-128.bmp'].rel).replace('&max=256', ''), folder + ' - bandera.png', 'Exportar bandera') : ''}
       ${files['decal-64-64.tga'] ? dlLink(rawUrl(files['decal-64-64.tga'].rel), folder + ' - escarapela.png', 'Exportar escarapela') : ''}</div>`;
     host.appendChild(sec);
@@ -176,6 +176,13 @@
       body: (img, q) => ({ flag: img, only: 'flag', fit: q('#mhFit').value, crop: q('#mhCrop').value }),
       extra: () => ({ scen: S.scen, country: folder }),
       confirm: n => confirmText(n, `ui\\art\\2D\\countries\\${folder}\\`), done: refreshAll,
+    });
+    const fb = sec.querySelector('[data-mh=fill]');
+    fb && (fb.onclick = async () => {
+      if (!confirm(L(`¿Completar las banderas de ${folder} en «${S.scen}»?`, `Complete the flags of ${folder} in «${S.scen}»?`))) return;
+      const r = await post('/api/img/flag/fill', { scen: S.scen, country: folder }).catch(e => ({ error: String(e) }));
+      if (r.error) return alert(r.error);
+      alert(r.written.length ? `${t('Escritos')}: ${r.written.length}` : L('No faltaba ninguna.', 'Nothing was missing.')); IMG.bust = Date.now(); refreshAll();
     });
     sec.querySelector('[data-mh=decal]').onclick = () => openImport({
       title: `Importar escarapela · ${name}`, sub: ` → ${folder}/ (decal, decal-64-64, -bw, -bw-over, decal-42-42, 1919DecalWShadow)`,

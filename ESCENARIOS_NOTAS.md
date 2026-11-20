@@ -101,6 +101,12 @@ Carpeta: `C:\ProgramData\Muzzy Lane Software\Output Files\Saves\<jugador>\*.mlc`
 - **Alcance de bombarderos**: `nRange` de UnitTemplate (millas, «distancia que un avión puede alejarse de su base»); se dibuja el círculo
   del mayor alcance de los bombarderos (eUnitCategory BOMBER o nStructureHitPercent > 0) de cada fuerza aérea.
 
+- Lección (2026-11-19): una guerra por fecha con TriggerEvalRandomChance vuelve a declararse cada turno en que los dos países no estén
+  en guerra (también después de una paz). Usar la cadena de decisión (TriggerEvalUntilAnsweredPlayerDecision) para efectos de una sola vez.
+  ActDevMakePeace es una acción de depuración que ningún escenario del juego usa: para terminar una guerra por evento usar
+  ActFormSeparatePeaceConcessions (nSourceCountryID = el que cede, nWarID de AccessorGetCurrentWar strCountry/strOtherCountry), como World Aflame.
+  Hacer la paz antes de traspasar regiones con batallas en curso (si no, el turno puede quedarse bloqueado).
+
 ## Reacciones por país: TriggerCountry (country<País>.xml)
 - `MECountry > TriggerCountry` (objTriggerCountries): `strName` = país vigilado, `eTriggerType` = COUNTRY_TRIGGER_INVASION (si lo invaden;
   opcional `strRegionList` = solo esas regiones) o COUNTRY_TRIGGER_WAR (si entra en guerra), `nWarSensitivity` y `nEmbargoSensitivity`
@@ -167,3 +173,7 @@ Carpeta: `C:\ProgramData\Muzzy Lane Software\Output Files\Saves\<jugador>\*.mlc`
 - Caso real: TMWR 1022, Jordania en NATO con sus regiones en el archivo del Reino Unido. El validador lo marca como error.
 - Los nombres de alianza repetidos (`SID.Game.Country.Alliance.*` con el mismo texto) hacen que las alianzas que crea el juego se llamen igual que otras: el validador lo avisa.
 - Diagnóstico: `python tools/game_log.py` mientras se juega captura los mensajes del motor en `logs/juego_*.log`.
+
+
+## Lección (2026-11-19): strPlayer en las propuestas de tratado
+`ActProposeDeclareWar`, `ActFormSeparatePeaceConcessions` y todo `ActProposeTreatyDef` necesitan `strPlayer` (el jugador que propone). Sin él: «CActProposeTreatyDef::Execute - unable to find player for treaty», la decisión queda a medio crear y sin responder, y el siguiente fin de turno no termina. Probado en console.exe: 1119 se congelaba en el turno 40 (guerra Azerbaiyán–Armenia) y pasa del 131 con strPlayer; la copia sin eventos no se congela.

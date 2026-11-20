@@ -243,8 +243,9 @@ FLAG_ORDER = ['3DFlag.tga', 'big-flag.bmp', 'flag-256-128.bmp', 'multichat_flag.
               'decal.tga', 'decal-64-64.tga', 'decal-64-64-bw.tga', 'decal-64-64-bw-over.tga', 'decal-42-42.tga',
               '1919DecalWShadow.tga', 'leader-lobby.tga']
 # 3DFlag format: 24 bits without alpha; leader-lobby: uncompressed; the rest RLE 32 bits
-FLAG_FMT = {'3DFlag.tga': {'type': 10, 'bpp': 24, 'desc': 0}, 'leader-lobby.tga': {'type': 2, 'bpp': 32, 'desc': 8}}
-DEFAULT_FMT = {'type': 10, 'bpp': 32, 'desc': 8}
+# all the game's flag TGAs are uncompressed 32 bits (type 2): some lists (e.g. World Market) show RLE ones blank
+FLAG_FMT = {}
+DEFAULT_FMT = {'type': 2, 'bpp': 32, 'desc': 8}
 
 _SHADOWS = {}
 
@@ -612,6 +613,30 @@ def flag_write(p):
     return rep
 
 
+def flag_fill(p):
+    """Completes a country's flag folder: the missing files, generated from its largest flag (and its roundel),
+    and the compressed (RLE) TGAs rewritten uncompressed like the game's."""
+    scen = p['scen']
+    d = os.path.join(countries_dir(scen), safe_name(p['country']))
+    have = set(os.listdir(d)) if os.path.isdir(d) else set()
+    big = big_flag(scen, p['country'])
+    if big is None:
+        raise ValueError('no flag to start from: import one')
+    dec = os.path.join(d, 'decal-64-64.tga')
+    gen = flag_set(big, Image.open(dec).convert('RGBA') if os.path.exists(dec) else None, removebg=False)
+    gen.pop('leader-lobby.tga', None)
+    files = {}
+    for k, v in gen.items():
+        path = os.path.join(d, k)
+        if k not in have:
+            files[path] = encode(v, k, DEFAULT_FMT)
+        elif k.endswith('.tga') and open(path, 'rb').read(3)[2] == 10:
+            files[path] = encode(Image.open(path), k, DEFAULT_FMT)
+    rep = write_files(files, 'bandera-completar-' + safe_name(p['country'])) if files else {'written': [], 'backup': None}
+    rep['folder'] = os.path.relpath(d, scenario_core.SCEN_ROOT)
+    return rep
+
+
 # ---------------------------------------------------------------------------- iconos y productos
 ICON_SIZES = [('6464', 64, 64), ('4646', 46, 64), ('3636', 36, 64), ('2626', 26, 32)]   # carpeta, icono, lienzo
 RESEARCH_SIZES = {'256x256': (256, 256), '128x256': (128, 256), '512x256': (512, 256)}
@@ -948,8 +973,8 @@ def lobby_frame():
 
 def big_flag(scen, country):
     """The country's largest flag (3DFlag flipped back, otherwise diplomatic-flag / flag-68-34)."""
-    d = flag_dir(scen, country, ('3DFlag.tga', 'diplomatic-flag.tga', 'flag-68-34.tga'))
-    for f in ('3DFlag.tga', 'diplomatic-flag.tga', 'flag-68-34.tga'):
+    d = flag_dir(scen, country, ('flag-256-128.bmp', 'big-flag.bmp', '3DFlag.tga', 'flag-68-34.tga', 'diplomatic-flag.tga'))
+    for f in ('flag-256-128.bmp', 'big-flag.bmp', '3DFlag.tga', 'flag-68-34.tga', 'diplomatic-flag.tga'):
         p = d and os.path.join(d, f)
         if p and os.path.exists(p):
             im = Image.open(p).convert('RGBA')
@@ -1013,4 +1038,4 @@ def lobby_preview(p):
 
 def lobby_write(p):
     path = lobby_path(p['scen'], p['country'])
-    return write_files({path: tga_bytes(_lobby_from(p), FLAG_FMT['leader-lobby.tga'])}, 'leader-lobby-' + safe_name(p['country']))
+    return write_files({path: tga_bytes(_lobby_from(p), DEFAULT_FMT)}, 'leader-lobby-' + safe_name(p['country']))

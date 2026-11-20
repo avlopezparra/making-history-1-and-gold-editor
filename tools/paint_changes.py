@@ -32,6 +32,29 @@ SEA_LINE_COLOR = (3, 14, 42)  # measured core of the lines between sea zones
 MARGIN = 0.3                # degrees around each tile so lines are not cut at the edges
 S = 4                       # supersampling for the lines
 
+# Border line styles for «Redibujar fronteras» (stored per regionpack in changelog.json, key border_style).
+# kind -> (colour, width px at 1024 before blur, Gaussian blur px, mask gain)
+# mh2: measured on Making History II's TileCombinedTextures_DXT1.dat (same 15°/1024 px tiles): opaque, crisp lines;
+#   land core (24-33, 24-36, 24-33) on any terrain, profile across ~1.9-2.4 px (desert 150|107 34 100|150);
+#   sea teal core (66, 113, 123), ~2.7 px (56|76 101 95 67|56). The widths below give those profiles after LANCZOS.
+BORDER_STYLES = {
+    'mh1': {'land': (LINE_COLOR, LINE_WIDTH, LINE_BLUR, 1.2), 'sea': (SEA_LINE_COLOR, LINE_WIDTH, LINE_BLUR, 1.2)},
+    'mh2': {'land': ((26, 28, 24), 1.6, 0, 1.0), 'sea': ((66, 113, 123), 2.4, 0, 1.0)},
+}
+DEFAULT_STYLE = 'mh1'
+
+
+def line_mask(lines, width, blur, gain):
+    """Antialiased mask at 1024 px of polylines given in supersampled (S x) pixel coordinates."""
+    lm = Image.new('L', (SIZE * S, SIZE * S), 0)
+    dl = ImageDraw.Draw(lm)
+    for pts in lines:
+        dl.line(pts, fill=255, width=int(width * S), joint='curve')
+    lm = lm.resize((SIZE, SIZE), Image.LANCZOS)
+    if blur:
+        lm = lm.filter(ImageFilter.GaussianBlur(blur))
+    return lm.point(lambda v: min(255, int(v * gain))) if gain != 1 else lm
+
 
 def tile_bounds(c, r):
     lon0, lat0 = -180 + c * TILE_DEG, 105 - r * TILE_DEG
@@ -97,8 +120,9 @@ def _unring(img, polys, to_px):
     return out
 
 
-def paint_tiles(ch, art, out, originals=None, log=print):
-    """Applies a dict of changes ({'erase','paint','islands'} in GeoJSON) to the tiles. Returns the tiles written."""
+def paint_tiles(ch, art, out, originals=None, log=print, style=DEFAULT_STYLE):
+    """Applies a dict of changes ({'erase','paint','islands'} in GeoJSON) to the tiles. Returns the tiles written.
+    style: key of BORDER_STYLES for the painted lines."""
     class _A:
         pass
     a = _A()
@@ -176,15 +200,11 @@ def paint_tiles(ch, art, out, originals=None, log=print):
             img = rgb.convert('RGBA')
 
         # 3. pintar lineas nuevas
-        for kind, color in (('land', LINE_COLOR), ('sea', SEA_LINE_COLOR)):
+        for kind, (color, width, blur, gain) in BORDER_STYLES[style].items():
             pk = [g for g, k in p if k == kind]
             if not pk:
                 continue
-            lm = Image.new('L', (SIZE * S, SIZE * S), 0)
-            dl = ImageDraw.Draw(lm)
-            for g in pk:
-                dl.line([to_px(*q, S) for q in g.coords], fill=255, width=int(LINE_WIDTH * S), joint='curve')
-            lm = lm.resize((SIZE, SIZE), Image.LANCZOS).filter(ImageFilter.GaussianBlur(LINE_BLUR)).point(lambda v: min(255, int(v * 1.2)))
+            lm = line_mask([[to_px(*q, S) for q in g.coords] for g in pk], width, blur, gain)
             img = Image.composite(Image.new('RGBA', (SIZE, SIZE), color + (255,)), img, lm)
 
         new_bytes, n0 = splice(base_bytes, img, orig, SIZE)

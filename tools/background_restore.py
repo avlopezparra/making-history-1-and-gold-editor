@@ -20,8 +20,7 @@ def _have(tiles_dir, name, ref_tile):
     """The project's file if it exists; otherwise the reference one."""
     p = os.path.join(tiles_dir, name)
     return p if os.path.exists(p) else ref_tile(name)
-from paint_changes import TILE_DEG, tile_bounds, SEA_LINE_COLOR, S as SUPER
-from fix_texture import LINE_WIDTH, LINE_BLUR, LINE_COLOR
+from paint_changes import TILE_DEG, tile_bounds, S as SUPER, BORDER_STYLES, DEFAULT_STYLE, line_mask
 
 LINE_R = 0.12        # degrees around a border that are respected (erasing widens by ±0.1)
 COAST_R = 0.3        # around what changed from land to sea: new coasts and islands with their halo
@@ -74,15 +73,13 @@ def _land(m, bounds, cache):
     return out
 
 
-def _border_masks(m, bounds, to_px):
+def _border_masks(m, bounds, to_px, style=DEFAULT_STYLE):
     """(land, sea) masks at 1024 px of all current borders crossing the tile (coasts are not painted)."""
     R = m['regions']
     x0, y0, x1, y1 = bounds
     out = []
-    for kind, color in (('land', LINE_COLOR), ('sea', SEA_LINE_COLOR)):
-        lm = Image.new('L', (SIZE * SUPER, SIZE * SUPER), 0)
-        dl = ImageDraw.Draw(lm)
-        n = 0
+    for kind, (color, width, blur, gain) in BORDER_STYLES[style].items():
+        lines = []
         for b in m['borders']:
             if len(b.regions) != 2:
                 continue
@@ -96,11 +93,9 @@ def _border_masks(m, bounds, to_px):
                 xs, ys = [p[0] for p in pts], [p[1] for p in pts]
                 if max(xs) < x0 or min(xs) > x1 or max(ys) < y0 or min(ys) > y1:
                     continue
-                dl.line([to_px(*p, SUPER) for p in pts], fill=255, width=int(LINE_WIDTH * SUPER), joint='curve')
-                n += 1
-        if n:
-            lm = lm.resize((SIZE, SIZE), Image.LANCZOS).filter(ImageFilter.GaussianBlur(LINE_BLUR)).point(lambda v: min(255, int(v * 1.2)))
-            out.append((color, lm))
+                lines.append([to_px(*p, SUPER) for p in pts])
+        if lines:
+            out.append((color, line_mask(lines, width, blur, gain)))
     return out
 
 
@@ -131,7 +126,7 @@ def _stale_mips(path):
     return n > 20           # original World: 0; WorldModern Iraq-Iran: 41..939; freshly redone: 0..5
 
 
-def restore(cur_map, ref_map, tiles_dir, ref_tile, only_bbox=None, log=print, repaint=True, map_tile=None):
+def restore(cur_map, ref_map, tiles_dir, ref_tile, only_bbox=None, log=print, repaint=True, map_tile=None, style=DEFAULT_STYLE):
     """cur_map / ref_map: loaded maps (mhmap) of the project and of the default regionpack. tiles_dir: modified project tiles.
     ref_tile(name) -> path of the original tile. only_bbox (x0, y0, x1, y1) limits the area. Returns [(tile, percent_restored)].
     map_tile(name) -> path of the tile in the map folder: tiles the project lacks but whose mipmaps carry old lines
@@ -189,7 +184,7 @@ def restore(cur_map, ref_map, tiles_dir, ref_tile, only_bbox=None, log=print, re
         cur_b, ref_b = open(cur_path, 'rb').read(), open(ref_path, 'rb').read()
         cur, ref = decode(cur_b, SIZE), decode(ref_b, SIZE)
         new = Image.composite(ref, cur, mask)
-        masks = _border_masks(cur_map, tb, to_px) if repaint else []
+        masks = _border_masks(cur_map, tb, to_px, style) if repaint else []
         new = _paint(new, masks, SIZE)       # borders always continuous: the current ones are repainted on top
         nb, n0 = splice(cur_b, new, cur, SIZE)
         if n0:
@@ -203,7 +198,7 @@ def restore(cur_map, ref_map, tiles_dir, ref_tile, only_bbox=None, log=print, re
     return done
 
 
-def repaint_tiles(m, tiles_dir, names=None, only_bbox=None, log=print):
+def repaint_tiles(m, tiles_dir, names=None, only_bbox=None, log=print, style=DEFAULT_STYLE):
     """Draws the map's current borders (land and sea, like the game) on top of the project tiles.
     names: 'CC-RR' tiles to repaint (None = all project tiles, or those in only_bbox). Returns the tiles touched."""
     done = []
@@ -217,7 +212,7 @@ def repaint_tiles(m, tiles_dir, names=None, only_bbox=None, log=print):
         if only_bbox and (only_bbox[2] < tb[0] or only_bbox[0] > tb[2] or only_bbox[3] < tb[1] or only_bbox[1] > tb[3]):
             continue
         to_px = lambda x, y, k=1.0, lon0=lon0, lat0=lat0: ((x - lon0) / TILE_DEG * SIZE * k, (lat0 - y) / TILE_DEG * SIZE * k)
-        masks = _border_masks(m, tb, to_px)
+        masks = _border_masks(m, tb, to_px, style)
         if not masks:
             continue
         p = os.path.join(tiles_dir, tile_name(c, r))

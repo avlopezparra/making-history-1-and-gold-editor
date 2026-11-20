@@ -462,10 +462,7 @@ def create_scenario(scen_root, base, save_path, new_name, owners=True, ipus=True
             if missing or extra:
                 notes += scenario_layers.pack_sync_apply(s, rep['pack'], True)['notes']
         written = st.save([p for p in s.paths if p in st.dirty])['written']
-        f = os.path.join(dst, 'scenario.xml')
-        raw = open(f, 'rb').read().decode('utf-8')
-        raw = re.sub(r'(name="strName" value=")[^"]*(")', lambda m: m.group(1) + new_name + m.group(2), raw, count=1)
-        open(f, 'wb').write(raw.encode('utf-8'))
+        scenario_layers.rename_copy(dst, new_name)
     except Exception:
         shutil.rmtree(dst, ignore_errors=True)
         raise

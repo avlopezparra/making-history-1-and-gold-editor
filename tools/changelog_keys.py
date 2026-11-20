@@ -8,7 +8,7 @@ import os
 ENTRY = {'fecha': 'date', 'instalado': 'installed', 'traspasos': 'transfers', 'vecindades_nuevas': 'new_adjacencies', 'centros': 'centers',
          'operaciones': 'operations', 'regiones_nuevas': 'new_regions', 'regiones_eliminadas': 'deleted_regions',
          'equivalencias': 'equivalences', 'renombradas': 'renamed', 'canales': 'channels', 'origen': 'origin', 'nota': 'note',
-         'base_equivalencias': 'equivalence_base'}
+         'base_equivalencias': 'equivalence_base', 'estilo_fronteras': 'border_style'}
 TRANSFER = {'de': 'from', 'a': 'to'}
 RENAMED = {'de': 'from', 'a': 'to', 'texto': 'text', 'interno': 'internal'}
 CHANNEL = {'cerrada': 'closed', 'zona': 'zone'}

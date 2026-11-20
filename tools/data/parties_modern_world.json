@@ -1,0 +1,122 @@
+{
+  "_note": "Political parties for «The Modern World» (start 01/01/2020). gov = index (1-based) of the governing party. ideology = the game's government type (Democratic, Communist, Authoritarian, Fascist). elections = real election dates (MM/DD/YYYY) inside the scenario's span; they only happen while the country is Democratic. targets = countries where it may get offers to interfere.",
+  "countries": {
+    "United States": {"gov": 2, "targets": ["Russia", "China", "Iran", "Venezuela", "Mexico"], "elections": ["11/03/2020", "11/05/2024"], "parties": [
+      ["Partido Demócrata", "Joe Biden", "Democratic", 50],
+      ["Partido Republicano", "Donald Trump", "Democratic", 47],
+      ["Partido Libertario", "Jo Jorgensen", "Democratic", 3]]},
+    "Russia": {"gov": 1, "targets": ["United States", "Ukraine", "Germany", "United Kingdom", "Poland"], "elections": [], "parties": [
+      ["Rusia Unida", "Vladímir Putin", "Authoritarian", 55],
+      ["Partido Comunista (KPRF)", "Guennadi Ziugánov", "Communist", 19],
+      ["Partido Liberal Demócrata (LDPR)", "Vladímir Zhirinovski", "Authoritarian", 12],
+      ["Rusia del Futuro", "Alexéi Navalni", "Democratic", 14]]},
+    "China": {"gov": 1, "targets": ["United States", "Japan", "India"], "elections": [], "parties": [
+      ["Partido Comunista de China", "Xi Jinping", "Communist", 88],
+      ["Disidencia democrática", "Wang Dan", "Democratic", 12]]},
+    "Germany": {"gov": 1, "targets": ["Russia", "Poland", "Turkey"], "elections": ["09/26/2021", "02/23/2025"], "parties": [
+      ["CDU/CSU", "Angela Merkel", "Democratic", 33],
+      ["SPD", "Olaf Scholz", "Democratic", 16],
+      ["Los Verdes", "Annalena Baerbock", "Democratic", 20],
+      ["AfD", "Jörg Meuthen", "Democratic", 11],
+      ["FDP", "Christian Lindner", "Democratic", 9],
+      ["Die Linke", "Katja Kipping", "Democratic", 11]]},
+    "France": {"gov": 1, "targets": ["Russia", "Italy", "Iran"], "elections": ["04/24/2022"], "parties": [
+      ["La República en Marcha", "Emmanuel Macron", "Democratic", 28],
+      ["Agrupación Nacional", "Marine Le Pen", "Democratic", 25],
+      ["Los Republicanos", "Christian Jacob", "Democratic", 13],
+      ["Francia Insumisa", "Jean-Luc Mélenchon", "Democratic", 13],
+      ["Partido Socialista", "Olivier Faure", "Democratic", 9],
+      ["Los Ecologistas", "Yannick Jadot", "Democratic", 12]]},
+    "United Kingdom": {"gov": 1, "targets": ["Russia", "Iran", "Spain"], "elections": ["07/04/2024"], "parties": [
+      ["Partido Conservador", "Boris Johnson", "Democratic", 44],
+      ["Partido Laborista", "Keir Starmer", "Democratic", 33],
+      ["Liberal Demócratas", "Ed Davey", "Democratic", 12],
+      ["Partido Nacional Escocés", "Nicola Sturgeon", "Democratic", 4],
+      ["Reform UK", "Nigel Farage", "Democratic", 4],
+      ["Partido Verde", "Siân Berry", "Democratic", 3]]},
+    "Japan": {"gov": 1, "targets": ["China", "Russia"], "elections": ["10/31/2021", "10/27/2024"], "parties": [
+      ["Partido Liberal Democrático", "Shinzō Abe", "Democratic", 45],
+      ["Partido Constitucional Democrático", "Yukio Edano", "Democratic", 20],
+      ["Komeito", "Natsuo Yamaguchi", "Democratic", 12],
+      ["Partido de la Innovación", "Ichirō Matsui", "Democratic", 13],
+      ["Partido Comunista de Japón", "Kazuo Shii", "Communist", 10]]},
+    "India": {"gov": 1, "targets": ["China"], "elections": ["06/04/2024"], "parties": [
+      ["Bharatiya Janata Party", "Narendra Modi", "Democratic", 45],
+      ["Congreso Nacional Indio", "Sonia Gandhi", "Democratic", 30],
+      ["Congreso Trinamool", "Mamata Banerjee", "Democratic", 10],
+      ["Bahujan Samaj Party", "Mayawati", "Democratic", 10],
+      ["Partido Comunista (Marxista)", "Sitaram Yechury", "Communist", 5]]},
+    "Brazil": {"gov": 1, "targets": ["Venezuela", "Argentina"], "elections": ["10/30/2022"], "parties": [
+      ["Bolsonarismo (Alianza por Brasil)", "Jair Bolsonaro", "Democratic", 35],
+      ["Partido de los Trabajadores", "Lula da Silva", "Democratic", 30],
+      ["PSDB", "João Doria", "Democratic", 12],
+      ["MDB", "Baleia Rossi", "Democratic", 13],
+      ["PDT", "Ciro Gomes", "Democratic", 10]]},
+    "Argentina": {"gov": 1, "targets": ["United Kingdom", "Brazil", "Venezuela"], "elections": ["11/19/2023"], "parties": [
+      ["Frente de Todos", "Alberto Fernández", "Democratic", 48],
+      ["Juntos por el Cambio", "Mauricio Macri", "Democratic", 40],
+      ["Libertarios", "Javier Milei", "Democratic", 5],
+      ["Frente de Izquierda", "Nicolás del Caño", "Communist", 4],
+      ["Consenso Federal", "Roberto Lavagna", "Democratic", 3]]},
+    "Mexico": {"gov": 1, "targets": ["United States", "Venezuela"], "elections": ["06/02/2024"], "parties": [
+      ["Morena", "Andrés Manuel López Obrador", "Democratic", 50],
+      ["PAN", "Marko Cortés", "Democratic", 20],
+      ["PRI", "Alejandro Moreno", "Democratic", 17],
+      ["Movimiento Ciudadano", "Dante Delgado", "Democratic", 8],
+      ["Partido Verde", "Karen Castrejón", "Democratic", 5]]},
+    "Italy": {"gov": 3, "targets": ["France", "Germany"], "elections": ["09/25/2022"], "parties": [
+      ["Lega", "Matteo Salvini", "Democratic", 27],
+      ["Partido Democrático", "Nicola Zingaretti", "Democratic", 21],
+      ["Movimiento 5 Estrellas", "Giuseppe Conte", "Democratic", 16],
+      ["Hermanos de Italia", "Giorgia Meloni", "Democratic", 15],
+      ["Forza Italia", "Silvio Berlusconi", "Democratic", 8],
+      ["Otros", "Matteo Renzi", "Democratic", 13]]},
+    "Spain": {"gov": 1, "targets": ["Venezuela", "United Kingdom"], "elections": ["07/23/2023"], "parties": [
+      ["PSOE", "Pedro Sánchez", "Democratic", 28],
+      ["Partido Popular", "Pablo Casado", "Democratic", 21],
+      ["Vox", "Santiago Abascal", "Democratic", 15],
+      ["Unidas Podemos", "Pablo Iglesias", "Democratic", 13],
+      ["Ciudadanos", "Inés Arrimadas", "Democratic", 7],
+      ["Nacionalistas", "Gabriel Rufián", "Democratic", 16]]},
+    "Turkey": {"gov": 1, "targets": ["Germany", "Israel", "Iran"], "elections": [], "parties": [
+      ["AKP", "Recep Tayyip Erdoğan", "Authoritarian", 42],
+      ["CHP", "Kemal Kılıçdaroğlu", "Democratic", 25],
+      ["MHP", "Devlet Bahçeli", "Authoritarian", 11],
+      ["HDP", "Pervin Buldan", "Democratic", 11],
+      ["İYİ Parti", "Meral Akşener", "Democratic", 11]]},
+    "Iran": {"gov": 1, "targets": ["Israel", "United States", "Turkey"], "elections": [], "parties": [
+      ["Principalistas", "Alí Jamenei", "Authoritarian", 55],
+      ["Reformistas", "Mohammad Jatamí", "Democratic", 30],
+      ["Oposición en el exilio", "Reza Pahleví", "Democratic", 15]]},
+    "Israel": {"gov": 1, "targets": ["Iran", "Turkey"], "elections": ["03/02/2020", "03/23/2021", "11/01/2022"], "parties": [
+      ["Likud", "Benjamín Netanyahu", "Democratic", 30],
+      ["Azul y Blanco", "Benny Gantz", "Democratic", 28],
+      ["Lista Conjunta", "Ayman Odeh", "Democratic", 12],
+      ["Yamina", "Naftali Bennett", "Democratic", 8],
+      ["Shas", "Aryeh Deri", "Democratic", 8],
+      ["Yisrael Beiteinu", "Avigdor Lieberman", "Democratic", 14]]},
+    "Ukraine": {"gov": 1, "targets": ["Russia"], "elections": [], "parties": [
+      ["Servidor del Pueblo", "Volodímir Zelenski", "Democratic", 43],
+      ["Plataforma de Oposición", "Yuri Boiko", "Democratic", 20],
+      ["Solidaridad Europea", "Petró Poroshenko", "Democratic", 17],
+      ["Batkivshchyna", "Yulia Timoshenko", "Democratic", 12],
+      ["Holos", "Kira Rudik", "Democratic", 8]]},
+    "Canada": {"gov": 1, "targets": ["United States"], "elections": ["09/20/2021", "04/28/2025"], "parties": [
+      ["Partido Liberal", "Justin Trudeau", "Democratic", 34],
+      ["Partido Conservador", "Andrew Scheer", "Democratic", 34],
+      ["Nuevo Partido Democrático", "Jagmeet Singh", "Democratic", 16],
+      ["Bloque Quebequés", "Yves-François Blanchet", "Democratic", 8],
+      ["Partido Verde", "Elizabeth May", "Democratic", 8]]},
+    "Venezuela": {"gov": 1, "targets": ["United States", "Brazil", "Spain"], "elections": [], "parties": [
+      ["PSUV", "Nicolás Maduro", "Communist", 40],
+      ["Voluntad Popular", "Juan Guaidó", "Democratic", 30],
+      ["Primero Justicia", "Henrique Capriles", "Democratic", 15],
+      ["Acción Democrática", "Henry Ramos Allup", "Democratic", 15]]},
+    "Poland": {"gov": 1, "targets": ["Russia", "Germany", "Ukraine"], "elections": ["10/15/2023"], "parties": [
+      ["Ley y Justicia (PiS)", "Jarosław Kaczyński", "Democratic", 44],
+      ["Coalición Cívica", "Borys Budka", "Democratic", 27],
+      ["Izquierda", "Włodzimierz Czarzasty", "Democratic", 12],
+      ["Partido Popular (PSL)", "Władysław Kosiniak-Kamysz", "Democratic", 10],
+      ["Confederación", "Janusz Korwin-Mikke", "Democratic", 7]]}
+  }
+}

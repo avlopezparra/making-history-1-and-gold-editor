@@ -1184,7 +1184,7 @@ WAR_EVENT = """<object type="ScriptedEventDef" name="objScriptedEventDefs">
 	</object>
 	<object type="CustomEffectDefActions" name="objEffects">
 		<property name="strLabel" value="{att} declares war on {tgt}"/>
-		<object type="ActProposeDeclareWar" name="objActions"><property name="strFromCountry" value="{att}"/><property name="strToCountry" value="{tgt}"/></object>
+		<object type="ActProposeDeclareWar" name="objActions"><property name="strPlayer" value="{att}"/><property name="strFromCountry" value="{att}"/><property name="strToCountry" value="{tgt}"/></object>
 	</object>
 	<object type="ArgumentList" name="objArgLists"><property name="strName" value="Display Data"/></object>
 </object>"""
@@ -1372,6 +1372,15 @@ def _add_child(st, par, el, path):
     st.restructured.add(path)
 
 
+def spaced_name(name):
+    """Visible text for a region name written without spaces (MH2 / WorldMoreRegions names such as «BayOfBangkok»):
+    «Bay of Bangkok». Names that already have spaces, or no inner capitals, are returned unchanged."""
+    if not name or ' ' in name or not re.search(r'[a-z][A-Z]|[A-Z][A-Z][a-z]|[A-Za-z][0-9]', name):
+        return name
+    words = re.sub(r'(?<=[a-z])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])|(?<=[A-Za-z])(?=[0-9])', ' ', name).split(' ')
+    return ' '.join(words[:1] + [{'Of': 'of', 'And': 'and', 'The': 'the'}.get(w, w) for w in words[1:]])
+
+
 def set_region_string(scen, sid, text):
     """SID text in <escenario>/game/stringTable.xml (creates it and registers it in game/namespace.xml if missing)."""
     st = scen.s
@@ -1513,7 +1522,7 @@ def add_new_region(scen, name, mother=None, fraction=None, owner=None, terrain=N
             notes.append('añadida al país histórico %s' % owner)
         owner_name = owner
     notes.insert(0, '%s registrada en country%s.xml' % (name, owner_name))
-    notes += set_region_string(scen, sid, text or name)
+    notes += set_region_string(scen, sid, text or spaced_name(name))
     scen._opts = None
     return notes
 
@@ -1613,8 +1622,8 @@ def create_protection_event(scen, protector, protected, aggressor, action='war',
         raise ValueError('la reacción es guerra o embargo')
     pct = max(1, min(100, int(pct)))
     if action == 'war':
-        act = ('\t\t<object type="ActProposeDeclareWar" name="objActions"><property name="strFromCountry" value="%s"/>'
-               '<property name="strToCountry" value="%s"/></object>' % (protector, aggressor))
+        act = ('\t\t<object type="ActProposeDeclareWar" name="objActions"><property name="strPlayer" value="%s"/><property name="strFromCountry" value="%s"/>'
+               '<property name="strToCountry" value="%s"/></object>' % (protector, protector, aggressor))
         extra = PROTECT_NOT_AT_WAR
         eff = '%s declares war on %s (protecting %s)' % (protector, aggressor, protected)
     else:

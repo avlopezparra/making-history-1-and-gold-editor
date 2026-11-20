@@ -26,7 +26,7 @@ from move_border import signed_area
 import changelog_keys
 from transfer import apply_transfers, SEA
 import new_region
-from paint_changes import paint_tiles
+from paint_changes import paint_tiles, BORDER_STYLES, DEFAULT_STYLE
 from fix_texture import decode, tile_name, SIZE
 
 GAME = r"C:\Program Files (x86)\Steam\steamapps\common\Making History The Calm and The Storm"
@@ -34,6 +34,12 @@ MAPS = os.path.join(GAME, r"Modern Europe\system\DisplayLibraries\Maps")
 MAP_DIR = os.path.join(MAPS, "World")   # compatibility; each project uses self.map_dir
 SCEN_DIR = os.path.join(GAME, r"Modern Europe\system\scenarios")
 XML_FILES = ('regions.bin', 'borders.brd', 'regions.nts')
+
+
+def _spaced(name):
+    """Visible text recorded in the changelog for a new region: «BayOfBangkok» -> «Bay of Bangkok» (scenario_core.spaced_name)."""
+    import scenario_core
+    return scenario_core.spaced_name(name)
 SAVE_HISTORY = True     # «Historial»: copy of each save in history/ for «Volver»; set by the server (opciones.json)
 MIN_AREA = 1e-10
 SLIVER = 1e-3        # degrees2: a piece this small, next to much larger ones, is a border graze, not a cut
@@ -231,7 +237,7 @@ class Project:
                 e['traspasos'] = [t for t in e.get('traspasos', []) if t.get('de') not in g and t.get('a') not in g]
                 e['vecindades_nuevas'] = [v for v in e.get('vecindades_nuevas', []) if not g & set(v)]
             cl = [e for e in cl if e.get('regiones_nuevas') or e.get('regiones_eliminadas') or e.get('traspasos')
-                  or e.get('centros') or e.get('vecindades_nuevas') or e.get('renombradas') or e.get('canales') or e.get('tipos')]
+                  or e.get('centros') or e.get('vecindades_nuevas') or e.get('renombradas') or e.get('canales') or e.get('tipos') or e.get('textos')]
             changelog_keys.dump(cl, self.changelog_path())
             log('changelog: quitadas regiones que no están en el mapa: %s' % ', '.join(gone))
         return gone
@@ -297,13 +303,13 @@ class Project:
                 e['traspasos'] = [t for t in e.get('traspasos', []) if t.get('de') not in gone and t.get('a') not in gone]
                 e['vecindades_nuevas'] = [v for v in e.get('vecindades_nuevas', []) if not gone & set(v)]
             cl = [e for e in cl if e.get('regiones_nuevas') or e.get('regiones_eliminadas') or e.get('traspasos')
-                  or e.get('centros') or e.get('vecindades_nuevas') or e.get('renombradas') or e.get('canales') or e.get('tipos')]
+                  or e.get('centros') or e.get('vecindades_nuevas') or e.get('renombradas') or e.get('canales') or e.get('tipos') or e.get('textos')]
             news = []
             for n in add or []:
                 r = rows.get(n)
                 if not r or r['status'] != 'missing':
                     continue
-                news.append({'nombre': n, 'texto': n, 'madre': r['mother'], 'pais': None, 'tipo': r.get('u_type'),
+                news.append({'nombre': n, 'texto': _spaced(n), 'madre': r['mother'], 'pais': None, 'tipo': r.get('u_type'),
                              'controlador': None, 'terreno': None, 'mar': r['sea'], 'poblacion': None, 'historicos': None})
             same = self.installed_state() == 'same'
             if news:
@@ -361,6 +367,18 @@ class Project:
             changelog_keys.dump(cl, self.changelog_path())
             self.reload()
             return {'raw': raw}
+
+    def record_texts(self, texts):
+        """Changelog entry «textos»: visible names of regions ({region: text}) that «Adecuar» / «Aplicar changelog» write
+        into the scenarios (stringTable), so a visible-only rename is not lost when a scenario is adapted or created."""
+        texts = {r: t for r, t in (texts or {}).items() if r and t}
+        if not texts:
+            return
+        with self.lock:
+            cl = self.changelog()
+            cl.append({'fecha': time.strftime('%Y-%m-%d %H:%M:%S'), 'regionpack': self.pack, 'instalado': False,
+                       'operaciones': ['textos'], 'textos': [{'region': r, 'texto': t} for r, t in sorted(texts.items())]})
+            changelog_keys.dump(cl, self.changelog_path())
 
     # ------------------------------------------------------------------ navigation of sea regions (canals)
     # map.xml: <object type="CanalRegions"> (strCanalRegionName = sea, strCanalZoneRegionName = owned region linked to the canal)
@@ -1301,7 +1319,8 @@ class Project:
             if payload.get('paint', True) and (changes['erase'] or changes['paint']):
                 progress.step(65, 'Pintando el terreno')
                 tiles = later('no se pudo pintar el fondo (usa «Redibujar fronteras»)', lambda: paint_tiles(
-                    changes, os.path.join(self.map_dir, 'art', 'OperationalTerrain'), self.tiles, originals=self.tiles, log=log))
+                    changes, os.path.join(self.map_dir, 'art', 'OperationalTerrain'), self.tiles, originals=self.tiles, log=log,
+                    style=self.border_style()))
                 report['tiles'] = ['%02d-%02d' % t for t in tiles or []]
             later('no se pudo escribir ultimo_cambio.json', lambda: json.dump(changes, open(os.path.join(self.dir, 'ultimo_cambio.json'), 'w')))
             progress.step(70, 'Comprobando el mapa')
@@ -1899,12 +1918,22 @@ class Project:
                 for poly in getattr(g, 'geoms', [g]):
                     ch['paint'].append(dict(mapping(poly.exterior), kind='sea'))
                 done.append(n)
-            tiles = paint_tiles(ch, os.path.join(self.map_dir, 'art', 'OperationalTerrain'), self.tiles, originals=self.tiles, log=log) if done else []
+            tiles = paint_tiles(ch, os.path.join(self.map_dir, 'art', 'OperationalTerrain'), self.tiles, originals=self.tiles, log=log,
+                                style=self.border_style()) if done else []
         return {'outlined': done, 'tiles': ['%02d-%02d' % t for t in tiles]}
 
-    def redraw_borders(self, region=None, log=print):
+    def border_style(self):
+        """Border line style of this regionpack (paint_changes.BORDER_STYLES): the last one chosen in «Redibujar fronteras»,
+        recorded in the changelog (border_style); changelogs without it use the original MH1 look."""
+        return next((e['estilo_fronteras'] for e in reversed(self.changelog()) if e.get('estilo_fronteras') in BORDER_STYLES), DEFAULT_STYLE)
+
+    def redraw_borders(self, region=None, log=print, style=None):
         """«Redibujar fronteras»: repaints in the background (project tiles/) the lines of all borders according to
-        borders.brd: land-land, sea-sea and the polygon of islands (not their coast). Can be undone with «Volver»."""
+        borders.brd: land-land, sea-sea and the polygon of islands (not their coast). Can be undone with «Volver».
+        style: key of BORDER_STYLES (None = the regionpack's current one); recorded in the changelog so later saves use it."""
+        style = style or self.border_style()
+        if style not in BORDER_STYLES:
+            raise ValueError('estilo de fronteras desconocido: %s' % style)
         ch = {'erase': [], 'paint': [], 'islands': []}
         with self.lock:
             R = self.m['regions']
@@ -1929,8 +1958,12 @@ class Project:
                 if g is not None and not g.is_empty:
                     ch['unring'] = [mapping(g)]      # island: no outline stuck to the coast
             self.snapshot(log)       # can be undone with «Volver» (no separate copies of the tiles)
-            tiles = paint_tiles(ch, os.path.join(self.map_dir, 'art', 'OperationalTerrain'), self.tiles, originals=self.tiles, log=log)
-        return {'tiles': ['%02d-%02d' % t for t in tiles], 'lines': len(ch['paint'])}
+            tiles = paint_tiles(ch, os.path.join(self.map_dir, 'art', 'OperationalTerrain'), self.tiles, originals=self.tiles, log=log, style=style)
+            cl = self.changelog()
+            cl.append({'fecha': time.strftime('%Y-%m-%d %H:%M:%S'), 'regionpack': self.pack, 'instalado': False,
+                       'operaciones': ['redibujar_fronteras'], 'regiones_nuevas': [], 'estilo_fronteras': style})
+            changelog_keys.dump(cl, self.changelog_path())
+        return {'tiles': ['%02d-%02d' % t for t in tiles], 'lines': len(ch['paint']), 'style': style}
 
     def install_tiles(self, tiles):
         """Copies to the game only those background tiles (and their mipmaps) from the project's tiles/: a background change without touching the map."""
@@ -2258,7 +2291,7 @@ class Project:
             if not any(self.rname(g.index) == region for g in self.m['regions']):
                 raise ValueError('%s no es una región de este regionpack' % region)
             cl.append({'fecha': time.strftime('%Y-%m-%d %H:%M:%S'), 'regionpack': self.pack, 'instalado': False, 'operaciones': ['propietario'],
-                       'regiones_nuevas': [{'nombre': region, 'texto': region, 'madre': None, 'pais': None, 'tipo': None, 'controlador': None,
+                       'regiones_nuevas': [{'nombre': region, 'texto': _spaced(region), 'madre': None, 'pais': None, 'tipo': None, 'controlador': None,
                                             'terreno': None, 'mar': False, 'poblacion': None, 'historicos': None, 'pais_por_escenario': {scenario: owner}}]})
         changelog_keys.dump(cl, self.changelog_path())
         if not self.virtual and self.installed_state() == 'same':
@@ -2292,7 +2325,7 @@ class Project:
                  'centros': {R[r].name: list(xy) for r, xy in centers.items()},
                  'operaciones': sorted({op.get('kind', 'assign') for op in payload.get('assigns') or []} |
                                        ({'nodos'} if payload.get('modified') else set())),
-                 'regiones_nuevas': [{'nombre': c['name'], 'texto': c.get('text') or c['name'], 'madre': c['mother'], 'pais': c.get('owner'), 'tipo': c['u_type'],
+                 'regiones_nuevas': [{'nombre': c['name'], 'texto': c.get('text') or _spaced(c['name']), 'madre': c['mother'], 'pais': c.get('owner'), 'tipo': c['u_type'],
                                       'controlador': c.get('controller'), 'madres': c.get('mothers'),
                                       'terreno': c.get('terrain'), 'mar': c.get('sea'),
                                       'poblacion': c.get('pop_fractions'), 'historicos': c.get('historic'),
@@ -2425,6 +2458,9 @@ class Project:
                 e['instalado'] = True
             changelog_keys.dump(log, self.changelog_path())
             changelog_keys.dump(log, os.path.join(dest, 'changelog.json'))
+            proj = os.path.join(self.dir, 'proyeccion.json')       # map drawn in its own coordinates (e.g. WorldHOI4): «Adecuar» needs it
+            if os.path.exists(proj):
+                shutil.copy2(proj, os.path.join(dest, 'proyeccion.json'))
             switched = []
             if target == 'new':
                 for s in scenarios:

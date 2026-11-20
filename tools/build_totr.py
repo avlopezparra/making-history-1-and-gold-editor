@@ -47,7 +47,10 @@ AXIS = ['Germany', 'Japan', 'Italy', 'British Union', 'Muscovy', 'White Russia',
         'Afghanistan', 'Greece', 'Croatia', 'Portugal'] + SEPARATISTS
 AXIS_PRINCIPAL = {'Germany', 'Japan', 'Italy'}
 ALLIES = ['United States', 'United Kingdom', 'Canada', 'Australia', 'New Zealand', 'China', 'Brazil', 'Mexico', 'Cuba',
-          'Netherlands', 'Iceland', 'Panama', 'Liberia']
+          'Iceland', 'Panama', 'Liberia']
+GERMAN_TECH = ['AdvancedTanks', 'MotorizedInfantry3', 'MechanizedInfantry3', 'HeavyBombers', 'LargeCruisers',
+               'Destroyers', 'AdvancedSonar', 'EscortDestroyers', 'BallisticMissiles', 'AdvancedRadar',
+               'AutomatedTargeting', 'AmphibiousAssaults', 'MountainTroops', 'NuclearChainReaction']
 ALLIES_PRINCIPAL = {'United States', 'United Kingdom', 'China'}
 PLAYABLE = ['United States', 'United Kingdom', 'Canada', 'China', 'Germany', 'Japan', 'Italy', 'British Union', 'Muscovy']
 SURRENDERED = ['USSR']
@@ -69,6 +72,7 @@ NEW_NATIONS = {
     'Yakutia': ('Authoritarian', 'USSR', 'Yakutsk', ['Russian'], '#7A5BA8FF'),
     'Astrakhan': ('Authoritarian', 'USSR', 'Astrakhan', ['Russian'], '#0AE0CBFF'),
     'Chechnya': ('Authoritarian', 'USSR', 'Grozny', ['Caucasian', 'Russian'], '#2B7338FF'),
+    'Suriname': ('Democratic', 'Netherlands', 'Paramaribo', ['Creole'], '#E8A33DFF'),
     'British Union': ('Fascist', 'United Kingdom', 'London', ['English', 'Anglo-Celtic', 'Scottish', 'Welsh'],
                       '#3C1E46FF'),
 }
@@ -136,7 +140,10 @@ give('United Kingdom', 'Bahamas', 'Bermuda', 'British Guiana', 'Jamaica', 'Leewa
 # --- Vichy France loses the Levant to fascist Syria
 give('Syria', 'Syria', 'Lebanon')
 # --- Japanese conquests in China, Manchukuo, the Dutch East Indies and the Philippines
-give('Manchuria', 'Feng Tien', 'Kirin', 'Heilungkiang', 'Jehol')
+# --- The Netherlands has surrendered: New Guinea falls to Japan, Suriname is independent
+give('Japan', 'West New Guinea')
+give('Suriname', 'Surinam')
+give('Manchuria','Feng Tien', 'Kirin', 'Heilungkiang', 'Jehol')
 give('Japan', 'Anhui', 'Fujian', 'Guangdong', 'Hainan', 'Hebei', 'Henan', 'Hubei', 'Jiangsu', 'Shandong',
      'Shanghai Proper', 'Shanxi', 'Zhejiang', 'Formosa', 'Dutch Timor', 'East Borneo', 'Java', 'Lesser Sunda',
      'North Sumatra', 'Riau Islands', 'South Sumatra', 'West Borneo', 'Banda Islands', 'Celebes', 'Moluccas',
@@ -147,12 +154,11 @@ give('Italy', 'Dodecanse', 'Emilia Romagna', 'Istria', 'Lombardy', 'Piedmont', '
 # Regions whose controller differs from the new owner (front lines).
 CONTROL = {
     'Luzon': 'Japan', 'Mindanao': 'Japan', 'Southern Tagalog': 'Japan', 'Visayas': 'Japan',
-    'West New Guinea': 'Japan',
 }
 # Regions that stay with their owner but are now controlled by the owner itself.
 OWN_CONTROL = ['Marshall Islands']
 
-IPU_FACTOR = {'China': 0.7, 'Communist China': 0.8, 'Germany': 1.15, 'Japan': 1.3, 'Italy': 1.25, 'Muscovy': 0.8, 'British Union': 0.7, 'India': 1.0,
+IPU_FACTOR = {'China': 0.7, 'Communist China': 0.8, 'Germany': 1.5, 'Japan': 1.3, 'Italy': 1.25, 'Muscovy': 0.8, 'British Union': 0.7, 'India': 1.0,
               'Canada': 1.6, 'Manchuria': 1.0, 'Ukraine': 0.8}
 IPU_MIN = {'Saudi Arabia': 2, 'Yemen': 1, 'Oman': 1, 'Afghanistan': 2, 'India': 4, 'Egypt': 3, 'South Africa': 4, 'Iraq': 4, 'Persia': 4, 'Argentina': 2, 'Khanate of Khiva': 2,
            'White Russia': 3, 'Syria': 3}
@@ -480,6 +486,17 @@ def main():
             n = int(prop(fac, 'nIPUs', '0'))
             set_prop(fac, 'nIPUs', str(max(mn, int(round(n * f)))))
 
+    # Kriegsmarine bases: German port cities get top-tech shipyards and fortified harbours
+    for r in countries['Germany'].getroot()[0].findall("object[@type='Region']"):
+        ports = [c for c in r.findall("object[@type='City']") if prop(c, 'strPortForRegion')]
+        for c in ports:
+            fac = c.find("object[@type='Factory']")
+            if fac is not None:
+                set_prop(fac, 'nIPUs', str(int(prop(fac, 'nIPUs', '0')) * 3 // 2 + 5))
+                set_prop(fac, 'nTechLevel', '3')
+        if ports:
+            set_prop(r, 'nFortification', str(max(3, int(prop(r, 'nFortification', '0')))))
+
     for cname, t in countries.items():
         save(t, os.path.join(DST, 'country%s.xml' % cname))
 
@@ -631,6 +648,14 @@ def write_players(countries):
                 i = list(p).index(ref) + 1
                 p.insert(i, ET.Element('property', {'name': 'strHLPDefLists', 'value': 'Playable'}))
                 p.insert(i + 1, ET.Element('property', {'name': 'strPLPDefLists', 'value': 'Playable'}))
+        if name == 'Germany':
+            known = {prop(x, 'strProjectName'): x for x in p.findall("object[@type='ResearchProjectInitRef']")}
+            for proj in GERMAN_TECH:
+                if proj in known:
+                    set_prop(known[proj], 'eResearchState', 'RESEARCH_COMPLETED')
+                else:
+                    p.append(obj('ResearchProjectInitRef', 'objInitResearchRefs',
+                                 [('strProjectName', proj), ('eResearchState', 'RESEARCH_COMPLETED')]))
         # mutual hostility between the blocs
         dl = p.find("object[@type='DipRelInitialValueList']")
         if dl is not None and (name in AXIS or name in ALLIES):
