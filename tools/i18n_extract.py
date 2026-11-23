@@ -39,7 +39,7 @@ JUNK = re.compile(r'^[#/]|[\w-]=|</?(button|div|span|b|a|i|input|select|option|l
                   r'^[a-z]+(-[a-z]+)+$|^\S*\w\[\S*$|^\S+\.(html|bin|json|xml|nif|tga|dds|txt|nuevo|geojson)$|%[YHMS]|SELECT \?|\$ErrorActionPreference')   # routes, selectors, html, strftime dates, code
 ENGLISH = re.compile(r'\b(the|to|of|and|is|are|with|from|this|that|has|have|will|be|its|it|for|on|file|files|found|write|copy|not)\b', re.I)
 SP_WORDS = re.compile(r'[áéíóúñ¿¡]|\b(el|la|los|las|de|del|que|en|un|una|con|por|para|sin|al|se|es|y|o|ya|más|hay|tiene|puede)\b', re.I)
-IGNORE = {'El Salvador', 'corea del norte', 'corea del sur', 'No owner', 'rusia', 'polonia', 'terrestre', 'tipo', 'p. ej. Aysén'}   # + GeoJSON property aliases     # data (country names, the game's «No owner» value), not interface texts
+IGNORE = {'El Salvador', 'corea del norte', 'corea del sur', 'No owner', 'rusia', 'polonia', 'terrestre', 'tipo', 'p. ej. Aysén', 'estados unidos', 'estados unidos mexicanos'}   # + GeoJSON property aliases     # data (country names, the game's «No owner» value), not interface texts
 SPLIT = re.compile(HOLE + r'|\$\{[^}]*\}|%[-0-9.]*[sdfr]|%\([a-z_]+\)[sdf]|\{[a-z_0-9]*(?:![rs])?(?::[^{}]*)?\}')
 STRIP = ' \t\n:;,.·|—-–()[]→?!¿¡«»'
 

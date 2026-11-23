@@ -102,6 +102,30 @@ def flow_resource(st, flow, resource, amount):
     return ['%s añadido al flujo (%s)' % (resource, amount)]
 
 
+# repeated properties a form edits as a whole list (one <property> per value)
+LIST_PROPS = {'UnitTemplate': {'strCapabilities'}}
+
+
+def set_list(st, el, name, values):
+    """Replaces every `name` property of el with one per value, where the first one was (or after the last property)."""
+    if name not in LIST_PROPS.get(el.get('type'), ()):
+        raise ValueError('esa propiedad no se edita como lista')
+    values = list(dict.fromkeys(str(v).strip() for v in values or [] if str(v).strip()))
+    old = [c for c in el if c.tag == 'property' and c.get('name') == name]
+    if [c.get('value') for c in old] == values:
+        return []
+    kids = list(el)
+    at = kids.index(old[0]) if old else max((k + 1 for k, c in enumerate(kids) if c.tag == 'property'), default=0)
+    for c in old:
+        el.remove(c)
+    for k, v in enumerate(values):
+        p = ET.Element('property', {'name': name, 'value': v})
+        el.insert(at + k, p)
+        st.parent[p], st.doc_of[p] = el, st.doc_of[el]
+    st.touch(el, structural=True)
+    return ['%s: %s' % (name, ', '.join(values) or '-')]
+
+
 def ensure_dirs(scen_dir):
     """Creates the missing game/ and ui/ files (copies of the editor template). Returns those created."""
     made = []

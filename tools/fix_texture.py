@@ -13,10 +13,10 @@ Usage:
   python fix_texture.py <xml mapa ORIGINAL> <carpeta art del juego> <archivo.kml> "<linea>" \
          <region origen> <region destino> <west|east> <carpeta salida>
 """
-import io
 import os
 import sys
 
+import numpy as np
 from PIL import Image, ImageDraw, ImageFilter
 from shapely.geometry import LineString, Polygon
 from shapely.ops import linemerge, unary_union
@@ -60,10 +60,92 @@ def decode(data, size):
     return Image.frombytes('RGBA', (size, size), data, 'bcn', 3)
 
 
+def _to565(c):
+    c = np.clip(np.rint(c), 0, 255).astype(np.int32)
+    return ((c[..., 0] * 31 + 127) // 255 << 11) | ((c[..., 1] * 63 + 127) // 255 << 5) | ((c[..., 2] * 31 + 127) // 255)
+
+
+def _from565(v):
+    return np.stack([(v >> 11 & 31) * 255 / 31, (v >> 5 & 63) * 255 / 63, (v & 31) * 255 / 31], -1)
+
+
+_W = np.array([1.0, 0.0, 2 / 3, 1 / 3])                  # weight of c0 for BC1 index codes 0..3
+
+
+def _palette(c0, c1):
+    p0, p1 = _from565(c0), _from565(c1)
+    return _W[None, :, None] * p0[:, None] + (1 - _W[None, :, None]) * p1[:, None]
+
+
+def _fit(px, e0, e1):
+    c0, c1 = _to565(e0), _to565(e1)
+    pal = _palette(c0, c1)
+    d = ((px[:, :, None, :] - pal[:, None]) ** 2).sum(-1)
+    idx = d.argmin(-1)
+    return c0, c1, idx, np.take_along_axis(d, idx[..., None], -1).sum((1, 2))
+
+
+def _color_blocks(px):
+    """BC1 colour part (4-colour mode) of N blocks of 16 RGB pixels: PCA endpoints, then one least-squares refit.
+    Pillow's DXT encoder painted mixed land/sea blocks in the land colour: coasts looked pixelated in the mipmaps."""
+    mean = px.mean(1, keepdims=True)
+    d = px - mean
+    cov = np.einsum('nki,nkj->nij', d, d)
+    axis = np.ones((len(px), 3))
+    for _ in range(8):                                   # power iteration: main axis of each block's colours
+        axis = np.einsum('nij,nj->ni', cov, axis)
+        axis /= np.maximum(np.linalg.norm(axis, axis=1, keepdims=True), 1e-9)
+    t = np.einsum('nki,ni->nk', d, axis)
+    e0 = mean[:, 0] + axis * t.max(1, keepdims=True)
+    e1 = mean[:, 0] + axis * t.min(1, keepdims=True)
+    c0, c1, idx, err = _fit(px, e0, e1)
+    a = _W[idx]                                          # least squares: px ~ a*e0 + (1-a)*e1
+    b = 1 - a
+    aa, bb, ab = (a * a).sum(1), (b * b).sum(1), (a * b).sum(1)
+    det = aa * bb - ab * ab
+    ok = (np.abs(det) > 1e-6)[:, None]
+    ax, bx = np.einsum('nk,nki->ni', a, px), np.einsum('nk,nki->ni', b, px)
+    sd = np.where(ok, det[:, None], 1)
+    r0, r1 = (bb[:, None] * ax - ab[:, None] * bx) / sd, (aa[:, None] * bx - ab[:, None] * ax) / sd
+    n0, n1, nidx, nerr = _fit(px, np.where(ok, r0, e0), np.where(ok, r1, e1))
+    better = nerr < err
+    c0, c1, idx = np.where(better, n0, c0), np.where(better, n1, c1), np.where(better[:, None], nidx, idx)
+    swap = c0 < c1                                       # 4-colour mode needs c0 > c1
+    c0, c1 = np.where(swap, c1, c0), np.where(swap, c0, c1)
+    idx = np.where(swap[:, None], np.array([1, 0, 3, 2])[idx], idx)
+    idx = np.where((c0 == c1)[:, None], 0, idx)
+    bits = (idx.astype(np.uint32) << (2 * np.arange(16, dtype=np.uint32))).sum(1, dtype=np.uint32)
+    return c0.astype(np.uint16), c1.astype(np.uint16), bits
+
+
+def _alpha_blocks(al):
+    """BC3 alpha part of N blocks of 16 alphas (8-level mode: a0 > a1)."""
+    a0, a1 = np.rint(al.max(1)), np.rint(al.min(1))
+    wt = np.array([7, 0, 6, 5, 4, 3, 2, 1]) / 7          # weight of a0 for codes 0..7
+    lv = wt[None] * a0[:, None] + (1 - wt[None]) * a1[:, None]
+    idx = np.abs(al[:, :, None] - lv[:, None]).argmin(-1)
+    idx = np.where((a0 == a1)[:, None], 0, idx)
+    bits = (idx.astype(np.uint64) << (3 * np.arange(16, dtype=np.uint64))).sum(1, dtype=np.uint64)
+    return a0.astype(np.uint8), a1.astype(np.uint8), bits
+
+
 def encode_blocks(img):
-    b = io.BytesIO()
-    img.save(b, 'DDS', pixel_format='DXT5')
-    return b.getvalue()[128:]
+    """Headerless DXT5 (BC3) bytes of an RGBA image whose sides are multiples of 4, blocks in row order."""
+    a = np.asarray(img.convert('RGBA'), dtype=np.float64)
+    h, w = a.shape[:2]
+    blk = a.reshape(h // 4, 4, w // 4, 4, 4).transpose(0, 2, 1, 3, 4).reshape(-1, 16, 4)
+    out = np.zeros((len(blk), 16), np.uint8)
+    for s in range(0, len(blk), 16384):                  # chunks: bounded memory on 1024 px tiles
+        b = blk[s:s + 16384]
+        a0, a1, ab = _alpha_blocks(b[..., 3])
+        c0, c1, cb = _color_blocks(b[..., :3])
+        o = out[s:s + 16384]
+        o[:, 0], o[:, 1] = a0, a1
+        o[:, 2:8] = ab.astype('<u8')[:, None].view(np.uint8)[:, :6]
+        o[:, 8:10] = c0.astype('<u2')[:, None].view(np.uint8)
+        o[:, 10:12] = c1.astype('<u2')[:, None].view(np.uint8)
+        o[:, 12:16] = cb.astype('<u4')[:, None].view(np.uint8)
+    return out.tobytes()
 
 
 def splice(orig_bytes, new_img, old_img, size):

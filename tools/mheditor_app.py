@@ -22,6 +22,12 @@ def data_root():
         return os.environ['MH_ROOT']
     if getattr(sys, 'frozen', False):
         exe_dir = os.path.dirname(os.path.abspath(sys.executable))
+        try:      # mh_root.txt (build_exe.py --dist): the exe lives on another disk than its data
+            p = open(os.path.join(exe_dir, 'mh_root.txt'), encoding='utf-8').read().strip()
+            if os.path.isdir(p):
+                return p
+        except OSError:
+            pass
         for cand in (exe_dir, os.path.dirname(exe_dir)):
             if any(os.path.exists(os.path.join(cand, x)) for x in ('editor_proyecto', 'backup', 'ultimo_regionpack.json')):
                 return cand

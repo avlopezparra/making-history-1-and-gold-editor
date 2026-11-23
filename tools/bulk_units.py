@@ -58,6 +58,8 @@ def _allowed(s, country):
     cost = {}
     for t in s.all('UnitTemplate'):
         n, e = prop(t, 'strName'), prop(t, 'eType')
+        if any(p.tag == 'property' and p.get('name') == 'strCapabilities' and p.get('value') == 'DropNuke' for p in t):
+            continue          # nuclear bombers / missiles: never handed out in bulk (only kept below if the country already has them)
         g = gate(n)
         for k, (_, et) in KINDS.items():
             if e == et:

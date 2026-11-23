@@ -13,7 +13,7 @@ plus HTML pages, also packaged as `MHEditor.exe` (pywebview + PyInstaller).
 | `tools/scenario_events.py` | events, decisions and AI rules in plain words; event templates; AI goals/war plans; terrain types; bomber ranges |
 | `tools/scenario_create.py` | "＋ New" objects: nations, fleets, air forces, ideologies, alliances, wars, … |
 | `tools/geojson_io.py`, `tools/terrain_*.py` | GeoJSON import/export, terrain colours and images |
-| `tools/gamepaths.py` | where the game is installed (Steam libraries, Muzzy Lane installer, `MH_GAME_*`) |
+| `tools/gamepaths.py` | where the game is installed (folder chosen by hand, `MH_GAME_*`, Steam libraries, the game's registry entries, Muzzy Lane installer, usual folders on every drive) |
 | `tools/editor/index.html` | region (map) editor page — served at `/` |
 | `tools/editor/escenario.html` | scenario editor page — served at `/scenario` (old `/escenario` still works) |
 | `tools/editor/imagenes.html` | image editor — `/images` |

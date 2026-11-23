@@ -1157,7 +1157,15 @@ class Project:
                                 transfers.append((part, src, into))
                                 taken[src] = unary_union([taken.get(src, Polygon()), part])
                         else:
-                            add(piece, src, into)
+                            # a whole tiny exclave inside the cut (needle left by earlier cuts): add() would drop it as a
+                            # border crumb (< 1e-8 deg²), so «Recortar» could never remove it; move it whole, like «trozos sueltos»
+                            reach = poly.buffer(1e-6)
+                            whole = [q for q in sorted(polys_of(P(src).difference(taken.get(src, Polygon()))), key=lambda q: -q.area)[1:]
+                                     if q.area < 1e-8 and q.difference(reach).area <= 0.5 * q.area]
+                            for q in whole:
+                                transfers.append((q, src, into))
+                                taken[src] = unary_union([taken.get(src, Polygon()), q])
+                            add(piece.difference(unary_union(whole)) if whole else piece, src, into)
 
                     if asg.get('cut_all'):
                         sources = set(owners(poly, exclude={into}))
@@ -1233,6 +1241,8 @@ class Project:
                 report.setdefault('deleted', []).append({'index': s, 'name': self.rname(s), 'raw': R[s].name, 'into': cidx[into],
                                                          'sea': R[s].u_type == SEA})
                 report['warnings'].append('%s queda entera dentro de las regiones nuevas: se elimina y lo suyo pasa a %s' % (self.rname(s), cidx[into]))
+            for r in payload.get('click_fix') or []:      # validator fix: drawn area the click area of an island region lacks
+                transfers += [(q, None, int(r)) for q in polys_of(self.click_missing(int(r)))]
             centers = {int(k): v for k, v in (payload.get('centers') or {}).items()}
             if report['errors']:
                 self.reload()
@@ -1727,6 +1737,11 @@ class Project:
                             'land': [t[0] for t in sorted(landt, key=lambda t: -t[1])], 'n_touch': len(touch)})
             return out
 
+    def click_missing(self, r):
+        """Area an island region draws (shape 0) that one of its click shapes (the halo) does not cover: visible but unselectable in game."""
+        geo = [unary_union([Polygon(t) for t in s.triangles() if Polygon(t).area > 0] or [Polygon()]) for s in mhmap.region_shapes(self.m, r)]
+        return unary_union([geo[0].difference(g) for g in geo[1:]] or [Polygon()])
+
     def validate(self):
         """Everything that would prevent saving or cause problems, at once: broken meshes, empty regions, repeated names,
         seas with wrong u_flag, new regions without owner or mother. [{level, region, msg}]"""
@@ -1744,6 +1759,11 @@ class Project:
                 main, detail, ok, why = self.outline(g.index)
                 if not ok and not self._mesh_ok(self.m, g.index):
                     out.append({'level': 'error', 'region': n, 'msg': 'malla rota (triángulos solapados o contorno inválido: %s)' % why})
+                if len(mhmap.region_shapes(self.m, g.index)) > 1:
+                    miss = self.click_missing(g.index).area
+                    if miss > 1e-5:
+                        out.append({'level': 'aviso', 'region': n, 'fix': {'click_area': g.index},
+                                    'msg': 'región-isla con %.4f grados² que se dibujan pero no responden al clic en el juego (fuera de su zona de clic)' % miss})
                 if g.u_type == SEA and g.u_flag != 1:
                     out.append({'level': 'error', 'region': n, 'msg': 'región de mar con u_flag %s (debe ser 1: sale roja en el juego)' % g.u_flag})
             for k, v in seen.items():

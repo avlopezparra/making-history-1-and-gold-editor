@@ -40,7 +40,7 @@ def _insert_after(st, el, after, parent):
 
 # ---------------------------------------------------------------------------------------- 1. new nation
 def create_country(s, name, template=None, color=None, ctype='Minor', gov=None, flag=None, capital=None, regions=None, description=None,
-                   new_capital=None):
+                   new_capital=None, skin=None):
     """New country: country<Nombre>.xml + player<Nombre>.xml copying a small nation (no regions or units) as template,
     registered in game.xml, and its Player in gamestate.xml. 'regions' (optional) gives it those regions; 'capital' is one of its cities
     (or, if it has no regions, the longed-for city of a surrendered liberable nation)."""
@@ -181,6 +181,14 @@ def create_country(s, name, template=None, color=None, ctype='Minor', gov=None, 
         notes += sc.set_region_string(s, 'SID.Game.Country.Description.%s.%s' % (_slug(s.name), _slug(name)), (description or '').strip())
     # ---- territorio y capital
     new = s.countries()[name]
+    # troop skin: the chosen country, else the template, else the nation its regions (or its capital) came from
+    origin = [prop(land[r], 'strOwner') for r in regions]
+    if capital and st.parent.get(cities[capital]) is not None:
+        origin.append(prop(st.parent[cities[capital]], 'strOwner'))
+    for src in [skin, template] + sorted(set(origin), key=origin.count, reverse=True):
+        if src and src != name and any(src in L._skin_nodes(s, k) for k in L.SKIN_FILES):
+            notes += L.copy_skin(s, name, src)
+            break
     if template is None and not from_template:
         template = '(nación nueva)'
     for r in regions:
@@ -294,7 +302,8 @@ def create_fleet(s, owner, name, region, units, city=None):
             raise ValueError('%s no tiene ninguna ciudad con puerto%s' % (region, ' llamada ' + city if city else ''))
         port = prop(ports[0], 'strName')
     el = ET.Element('object', {'type': 'Fleet', 'name': 'objGOs'})
-    for k, v in (('strName', name), ('strOwner', owner), ('strRegion', region), ('strCity', port)):
+    for k, v in (('strName', name), ('strOwner', owner), ('vecPosition', None if port else L.unit_position(s, region)),
+                 ('strRegion', region), ('strCity', port)):
         if v:
             ET.SubElement(el, 'property', {'name': k, 'value': v})
     for u in units:
@@ -334,8 +343,9 @@ def create_airforce(s, owner, name, region, units):
         if templates[u['type']] != 'UNIT_TYPE_AIR_FORCE':
             raise ValueError('«%s» no es una unidad aérea' % u['type'])
     el = ET.Element('object', {'type': 'AirForce', 'name': 'objGOs'})
-    for k, v in (('strName', name), ('strOwner', owner), ('strRegion', region)):
-        ET.SubElement(el, 'property', {'name': k, 'value': v})
+    for k, v in (('strName', name), ('strOwner', owner), ('vecPosition', L.unit_position(s, region)), ('strRegion', region)):
+        if v:
+            ET.SubElement(el, 'property', {'name': k, 'value': v})
     for u in units:
         o = ET.SubElement(el, 'object', {'type': 'UnitSummary', 'name': 'objUnits'})
         ET.SubElement(o, 'property', {'name': 'strName', 'value': u['type']})

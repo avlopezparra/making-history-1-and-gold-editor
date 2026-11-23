@@ -25,6 +25,8 @@ import collections.abc
 import ctypes
 import datetime
 import json
+import queue
+import threading
 import locale
 import os
 import re
@@ -95,7 +97,7 @@ class GameSlow(BaseException):
 SLOW_SECONDS, SLOW_RUN = 30, (4, 10)    # one command over 30 s, or 4 in a row over 10 s, outside end of turn
 # (8 s / 3 s disconnected every minute in a 250-nation MH1 game with the window in the background)
 GAME_ERROR = re.compile(r'error validating|NULL alliance|unable to find war|Failed to|assert|invalid', re.I)
-HARMLESS = re.compile(r'HitPoints|GetToolTipText|animation|texture|factory output|ValidActionForMode|Unknown property', re.I)      # the last two: send_action rebuilds the action
+HARMLESS = re.compile(r'HitPoints|GetToolTipText|animation|texture|factory output|ValidActionForMode|Unknown property|display frame strings|CmdSetProperty|INVALID DATE', re.I)      # ValidAction../Unknown property: send_action rebuilds the action; display frame strings: the popup still shows; CmdSetProperty: one value not applied
 OUR_TEXT = re.compile(r'^>?\s*(set property|Set property)|strNewValue|^[^():]+\([^)]*\):')      # our own lines
 NEVER_DISABLED = ('ActAlterPropertyImmed',)      # our chat lines: an error is logged, the chat keeps working
 
@@ -313,6 +315,10 @@ class SPBot(Bot):
         self.check_errors()
         if def_name in self.__dict__.get('_disabled', {}):
             raise Refused('Desactivé %s en esta partida: el juego dio error (%s).' % (def_name, self._disabled[def_name]))
+        if def_name == 'ActProposeDefensePact' and self.acting and                 str(self.country_id(values.get('strToCountry'))) in self.war_sides()[1]:
+            # an alliance offered to a nation it is at war with left the game spinning at 100% CPU
+            raise Refused('%s está en guerra con %s: primero la paz (/surrender %s %s o /peace).' % (
+                self.acting, values.get('strToCountry'), self.acting, values.get('strToCountry')))
         self.turn_limit(def_name, values)
         self.forget(def_name)
         data = self._data()
@@ -466,13 +472,23 @@ class SPBot(Bot):
         me, amap = str(self.country_id()), self.alliance_map()
         allies = set().union(*([ids for _, ids, _ in amap.values() if me in ids] or [set()]))
         by_id = {aid: ids for aid, ids, _ in amap.values()}
-        side = lambda ref: (lambda q: by_id.get(q['nAllianceID'], set()) if 'nAllianceID' in q
-                            else {q.get('nCountryID')})(self.fixed(self.obj_id(ref or '')))
+        # each war's sides are read once for good (5 reads per war; a big game has dozens of wars and every
+        # alliance / surrender command re-ran them all): only wars new since the last call cost reads
+        known = self.__dict__.setdefault('_war_refs', {})
+
+        def ref(r):
+            q = self.fixed(self.obj_id(r or ''))
+            return ('A', q['nAllianceID']) if 'nAllianceID' in q else ('C', q.get('nCountryID'))
+
+        def ids(refs):
+            return set().union(*[by_id.get(v, set()) if k == 'A' else {v} for k, v in refs])
         enemies = set()
         for w in self.memo('war_list', lambda: self._alliances()[2]):
-            p = self.fixed(w)
-            att = side(p.get('objAttackerCountry')) | side(p.get('objOffense'))
-            dfn = side(p.get('objDefenderCountry')) | side(p.get('objDefense'))
+            if w not in known:
+                p = self.fixed(w)
+                known[w] = ((ref(p.get('objAttackerCountry')), ref(p.get('objOffense'))),
+                            (ref(p.get('objDefenderCountry')), ref(p.get('objDefense'))))
+            att, dfn = ids(known[w][0]), ids(known[w][1])
             enemies |= dfn if me in att else att if me in dfn else set()
         return allies - {me}, enemies
 
@@ -1456,6 +1472,30 @@ def check_code():
         raise SystemExit(RESTART)          # 'SP Chat.bat' starts it again (new code, same game)
 
 
+TYPED = queue.Queue()      # lines typed in the SP Chat window
+
+
+def read_console():
+    """Thread: every line typed in the SP Chat window goes to TYPED (run() writes it in the game chat)."""
+    for line in sys.stdin:
+        if line.strip():
+            TYPED.put(line.strip())
+
+
+def typed_in(bot, chats, seen):
+    """Lines typed in the SP Chat window: written in the chat in use as the host, answered at once, and the
+    answers printed in the window too (the game's chat bar often loses focus or the connection)."""
+    while chats and not TYPED.empty():
+        text = TYPED.get()
+        oid = bot._active_chat if getattr(bot, '_active_chat', None) in chats else chats[0]
+        bot.write(oid, bot.host, text)
+        before = len(bot.chat_lines(oid))
+        handle_chat(bot, oid, seen)
+        bot._active_chat = oid
+        for who, said in bot.chat_lines(oid)[before:]:
+            print('%s: %s' % (who, said), flush=True)
+
+
 def run(bot, steps=None, seen=None):
     """Main loop. steps: number of rounds (tests); seen: {chat id: lines already handled} (default: all so far)."""
     if seen is None:      # the history before we started is not new, except the humans' lines nobody answered yet
@@ -1506,6 +1546,7 @@ def run(bot, steps=None, seen=None):
             if notes and chats:
                 bot.write(bot._active_chat if getattr(bot, '_active_chat', None) in chats else chats[0], 'Chat',
                           ' '.join(notes))
+            typed_in(bot, chats, seen)
             for oid in read:
                 if handle_chat(bot, oid, seen):
                     t['active'], bot._active_chat = time.time(), oid
@@ -1668,7 +1709,7 @@ def set_pair(bot, a, b, want, floor=False):
     return done
 
 
-ALLIANCE_FLOOR, ALLIANCE_TOP = 500, 800     # relation range (of 1000) set when an alliance is accepted
+ALLIANCE_FLOOR, ALLIANCE_TOP, VOTE_FLOOR = 500, 800, 750     # relation range (of 1000) set when an alliance is accepted
 
 
 def alliance_members(bot, name, hint=()):
@@ -1690,7 +1731,10 @@ def alliance_members(bot, name, hint=()):
             if i in missing:
                 ids[i] = n
                 missing.discard(i)
-        out = [ids.get(m.get('nCountryID')) or m.get('strINITCountryName') for m in ms]
+        nations = bot.nations()
+        # a game log line can land in a read value ('CMapObjectSprite::... error'): only real nation names
+        out = [n if n in nations else None for n in
+               (ids.get(m.get('nCountryID')) or m.get('strINITCountryName') for m in ms)]
         if None in out:
             bot.log('act_error', {'alliance_members': name, 'unnamed': sorted(missing)})
         return [n for n in out if n]
@@ -1775,7 +1819,8 @@ def alliance_join(bot, oid, joiner, target, human, chosen, send, hint=()):
     bot.cfg['country'], bot.acting = human, None
     try:
         for m in members:
-            alliance_floor(bot, oid, joiner, m, chosen)
+            # 500 is only 'neutral': the CPU members vote at once, and voted no at that level
+            alliance_floor(bot, oid, joiner, m, max(int(chosen or 0) if str(chosen or 0).isdigit() else 0, VOTE_FLOOR))
     finally:
         bot.cfg['country'], bot.acting = country, acting
     if force_alliance(bot, joiner, target):
@@ -3182,6 +3227,8 @@ def main():
         if kind in ('ready', 'did', 'act_error', 'ignored_call', 'llm_out'):
             print(kind, json.dumps(d, ensure_ascii=False)[:300], flush=True)
     set_language(cfg)
+    threading.Thread(target=read_console, daemon=True).start()
+    print('Puedes escribir aquí mensajes y comandos (/order, /chat...): van al chat que estés usando.', flush=True)
     while True:                # game opened, scenario entered, left, another loaded, game closed and reopened...
         cli, root = connect(cfg)
         try:

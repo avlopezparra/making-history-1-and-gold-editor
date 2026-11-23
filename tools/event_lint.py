@@ -61,6 +61,9 @@ M_NOPLAYER = ('la propuesta de tratado no dice qué jugador la hace (strPlayer):
               'sin responder y el turno se bloquea. Pon strPlayer = el país que declara la guerra o pide la paz:')
 M_ALLYWAR = ('la guerra del evento toca a un miembro de una alianza: toda la alianza vota si entra (los jugadores humanos deben '
              'responder antes de terminar el turno) y la IA puede escalarla a una guerra entre alianzas:')
+M_ALTER = ('el evento cambia una propiedad de un objeto (nombre visible, cultura…): el juego rechaza esa acción en un evento '
+           '(«Can\'t find player while executing ActAlterProperty»), así que la elección no se ejecuta, la ventana no se cierra '
+           'y el turno queda trabado. Quita la acción:')
 M_ZERO = 'TriggerEvalRandomChance con 0 %: el juego compara rand()%100 <= 0, así que igual dispara el 1 % de los turnos'
 M_AIPCT = ('la IA casi nunca elige la opción por defecto: nDefaultChoicePercent falta o es bajo (la IA tira rand()%100 '
            'contra ese porcentaje). Pon 100 para que siempre la elija:')
@@ -255,6 +258,11 @@ def lint_types(s, prefix=''):
             allowed = _props_of(defs, t)
             if _is_a(defs, t, 'ActProposeTreatyDef') and not any(c.get('name') == 'strPlayer' for c in o):
                 out.append(('error', lab, '%s %s' % (M_NOPLAYER, t), e))   # «unable to find player for treaty», turn 40 lock
+            if t == 'ActSetTradeRelations' and not any(c.get('name') == 'strPlayer' for c in o):
+                out.append(('error', lab, 'embargo sin strPlayer (quién embarga): «Couldn\'t find ID of player country», la decisión '
+                            'falla y el turno puede trabarse. Pon strPlayer = el país que embarga: %s' % t, e))
+            if t in ('ActAlterProperty', 'ActAlterPropertyImmed', 'ActIncrementProperty'):
+                out.append(('error', lab, '%s %s.%s' % (M_ALTER, t, P(o, 'strPropName')), e))   # 1121 Malvinas popup stuck
             for c in o:
                 n = c.get('name')
                 if n and allowed and n not in allowed:

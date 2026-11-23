@@ -237,8 +237,18 @@ def apply_transfers(m, transfers, islands, P, cache=None):
                     res.extend(tuple(map(tuple, q)) for q in triangulate(rem))
             work[sh.index] = res
     for d, tris in incoming.items():
-        sh = mhmap.region_shapes(m, d)[0]
-        work.setdefault(sh.index, [tuple(t) for t in sh.triangles()]).extend(tris)
+        shs = mhmap.region_shapes(m, d)
+        if len(shs) == 1:
+            work.setdefault(shs[0].index, [tuple(t) for t in shs[0].triangles()]).extend(tris)
+            continue
+        # island region: shape 0 is what the game draws, the others are its click area (halo). New area goes into every shape that
+        # lacks it; it used to go only into the drawn one and the game showed it but could not select it (Mauritius, 2026-11-20)
+        new = unary_union([Polygon(t) for t in tris])
+        for sh in shs:
+            cur = work.setdefault(sh.index, [tuple(t) for t in sh.triangles()])
+            lack = new.difference(unary_union([Polygon(t) for t in cur if Polygon(t).area > EPS]))
+            cur.extend(tuple(map(tuple, q)) for g in getattr(lack, 'geoms', [lack]) if g.geom_type == 'Polygon' and g.area > EPS
+                       for q in triangulate(g))
     affected = (set(by_src) | set(incoming)) - {None}
 
     # ------------------------------------------------------------ meshes: exact vertices and no T-junctions

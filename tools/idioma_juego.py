@@ -35,10 +35,14 @@ def _read(root, sub):
         return None
 
 
+USER = r'Software\Muzzy Lane Software'      # the game reads HKCU\Software\Muzzy Lane Software\<key>\Locale first (GOLD_NOTAS.md)
+
+
 def current_language(game):
-    """What the game sees: VirtualStore first, then HKLM."""
+    """What the game sees: HKCU first, then VirtualStore, then HKLM."""
     name = KEYS[game]
-    return (_read(winreg.HKEY_CURRENT_USER, VSTORE + '\\' + name)
+    return (_read(winreg.HKEY_CURRENT_USER, USER + '\\' + name)
+            or _read(winreg.HKEY_CURRENT_USER, VSTORE + '\\' + name)
             or _read(winreg.HKEY_LOCAL_MACHINE, BASE + '\\' + name))
 
 
@@ -49,6 +53,8 @@ def set_language(game, lang):
     prev = current_language(game)
     with open(os.path.join(gamepaths.ROOT, 'backup_locale_%s.txt' % game), 'w') as f:
         f.write(str(prev))
+    with winreg.CreateKeyEx(winreg.HKEY_CURRENT_USER, USER + '\\' + name, 0, winreg.KEY_SET_VALUE) as k:   # the one the game reads first
+        winreg.SetValueEx(k, 'Locale', 0, winreg.REG_SZ, lang)
     try:  # with admin or after licencia_juego.py's permanent fix (no VirtualStore): HKLM is enough
         with winreg.CreateKeyEx(winreg.HKEY_LOCAL_MACHINE, BASE + '\\' + name, 0, winreg.KEY_SET_VALUE) as k:
             winreg.SetValueEx(k, 'Locale', 0, winreg.REG_SZ, lang)

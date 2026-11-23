@@ -54,15 +54,95 @@ def _retail(key):
     return [x for x in out if x]
 
 
+REG_KEYS = {'mh1': 'Making History 2.0', 'gold': 'Making History Gold'}
+
+
+def _registry(key):
+    """Install folders the game itself recorded: its Options/Output Files folders sit inside the install
+    (Gold, also without Steam); MH1 retail points them to ProgramData, which is then skipped by the caller."""
+    out = []
+    try:
+        import winreg
+    except ImportError:
+        return out
+    sub = r'Muzzy Lane Software' + '\\' + REG_KEYS[key]
+    for hive, base in ((winreg.HKEY_CURRENT_USER, r'Software'), (winreg.HKEY_LOCAL_MACHINE, r'SOFTWARE\WOW6432Node'),
+                       (winreg.HKEY_LOCAL_MACHINE, r'SOFTWARE'),
+                       (winreg.HKEY_CURRENT_USER, r'Software\Classes\VirtualStore\MACHINE\SOFTWARE\WOW6432Node')):
+        try:
+            with winreg.OpenKey(hive, base + '\\' + sub) as k:
+                for v in ('InstallPath', 'InstallDir', 'Path', 'OptionsDirectory', 'OutputFilesDirectory', 'PlayerProfilesDirectory'):
+                    try:
+                        p = os.path.normpath(winreg.QueryValueEx(k, v)[0].rstrip('\\/'))
+                    except OSError:
+                        continue
+                    out += [p, os.path.dirname(p)]
+        except OSError:
+            pass
+    return out
+
+
+def _drives():
+    import string
+    return [d + ':\\' for d in string.ascii_uppercase if os.path.isdir(d + ':\\')]
+
+
+def _drive_scan(key):
+    """Usual places on every drive (external disks included), with and without Steam."""
+    names = list(dict.fromkeys([FOLDERS[key]] + RETAIL[key]))
+    out = []
+    for d in _drives():
+        for lib in ('SteamLibrary', 'Steam', r'Program Files (x86)\Steam', r'Program Files\Steam', r'Games\Steam', r'Games\SteamLibrary'):
+            out.append(os.path.join(d, lib, 'steamapps', 'common', FOLDERS[key]))
+        for parent in ('', 'Games', 'Juegos', r'Program Files (x86)', 'Program Files', r'Program Files (x86)\Muzzy Lane Software',
+                       r'Program Files\Muzzy Lane Software', 'Muzzy Lane Software', r'Games\Muzzy Lane Software'):
+            out += [os.path.join(d, parent, n) for n in names]
+    return out
+
+
+def _ok(p):
+    return bool(p) and os.path.isdir(os.path.join(p, 'Modern Europe', 'system', 'scenarios'))
+
+
 def _find(key):
-    for lib in _steam_libraries():
-        p = os.path.join(lib, FOLDERS[key])
-        if os.path.isdir(os.path.join(p, 'Modern Europe')):
-            return p
-    for p in _retail(key):
-        if os.path.isdir(os.path.join(p, 'Modern Europe')):
-            return p
-    return os.path.join(r'C:\Program Files (x86)\Steam\steamapps\common', FOLDERS[key])   # no instalado
+    """The chosen folder (editor_juego.json), MH_GAME_*, Steam libraries, the game's registry entries, the Muzzy Lane
+    installer folders and, last, the usual folders on every drive."""
+    cands = [_saved_paths().get(key)] + [os.environ.get('MH_GAME_' + key.upper(), '')]
+    cands += [os.path.join(lib, FOLDERS[key]) for lib in _steam_libraries()] + _registry(key) + _retail(key)
+    for p in cands:
+        if _ok(p):
+            return os.path.normpath(p)
+    for p in _drive_scan(key):
+        if _ok(p):
+            return os.path.normpath(p)
+    return os.path.join(r'C:\Program Files (x86)\Steam\steamapps\common', FOLDERS[key])   # not installed
+
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+# data folder (projects, backups, logs): MH_ROOT if the MHEditor.exe executable defines it; otherwise making-history/
+ROOT = os.path.abspath(os.environ.get('MH_ROOT') or os.path.join(HERE, '..'))
+CHOICE = os.path.join(ROOT, 'editor_juego.json')
+
+
+def _choice_file():
+    try:
+        d = json.load(open(CHOICE))
+        return d if isinstance(d, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def _saved_paths():
+    return _choice_file().get('paths') or {}
+
+
+def _save_choice(**kw):
+    d = _choice_file()
+    d.update(kw)
+    try:
+        json.dump(d, open(CHOICE, 'w'))
+    except OSError:
+        pass
 
 
 STEAM = os.path.dirname(_find('mh1'))
@@ -70,11 +150,31 @@ GAMES = {
     'mh1': {'label': 'Making History: The Calm and The Storm (MH1)', 'short': 'MH1', 'path': _find('mh1')},
     'gold': {'label': 'Making History Gold', 'short': 'Gold', 'path': _find('gold')},
 }
-HERE = os.path.dirname(os.path.abspath(__file__))
-# data folder (projects, backups, logs): MH_ROOT if the MHEditor.exe executable defines it; otherwise making-history/
-ROOT = os.path.abspath(os.environ.get('MH_ROOT') or os.path.join(HERE, '..'))
-CHOICE = os.path.join(ROOT, 'editor_juego.json')
 CURRENT = ['mh1']
+
+
+def sww_path():
+    """Making History: The Second World War (MH2 engine, not an editor target, so not in GAMES): MH_GAME_SWW or the
+    Steam libraries."""
+    for p in [os.environ.get('MH_GAME_SWW', '')] + [os.path.join(lib, 'Making History SWW') for lib in _steam_libraries()]:
+        if p and os.path.isfile(os.path.join(p, 'MHSWW.exe')):
+            return os.path.normpath(p)
+    return None
+
+
+def set_path(key, folder):
+    """The user points to the game folder by hand (e.g. on an external disk). Accepts the install folder or its
+    «Modern Europe» subfolder; remembered in editor_juego.json."""
+    if key not in GAMES:
+        raise ValueError('juego desconocido: %s' % key)
+    p = os.path.normpath((folder or '').strip().strip('"'))
+    if os.path.basename(p).lower() == 'modern europe':
+        p = os.path.dirname(p)
+    if not _ok(p):
+        raise ValueError('esa carpeta no tiene Modern Europe\\system\\scenarios: %s' % p)
+    GAMES[key]['path'] = p
+    _save_choice(paths={**_saved_paths(), key: p})
+    return info()
 
 
 def installed(key):
@@ -165,12 +265,9 @@ def info():
 
 
 def load_choice():
-    try:
-        k = json.load(open(CHOICE)).get('game')
-        if k in GAMES and installed(k):
-            return k
-    except (OSError, ValueError):
-        pass
+    k = _choice_file().get('game')
+    if k in GAMES and installed(k):
+        return k
     return 'mh1'
 
 
@@ -197,8 +294,5 @@ def select(key, remember=True):
     if 'image_tools' in sys.modules:
         sys.modules['image_tools'].CONTENT_UI = os.path.join(g, 'Modern Europe', 'system', 'UI')
     if remember:
-        try:
-            json.dump({'game': key}, open(CHOICE, 'w'))
-        except OSError:
-            pass
+        _save_choice(game=key)      # keeps the folders chosen by hand
     return key

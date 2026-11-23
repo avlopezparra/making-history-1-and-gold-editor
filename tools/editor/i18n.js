@@ -278,7 +278,7 @@
     else { Object.assign(sel.style, { position: 'fixed', right: '8px', bottom: '8px', zIndex: 9999 }); document.body.appendChild(sel); }
   }
   // credits, Discord (news and updates) and where to report bugs
-  const VERSION = '3.9';
+  const VERSION = '4.0';
   const DISCORD = 'https://discord.com/invite/gFJyCjWEnr', BUGS = 'alopezcl@protonmail.com',
     UPDATES = 'https://github.com/avlopezparra/making-history-1-and-gold-editor/releases/', HUB = 'https://gamebanana.com/games/6530';
   // separate «Join Discord» button, in Discord purple

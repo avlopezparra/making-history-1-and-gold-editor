@@ -27,6 +27,16 @@ def same(a, b):
     return os.path.exists(a) and os.path.exists(b) and open(a, 'rb').read() == open(b, 'rb').read()
 
 
+def _block_share(a, b):
+    """Share of 16-byte DXT5 blocks that differ between two textures of the same size."""
+    x, y = open(a, 'rb').read(), open(b, 'rb').read()
+    if len(x) != len(y):
+        return 1.0
+    import numpy as np
+    bx, by = (np.frombuffer(v, np.uint8)[:len(v) // 16 * 16].reshape(-1, 16) for v in (x, y))
+    return float((bx != by).any(1).mean()) if len(bx) else 0.0
+
+
 def port_pack(pack, src, dst, out_name=None, log=print):
     sp = os.path.join(gamepaths.maps_dir(src), pack)
     sw = os.path.join(gamepaths.maps_dir(src), 'World')
@@ -48,8 +58,18 @@ def port_pack(pack, src, dst, out_name=None, log=print):
     pf = 'properties.xml'
     use_dst = same(os.path.join(sp, 'xml', pf), os.path.join(sw, 'xml', pf))
     shutil.copy2(os.path.join(dw if use_dst else sp, 'xml', pf), os.path.join(out, 'xml', pf))
-    if os.path.exists(os.path.join(sp, 'changelog.json')):
-        shutil.copy2(os.path.join(sp, 'changelog.json'), os.path.join(out, 'changelog.json'))
+    for f in ('changelog.json', 'proyeccion.json'):      # proyeccion.json: «Adecuar» needs it to project positions
+        if os.path.exists(os.path.join(sp, f)):
+            shutil.copy2(os.path.join(sp, f), os.path.join(out, f))
+    mm = os.path.join('art', 'MiniMap.tga')
+    if os.path.exists(os.path.join(sp, mm)) and not same(os.path.join(sp, mm), os.path.join(sw, mm)):
+        shutil.copy2(os.path.join(sp, mm), os.path.join(out, mm))     # the pack's own minimap (same format in both games)
+    # a texture that is the pack's own background (almost every block differs from vanilla) is copied as is: the colour
+    # model of port_tiles is for retouches painted on the vanilla terrain (and with a whole new world it runs out of memory)
+    own = [n for n in changed if _block_share(os.path.join(ot(sp), n), vanilla(n)) > 0.9]
+    for n in own:
+        shutil.copy2(os.path.join(ot(sp), n), os.path.join(ot(out), n))
+    changed = [n for n in changed if n not in set(own)]
     if changed:
         with tempfile.TemporaryDirectory() as tmp:
             o, m = os.path.join(tmp, 'orig'), os.path.join(tmp, 'mod')
@@ -60,7 +80,7 @@ def port_pack(pack, src, dst, out_name=None, log=print):
                 shutil.copy2(os.path.join(ot(sp), n), os.path.join(m, n))
             port_tiles.port(o, m, ot(dw), ot(out), log=lambda *a: None)
     log('creado %s (properties.xml de %s)' % (out, gamepaths.GAMES[dst if use_dst else src]['short']))
-    return {'regionpack': out, 'texturas_trasladadas': len(changed)}
+    return {'regionpack': out, 'texturas_trasladadas': len(changed), 'texturas_copiadas': len(own)}
 
 
 if __name__ == '__main__':

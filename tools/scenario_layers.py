@@ -9,6 +9,7 @@
   between replacing the defaults (affects everyone using them) or saving as a new independent scenario.
 - ai_summary: how a country's AI reacts (diplomacy, treaties and events with their probability).
 """
+import copy
 import json
 import math
 import os
@@ -555,7 +556,7 @@ def create_wars(s, attacker, defenders, name=None):
     names that alliance: with the field empty the engine deletes the war on load («had alliance facade … lone country»)."""
     st = s.s
     wars = s.all('War')
-    mgr = st.parent[wars[0]] if wars else (st.parent[s.all('Alliance')[0]] if s.all('Alliance') else None)
+    mgr = st.parent[wars[0]] if wars else (st.parent[s.all('Alliance')[0]] if s.all('Alliance') else next(iter(s.all('AllianceManager')), None))
     if mgr is None:
         raise ValueError('no encuentro dónde van las guerras (AllianceManager de gamestate.xml)')
     notes = []
@@ -708,6 +709,21 @@ def set_playable(s, countries):
         w = ET.Element('object', {'type': 'WrappedString', 'name': 'objPlayableCountries'})
         ET.SubElement(w, 'property', {'name': 'strString', 'value': name})
         st.attach(w, info)
+    # the game also reads it from the nation itself (MECountry eCountryType + bNonPlayable) and its Player in gamestate.xml:
+    # with only scenarioInfo changed, a FEATURED nation could be picked but stayed out of the in-game score list
+    want = set(countries)
+    for name, c in s.countries().items():
+        on = name in want
+        typ = prop(c, 'eCountryType')
+        if on and typ != 'COUNTRYTYPE_PLAYABLE':
+            st.set_prop(c, 'eCountryType', 'COUNTRYTYPE_PLAYABLE')
+        elif not on and typ == 'COUNTRYTYPE_PLAYABLE':
+            st.set_prop(c, 'eCountryType', 'COUNTRYTYPE_FEATURED')
+        if prop(c, 'bNonPlayable') != ('false' if on else 'true'):
+            st.set_prop(c, 'bNonPlayable', 'false' if on else 'true')
+    for p in s.all('Player'):
+        if prop(p, 'strName') in s.countries() and prop(p, 'bNonPlayable') != ('false' if prop(p, 'strName') in want else 'true'):
+            st.set_prop(p, 'bNonPlayable', 'false' if prop(p, 'strName') in want else 'true')
     return ['%d países jugables' % len(countries)]
 
 
@@ -1619,7 +1635,44 @@ def region_point(s, region):
         raise ValueError('no puedo situar el punto en %s: %s; indica la posición' % (region, e))
     if g is None:
         raise ValueError('la región %s no está en el mapa del regionpack: indica la posición' % region)
-    return random_point_in(g, region)
+    taken = [sc.parse_vec(prop(e, 'vecPosition'))[:2] for t in ('City', 'Producer', 'Army', 'AirForce', 'Fleet')
+             for e in s.all(t) if prop(e, 'vecPosition')]
+    return free_point_in(g, taken, region)
+
+
+def unit_position(s, region):
+    """vecPosition for a new army / air force / fleet: a free spot of its region (not on a city, resource or another unit).
+    Without one the game draws the unit on the region's city. None if the regionpack has no shape for the region."""
+    try:
+        return _vec(*region_point(s, region))
+    except ValueError:
+        return None
+
+
+def free_point_in(geom, taken, seed=None, tries=300):
+    """Point inside the geometry as far as possible from the 'taken' points (cities, resources) and a bit away from the edge.
+    The plain seeded random point was the same for every object of a region, so new resources landed on its city."""
+    import math
+    import random
+    from shapely.geometry import Point
+    x0, y0, x1, y1 = geom.bounds
+    inner = geom.buffer(-min(0.5, 0.1 * min(x1 - x0, y1 - y0)))
+    inner = geom if inner.is_empty else inner
+    m = max(x1 - x0, y1 - y0)
+    near = [q for q in taken if x0 - m <= q[0] <= x1 + m and y0 - m <= q[1] <= y1 + m]
+    rnd = random.Random(seed)
+    ix0, iy0, ix1, iy1 = inner.bounds
+    best = None
+    for _ in range(tries):
+        p = (rnd.uniform(ix0, ix1), rnd.uniform(iy0, iy1))
+        if not inner.contains(Point(p)):
+            continue
+        d = min((math.dist(p, q) for q in near), default=float('inf'))
+        if best is None or d > best[0]:
+            best = (d, p)
+        if not near:
+            break
+    return best[1] if best else random_point_in(geom, seed)
 
 
 def random_point_in(geom, seed=None):
@@ -1776,8 +1829,9 @@ def create_army(s, owner, name, region, units):
     if any(prop(a, 'strName') == name and prop(a, 'strOwner') == owner for a in s.all('Army')):
         raise ValueError('%s ya tiene un ejército llamado %s' % (owner, name))
     el = ET.Element('object', {'type': 'Army', 'name': 'objGOs'})
-    for k, v in (('strName', name), ('strOwner', owner), ('strRegion', region)):
-        ET.SubElement(el, 'property', {'name': k, 'value': v})
+    for k, v in (('strName', name), ('strOwner', owner), ('vecPosition', unit_position(s, region)), ('strRegion', region)):
+        if v:
+            ET.SubElement(el, 'property', {'name': k, 'value': v})
     for u in units:
         o = ET.SubElement(el, 'object', {'type': 'UnitSummary', 'name': 'objUnits'})
         ET.SubElement(o, 'property', {'name': 'strName', 'value': u['type']})
@@ -2026,6 +2080,12 @@ def delete_country(s, name, dest=None):
     for h in list(s.all('HistoricCountry')):
         if prop(h, 'strCountry') == name:
             st.remove(h)
+    # other countries' AI reactions to it and starting relations with it (the validator flags them as naming a missing country)
+    for t, k in (('TriggerCountry', 'strName'), ('DipRelInitialValue', 'strTargetCountry')):
+        for o in list(s.all(t)):
+            if prop(o, k) == name:
+                st.remove(o)
+    notes += remove_skin(s, name)
     for ev in list(s.all('ScriptedEventDef')):
         if any(o.get('type') == 'PlayerGenNames' and prop(o, 'strName') == name for o in objs(ev)):
             st.remove(ev)
@@ -2042,6 +2102,101 @@ def delete_country(s, name, dest=None):
     s._opts = None
     notes.append('%s eliminado del escenario (sus archivos ya no se cargan)' % name)
     return notes
+
+
+# ------------------------------------------------------------------ troop skins (3D unit models per country)
+SKIN_FILES = {'land': 'MKDTableCountryAliasesLand.xml', 'air': 'MKDTableCountryAliasesAir.xml'}
+
+
+def _skin_nodes(s, kind):
+    """{country: MKDNode} of the scenario's own CountryAliases<kind> table (shared ScenarioDefaults files are not touched)."""
+    ext = set(getattr(s, 'external', []))
+    return {prop(e, 'strKey'): e for e in s.model_nodes(SKIN_FILES[kind]) if prop(e, 'strKey') and s.s.doc_of[e] not in ext}
+
+
+def _skin_default(s, kind):
+    ext = set(getattr(s, 'external', []))
+    return next((e for e in s.model_nodes(SKIN_FILES[kind]) if not prop(e, 'strKey') and s.s.doc_of[e] not in ext), None)
+
+
+def _aliases(node):
+    return [(prop(a, 'strKey'), next((prop(r, 'strSpriteName') for r in objs(a) if r.get('type') == 'SpriteRefName'), None), a)
+            for a in objs(node) if a.get('type') == 'MKDNode']
+
+
+def country_skins(s, country):
+    """For the nation panel: per kind, whether the scenario has the table, the country's aliases (own or the default ones) and the
+    sprite names the table already uses, plus which countries have their own node."""
+    out = {}
+    for kind in SKIN_FILES:
+        nodes, default = _skin_nodes(s, kind), _skin_default(s, kind)
+        if not nodes and default is None:
+            out[kind] = None
+            continue
+        own = nodes.get(country)
+        sprites = sorted({sp for n in list(nodes.values()) + [default] if n is not None for _, sp, _ in _aliases(n) if sp})
+        out[kind] = {'own': own is not None, 'countries': sorted(nodes),
+                     'aliases': [{'alias': a, 'sprite': sp} for a, sp, _ in _aliases(own if own is not None else default) if a],
+                     'sprites': sprites}
+    return out
+
+
+def copy_skin(s, target, source, kinds=('land', 'air')):
+    """The target country uses the same unit models as 'source': copy of its node (replaces the target's own one)."""
+    st, notes = s.s, []
+    if target == source:
+        return notes
+    for kind in kinds:
+        nodes = _skin_nodes(s, kind)
+        if source not in nodes:
+            notes.append(SKIN_NOTES[kind][0] % (source, target))
+            continue
+        if target in nodes:
+            st.remove(nodes[target])
+        e = copy.deepcopy(nodes[source])
+        for p in e:
+            if p.tag == 'property' and p.get('name') == 'strKey':
+                p.set('value', target)
+        par = st.parent[nodes[source]]
+        st.attach(e, par, index=list(par).index(nodes[source]) + 1)
+        notes.append(SKIN_NOTES[kind][1] % (target, source))
+    return notes
+
+
+def set_skin_sprite(s, country, kind, alias, sprite):
+    """One alias of the country uses another sprite; a country without its own node gets a copy of the default one first."""
+    st = s.s
+    node = _skin_nodes(s, kind).get(country)
+    if node is None:
+        default = _skin_default(s, kind)
+        if default is None:
+            raise ValueError('el escenario no tiene su propia tabla %s' % SKIN_FILES[kind])
+        node = copy.deepcopy(default)
+        node.set('name', 'objNodes')
+        node.insert(0, ET.Element('property', {'name': 'strKey', 'value': country}))
+        st.attach(node, st.parent[default])
+    hit = next((a for a in _aliases(node) if a[0] == alias), None)
+    if hit is None:
+        raise ValueError('%s no tiene la unidad «%s»' % (country, alias))
+    ref = next(r for r in objs(hit[2]) if r.get('type') == 'SpriteRefName')
+    st.set_prop(ref, 'strSpriteName', sprite)
+    return ['%s: %s → %s' % (country, alias, sprite)]
+
+
+def remove_skin(s, country):
+    notes = []
+    for kind in SKIN_FILES:
+        node = _skin_nodes(s, kind).get(country)
+        if node is not None:
+            s.s.remove(node)
+            notes.append(SKIN_NOTES[kind][2] % country)
+    return notes
+
+
+SKIN_NOTES = {'land': ('%s no tiene modelos de tierra propios: %s se queda como estaba', '%s usa los modelos de tierra de %s',
+                       'modelos de tierra de %s: quitados'),
+              'air': ('%s no tiene modelos de aire propios: %s se queda como estaba', '%s usa los modelos de aire de %s',
+                      'modelos de aire de %s: quitados')}
 
 
 def make_surrendered(s, name, capital, dest=None):

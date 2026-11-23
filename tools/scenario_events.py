@@ -744,7 +744,8 @@ def _action(spec, owner):
                 [a, b], [], [_not_at_war_set(a, b)], '%s declares war on %s' % (a, b))
     if k in ('embargo', 'lift'):
         rel = 'TRADE_RELATIONS_EMBARGOED' if k == 'embargo' else 'TRADE_RELATIONS_NEUTRAL'
-        return ('<object type="ActSetTradeRelations" name="objActions"><property name="strCountry" value="%s"/><property name="eTradeRelations" value="%s"/></object>' % (_x(g('to')), rel),
+        # strPlayer = who embargoes: without it «CActSetTradeRelations::Execute - Couldn't find ID of player country» (1121, turn 2 lock)
+        return ('<object type="ActSetTradeRelations" name="objActions"><property name="strPlayer" value="%s"/><property name="strCountry" value="%s"/><property name="eTradeRelations" value="%s"/></object>' % (_x(owner), _x(g('to')), rel),
                 [g('to')], [], [], '%s %s %s' % (owner, 'embargoes' if k == 'embargo' else 'resumes trade with', g('to')))
     if k == 'gov':
         if not g('gov'):
@@ -787,12 +788,11 @@ def _action(spec, owner):
             raise ValueError('elige la bandera')
         return ('<object type="ActSetCountryFlagName" name="objActions"><property name="strCountryName" value="%s"/><property name="strFlagName" value="%s"/></object>' % (_x(g('country', owner)), _x(g('flag'))),
                 [g('country', owner)], [], [], '%s changes its flag' % g('country', owner))
-    if k == 'regname':
-        r, sid = g('region'), g('sid')
-        if not r or not sid:
-            raise ValueError('elige la región y el texto')
-        return ('<object type="ActAlterProperty" name="objActions"><property name="nGOID" inheritFrom="{Object:Single:Region}scratch.objRegion%s.nGameObject"/>'
-                '<property name="strPropName" value="sidName"/><property name="strNewValue" value="%s"/></object>' % (_w(r), _x(sid)), [], [r], [], '%s is renamed' % r)
+    if k in ('regname', 'culture'):
+        # ActAlterProperty(Immed) on a region in an event: «Can't find player while executing ActAlterProperty», the choice is
+        # rejected and the window can't be closed (1121 Malvinas). Refused until a working action is found.
+        raise ValueError('el juego no permite cambiar el nombre visible ni la cultura de una región desde un evento: la elección falla '
+                         'y la ventana no se puede cerrar')
     if k in ('transfer', 'control'):
         to, frm, r = g('to', owner), g('from'), g('region')
         if r:
@@ -879,11 +879,6 @@ def _action(spec, owner):
         return ('<object type="ActIncDipRelations" name="objActions"><property name="nSourceCountryID" inheritFrom="{Object:Single:Country}scratch.objCountry%s.nCountryID"/>'
                 '<property name="nTargetCountryID" inheritFrom="{Object:Single:Country}scratch.objCountry%s.nCountryID"/><property name="nAmount" value="%d"/></object>' % (_w(a), _w(b), int(g('amount', 100))),
                 [a, b], [], [], 'Relations %s - %s change' % (a, b))
-    if k == 'culture':
-        regs = [r for r in (spec.get('regions') or []) if r]
-        xml = ''.join('<object type="ActAlterProperty" name="objActions"><property name="nGOID" inheritFrom="{Object:Single:Region}scratch.objRegion%s.nGameObject"/>'
-                      '<property name="strPropName" value="strCulture"/><property name="strNewValue" value="%s"/></object>' % (_w(r), _x(g('culture'))) for r in regs)
-        return xml, [], regs, [], '%s now have %s culture' % (', '.join(regs), g('culture'))
     if k == 'none':
         return '', [], [], [], ''
     raise ValueError('efecto desconocido: %s' % k)
@@ -1499,6 +1494,48 @@ def triggers(s, country):
              'active': prop(t, 'bActive') != 'false'} for t in objs(c) if t.get('type') == 'TriggerCountry']
 
 
+def triggers_all(s):
+    """Every reaction of the scenario, for the «Reacciones (guerra / embargo)» tab: who reacts, to which country, how likely."""
+    out = []
+    for c, ce in sorted(s.countries().items()):
+        for t in triggers(s, c):
+            t['owner'] = c
+            t['text'] = _trigger_text(c, t)
+            out.append(t)
+    return out
+
+
+def triggers_bulk(s, ids, war=None, embargo=None, delete=False):
+    """Changes many reactions at once. war / embargo: {'mode': 'set' | 'scale' (percent) | 'cap' | 'add', 'value': n};
+    the result is kept in 0–100 (rounded to whole numbers). delete=True removes them."""
+    st = s.s
+    els = [st.get(int(i)) for i in ids]
+    if any(e is None or e.get('type') != 'TriggerCountry' for e in els):
+        raise ValueError('alguna reacción ya no existe: recarga la pestaña')
+    if delete:
+        for e in els:
+            st.remove(e)
+        return ['%d reacción(es) quitada(s)' % len(els)]
+
+    def calc(old, how):
+        v = float(how.get('value') or 0)
+        m = how.get('mode')
+        new = {'set': v, 'scale': old * v / 100.0, 'cap': min(old, v), 'add': old + v}.get(m)
+        if new is None:
+            raise ValueError('modo desconocido: %s' % m)
+        return max(0, min(100, int(round(new))))
+    changed = 0
+    for e in els:
+        for key, how in (('nWarSensitivity', war), ('nEmbargoSensitivity', embargo)):
+            if how:
+                old = int(prop(e, key) or 0)
+                new = calc(old, how)
+                if new != old:
+                    st.set_prop(e, key, str(new))
+                    changed += 1
+    return ['%d reacción(es) revisada(s), %d valor(es) cambiado(s)' % (len(els), changed)]
+
+
 def _trigger_text(me, t):
     who = '%s es invadido%s' % (t['country'], ' en las regiones de «%s»' % t['region_list'] if t['region_list'] else '') if t['type'] == 'invasion' \
         else '%s entra en guerra' % t['country']
@@ -1555,6 +1592,75 @@ def cultures(s):
     return [{'id': s.s.eid(t), 'name': prop(t, 'strCultureName'), 'display': _string(s, prop(t, 'sidDisplayName') or '') or '',
              'regions': used.get(prop(t, 'strCultureName'), 0), 'nations': sorted(nat.get(prop(t, 'strCultureName'), [])),
              'file': os.path.basename(s.s.doc_of[t]), 'shared': s.s.doc_of[t] in getattr(s, 'external', [])} for t in s.all('CultureTemplate')]
+
+
+def country_cultures_set(s, country, names):
+    """The nation's culture set (CultureSet objCultureSet > Culture objCultures strCultureName), as in the official
+    editor's nation dialog. names: the cultures it keeps, at least one, all existing CultureTemplates."""
+    st = s.s
+    c = s.countries().get(country)
+    if c is None:
+        raise ValueError('no existe la nación %s' % country)
+    names = list(dict.fromkeys(n.strip() for n in names if n and n.strip()))
+    known = {prop(t, 'strCultureName') for t in s.all('CultureTemplate')}
+    if not names:
+        raise ValueError('una nación necesita al menos una cultura')
+    bad = [n for n in names if n not in known]
+    if bad:
+        raise ValueError('no existe la cultura: %s' % ', '.join(bad))
+    cs = next((x for x in objs(c) if x.get('type') == 'CultureSet'), None)
+    if cs is None:
+        cs = ET.fromstring('<object type="CultureSet" name="objCultureSet"/>')
+        st.attach(cs, c)
+    old = [prop(k, 'strCultureName') for k in objs(cs)]
+    for k in list(objs(cs)):
+        if prop(k, 'strCultureName') not in names:
+            st.remove(k)
+    for n in names:
+        if n not in old:
+            st.attach(ET.fromstring('<object type="Culture" name="objCultures"><property name="strCultureName" value="%s"/></object>' % _x(n)), cs)
+    return ['%s: culturas %s' % (country, ', '.join(names))]
+
+
+STOCK_RESOURCES = {'Coal': 'Coal', 'Oil': 'Oil', 'Metals': 'Metals', 'Food': 'Food', 'Armaments': 'Arms', 'Consumer': 'Goods'}   # name -> SID suffix
+
+
+def country_stockpile(s, country):
+    """Starting stockpile of a nation (Resource objResources: strName, nAmount), as the official editor's «Stockpiles»."""
+    c = s.countries().get(country)
+    if c is None:
+        raise ValueError('no existe la nación %s' % country)
+    have = {prop(r, 'strName'): int(prop(r, 'nAmount') or 0) for r in objs(c) if r.get('type') == 'Resource'}
+    return [{'resource': n, 'amount': have.get(n)} for n in list(STOCK_RESOURCES) + [n for n in have if n not in STOCK_RESOURCES]]
+
+
+def country_stockpile_set(s, country, amounts):
+    """amounts: {resource: amount or None}. None/'' removes it; a number sets or adds it (amount ≥ 0)."""
+    st = s.s
+    c = s.countries().get(country)
+    if c is None:
+        raise ValueError('no existe la nación %s' % country)
+    rs = {prop(r, 'strName'): r for r in objs(c) if r.get('type') == 'Resource'}
+    notes = []
+    for name, v in amounts.items():
+        if v in (None, ''):
+            if name in rs:
+                st.remove(rs[name])
+                notes.append('%s: sin %s' % (country, name))
+            continue
+        v = int(v)
+        if v < 0:
+            raise ValueError('cantidad negativa: %s' % name)
+        if name in rs:
+            if str(v) != prop(rs[name], 'nAmount'):
+                st.set_prop(rs[name], 'nAmount', str(v))
+                notes.append('%s: %s %d' % (country, name, v))
+        else:
+            sid = 'SID.Game.Resource.Name.' + STOCK_RESOURCES.get(name, re.sub(r'[^A-Za-z0-9]', '', name))
+            st.attach(ET.fromstring('<object type="Resource" name="objResources"><property name="strName" value="%s"/>'
+                                    '<property name="sidDisplayName" value="%s"/><property name="nAmount" value="%d"/></object>' % (_x(name), sid, v)), c)
+            notes.append('%s: %s %d' % (country, name, v))
+    return notes or ['%s: sin cambios' % country]
 
 
 def culture_create(s, name, display=None):

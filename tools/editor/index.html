@@ -141,7 +141,7 @@
       <button class="tool" id="validateBtn" title="Lista de todo lo que impediría guardar o daría problemas (mallas rotas, nombres repetidos, mares mal marcados, escenarios sin cuadrar), para copiarla de una vez"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3 8-8"/><path d="M20 12v7a2 2 0 01-2 2H6a2 2 0 01-2-2V5a2 2 0 012-2h9"/></svg>Validar</button>
       <button class="tool" id="bgRestore" title="Restaurar el fondo del mapa desde el World original donde no hay una frontera dibujada (quita las huellas de líneas borradas); se puede deshacer con «Volver»"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 15l5-5 4 4 3-3 6 6"/><circle cx="16" cy="9" r="1.5"/></svg>Restaurar fondo</button>
       <button class="tool" id="bgRedraw" title="Vuelve a pintar en el fondo las líneas de todas las fronteras según los polígonos de las regiones (sin líneas pegadas a la costa de las islas). Con una región seleccionada, se puede redibujar solo ella. Escribe en el proyecto; al juego llega con Guardar/Instalar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 20l4-1 11-11-3-3L5 16z"/><path d="M3 6h6M3 10h3"/></svg>Redibujar fronteras</button>
-      <label class="tool" title="Estilo de las líneas que pinta «Redibujar fronteras». Queda en el changelog del regionpack y lo usan también los guardados siguientes"><select id="bgStyle"><option value="mh1">Fronteras MH1 (original)</option><option value="mh2">Fronteras MH2 (finas, como el fondo de Making History II)</option></select></label>
+      <label class="tool" title="Estilo de las líneas que pinta «Redibujar fronteras». Queda en el changelog del regionpack y lo usan también los guardados siguientes"><select id="bgStyle"><option value="mh1">Fronteras MH1</option><option value="mh2">Fronteras MH2</option></select></label>
       <a class="tool" href="/scenario" target="_blank" title="Editor de escenarios (como ed.exe)" style="text-decoration:none"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16v16H4zM4 9h16M9 9v11"/></svg>Escenarios</a>
       <a class="tool" href="/modelos" target="_blank" title="Visor y editor de modelos 3D (.nif)" style="text-decoration:none"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l9 5v10l-9 5-9-5V7zM12 12l9-5M12 12v10M12 12L3 7"/></svg>Modelos 3D</a>
       <button class="tool" id="packCopy" title="Guardar como…: duplicar el regionpack con otro nombre sin tocar el original (copia de seguridad) y, si quieres, hacer que los escenarios la usen"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="8" y="8" width="13" height="13" rx="2"/><path d="M16 8V5a2 2 0 00-2-2H5a2 2 0 00-2 2v9a2 2 0 002 2h3"/></svg>Guardar como…</button>
@@ -1331,6 +1331,8 @@ function showInfo() {
         <label style="display:block;margin:4px 0" title="Marcado: el área sumada también ocupa los espacios vacíos (sin región) que haya debajo"><input type="checkbox" id="advFillEmpty"> Rellenar espacios vacíos</label>
         <button type="button" id="advAdd" title="Suma a esta región el área de los contornos de un GeoJSON (se la quita a las regiones que ocupaban esa zona)">＋ Sumar área desde GeoJSON…</button>
         <button type="button" id="advSub" title="Resta a esta región el área de los contornos de un GeoJSON; luego se pregunta si queda vacía, pasa a otra región o se crea una región nueva">－ Restar área desde GeoJSON…</button>
+        <button type="button" id="advAddOsm" title="Suma a esta región el área de una relación de OpenStreetMap (su id o enlace)">＋ Sumar área desde relación OSM…</button>
+        <button type="button" id="advSubOsm" title="Resta a esta región el área de una relación de OpenStreetMap (su id o enlace)">－ Restar área desde relación OSM…</button>
         <input type="file" id="advFileAdd" accept=".geojson,.json,.kml,.kmz" hidden><input type="file" id="advFileSub" accept=".geojson,.json,.kml,.kmz" hidden></div>
     </details>`;
   if (p.sea) canalBox(R);
@@ -1712,10 +1714,24 @@ function advPanel(R) {
   };
   $('#advApply').onclick = () => { try { setGeometry(R, JSON.parse($('#advJson').value)); } catch (e) { status('JSON no válido: ' + e.message); } };
   // add / subtract area with a GeoJSON (each outline is one operation; applied on «Guardar»)
-  const areaOp = mode => async e => {
-    const f = e.target.files[0]; if (!f) return; e.target.value = '';
-    let shapes; try { shapes = geojsonShapes(await geoRead(f)); } catch (err) { return status('GeoJSON no válido: ' + err.message); }
-    await gjNormalize(shapes); shapes = shapes.filter(s => s.geometry);
+  // osm: an OpenStreetMap relation id (or link) instead of a file; simplified like «Importar GeoJSON» does (≤ 0.005°, 1/400 of its size)
+  const areaOp = (mode, osm) => async e => {
+    let shapes, tol = 0;
+    if (osm) {
+      const ids = prompt('Id de la relación de OpenStreetMap (número, r12345 o el enlace de openstreetmap.org):'); if (!ids) return;
+      status('Descargando de OpenStreetMap…');
+      let r; try { r = await (await fetch('/api/geojson/osm', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids, lang: window.MH_LANG ? MH_LANG() : 'es' }) })).json(); }
+      catch (err) { r = { error: 'el editor no responde' }; }
+      const errs = r.error ? [r.error] : r.errors || [];
+      if (!(r.features || []).length) return status(errs.join(' · ') || 'OpenStreetMap no devolvió contornos');
+      shapes = geojsonShapes(r);
+      const size = f => { let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity; JSON.stringify(f.geometry.coordinates, (k, v) => { if (Array.isArray(v) && typeof v[0] === 'number') { x0 = Math.min(x0, v[0]); x1 = Math.max(x1, v[0]); y0 = Math.min(y0, v[1]); y1 = Math.max(y1, v[1]); } return v; }); return Math.hypot(x1 - x0, y1 - y0); };
+      tol = Math.min(0.005, +(Math.min(...r.features.map(size)) / 400).toPrecision(1));
+    } else {
+      const f = e.target.files[0]; if (!f) return; e.target.value = '';
+      try { shapes = geojsonShapes(await geoRead(f)); } catch (err) { return status('GeoJSON no válido: ' + err.message); }
+    }
+    await gjNormalize(shapes, tol); shapes = shapes.filter(s => s.geometry);
     if (!shapes.length) return status('El GeoJSON no tiene contornos (Polygon o MultiPolygon)');
     if (S.view !== 'shape') { setView('shape'); if (S.view !== 'shape') return status('Para sumar o restar área hay que activar «Editar forma»'); }
     if (!R.props.editable) return status(`«${R.props.name}» no se puede editar: ${R.props.invalid}`);
@@ -1735,6 +1751,7 @@ function advPanel(R) {
   };
   $('#advAdd').onclick = () => $('#advFileAdd').click(); $('#advFileAdd').onchange = areaOp('add');
   $('#advSub').onclick = () => $('#advFileSub').click(); $('#advFileSub').onchange = areaOp('sub');
+  $('#advAddOsm').onclick = areaOp('add', true); $('#advSubOsm').onclick = areaOp('sub', true);
   $('#advImport').onclick = () => $('#advFile').click();
   $('#advFile').onchange = async e => {
     const f = e.target.files[0]; if (!f) return; e.target.value = '';
@@ -2261,9 +2278,18 @@ $('#validateBtn').onclick = async () => {
   const esc_ = t => String(t).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   const col = l => l === 'error' ? '#dc2626' : '#d97706';
   $('#valList').innerHTML = groups.size ? [...groups.values()].map(g => `<div style="padding:6px 2px;border-bottom:1px solid var(--line);font-size:13px">
-      <b style="color:${col(g.level)}">${g.level}</b> ${esc_(g.msg)}${g.regions.length > 1 ? ` <span class="muted">(${g.regions.length})</span>` : ''}${g.fix && g.fix.gaps_pair ? ` <button type="button" data-valfix="${g.fix.gaps_pair.join(',')}" title="Suma esas rendijas a la región vecina con más borde (se aplica al «Guardar»)">Cerrar huecos con la vecina</button>` : ''}
+      <b style="color:${col(g.level)}">${g.level}</b> ${esc_(g.msg)}${g.regions.length > 1 ? ` <span class="muted">(${g.regions.length})</span>` : ''}${g.fix && g.fix.gaps_pair ? ` <button type="button" data-valfix="${g.fix.gaps_pair.join(',')}" title="Suma esas rendijas a la región vecina con más borde (se aplica al «Guardar»)">Cerrar huecos con la vecina</button>` : ''}${g.fix && g.fix.click_area != null ? ` <button type="button" data-valclick="${g.fix.click_area}" title="Añade esa área a la zona de clic de la región y guarda el mapa">Hacerla seleccionable</button>` : ''}
       ${g.regions.length ? `<div style="margin-top:3px;display:flex;flex-wrap:wrap;gap:4px">${g.regions.map(n => `<a href="#" data-valreg="${esc_(n)}" style="padding:1px 6px;border:1px solid var(--line);border-radius:10px;text-decoration:none;color:inherit">${esc_(n)}</a>`).join('')}</div>` : ''}</div>`).join('')
     : '<div style="padding:8px 2px">Sin problemas.</div>';
+  $('#valList').querySelectorAll('[data-valclick]').forEach(b => b.onclick = async () => {
+    $('#valDlg').close();
+    if (S.ops.length) return alert('Guarda o descarta primero los cambios pendientes.');
+    report('Guardando… (unos segundos)');
+    const r = await (await fetch('/api/save', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pack: S.editPack, modified: {}, assigns: [], click_fix: [+b.dataset.valclick], topo: true, paint: false }) })).json().catch(e => ({ errors: [String(e)] }));
+    if (r.errors && r.errors.length) { report(r.errors.join(String.fromCharCode(10)), 'err'); return alert('No se guardó: ' + r.errors.join(String.fromCharCode(10))); }
+    report('Zona de clic ampliada. Falta «Instalar» para que llegue al juego.', 'ok'); await reloadAll();
+  });
   $('#valList').querySelectorAll('[data-valfix]').forEach(b => b.onclick = () => { $('#valDlg').close(); closeGaps(b.dataset.valfix.split(',').map(Number)); });
   $('#valList').querySelectorAll('[data-valreg]').forEach(a => a.onclick = ev => {   // go to the region
     ev.preventDefault(); $('#valDlg').close(); $('#search').value = a.dataset.valreg; $('#search').dispatchEvent(new Event('change'));
@@ -2825,9 +2851,20 @@ document.getElementById('instGo').onclick = async () => {
 // game (MH1 / Gold): each game has its own map project (editor_proyecto / editor_proyecto_gold)
 (async () => {
   const sel = document.getElementById('gameSel'), info = await (await fetch('/api/game')).json();
-  sel.innerHTML = info.games.map(g => `<option value="${g.key}"${g.installed ? '' : ' disabled'}>${g.short}${g.installed ? '' : ' (no instalado)'}</option>`).join('');
+  sel.innerHTML = info.games.map(g => `<option value="${g.key}"${g.installed ? '' : ' disabled'}>${g.short}${g.installed ? '' : ' (no instalado)'}</option>`).join('')
+    + info.games.map(g => `<option value="path:${g.key}">Carpeta de ${g.short}…</option>`).join('');
   sel.value = info.current; sel.title = info.games.find(g => g.key === info.current).path;
   sel.onchange = async () => {
+    if (sel.value.startsWith('path:')) {      // game installed elsewhere (external disk, without Steam): point to its folder
+      const key = sel.value.slice(5), g = info.games.find(x => x.key === key);
+      sel.value = info.current;
+      const p = prompt(`Carpeta donde está instalado ${g.short} (la que contiene «Modern Europe»):`, g.path);
+      if (!p) return;
+      const r = await fetch('/api/game/path', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ game: key, path: p }) }).then(x => x.json());
+      if (r.error) return alert(r.error);
+      if (key === info.current) return location.reload();
+      sel.value = key;
+    }
     const pick = () => fetch('/api/game/select', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ game: sel.value }) }).then(x => x.json());
     let r = await pick();
     // unsaved changes in the scenario editor block the switch: offer to go and save them there, or discard them and switch
@@ -2841,16 +2878,6 @@ document.getElementById('instGo').onclick = async () => {
     if (r.error !== undefined) { if (r.error) alert(r.error); sel.value = info.current; return; }
     location.href = '/';
   };
-  // «Invalid License Key» error: an old license in the virtualized registry copy hides the good one (Steam guide 645617172)
-  const lic = await (await fetch('/api/game/license')).json().catch(() => ({ issues: [], permanent: true })), post = p => fetch(p, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }).then(r => r.json());
-  if (lic.issues.length && confirm(`Licencia vieja en el registro virtualizado (VirtualStore) de ${lic.issues.map(p => p.key).join(', ')}: el juego puede decir «Invalid License Key». ¿Borrarla? (se guarda un respaldo .reg; el idioma no cambia)`)) {
-    const r = await post('/api/game/license_fix');
-    alert(r.error || `Licencia corregida. Respaldo: ${r.backups.join(', ')}`);
-    if (!r.error && !lic.permanent && confirm('¿Evitar que vuelva a pasar? Windows pedirá permiso de administrador una vez: se da permiso de escritura a los usuarios en la clave del juego en HKLM, se pasa ahí el idioma y se borra la copia virtualizada (con respaldo .reg).')) {
-      const p = await post('/api/game/license_permanent');
-      alert(p.error || `Acepta el aviso de Windows. Script: ${p.script}`);
-    }
-  }
   // if the game changes from another tab or window, this page would have the other game data: reload
   window.addEventListener('focus', async () => {
     const now = await (await fetch('/api/game')).json().catch(() => null);
@@ -2875,6 +2902,7 @@ document.getElementById('instGo').onclick = async () => {
     <button id="bgExport" type="button">Exportar</button>
     <button id="bgImport" type="button" style="background:#c2410c;color:#fff;border:0;border-radius:6px;padding:5px 12px">Importar imagen…</button>
     <button id="mmImport" type="button" title="Imagen pequeña del mapa que el juego muestra en la esquina (art/MiniMap.tga del regionpack): se ajusta al tamaño del original">Importar minimapa…</button>
+    <button id="mmAuto" type="button" title="Dibuja el minimapa (art/MiniMap.tga) con las regiones terrestres actuales, en el estilo del original">Generar minimapa</button>
     <span class="muted" id="bgMsg"></span>
     <button type="button" style="margin-left:auto" onclick="bgDlg.close()">Cerrar</button>
   </div>
@@ -2908,6 +2936,10 @@ document.getElementById('instGo').onclick = async () => {
   };
   $('#bgImport').onclick = () => $('#bgFile').click();
   $('#mmImport').onclick = () => $('#mmFile').click();
+  $('#mmAuto').onclick = async () => {
+    const r = await (await fetch('/api/minimap/auto', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })).json().catch(err => ({ error: err.message }));
+    $('#bgMsg').textContent = r.error ? 'Error: ' + r.error : `Minimapa generado con las regiones terrestres (${r.size[0]} × ${r.size[1]} px, art/MiniMap.tga). Pulsa «Instalar» para llevarlo al juego.`;
+  };
   $('#mmFile').onchange = async e => {
     const f = e.target.files[0]; if (!f) return; e.target.value = '';
     const data = await new Promise(res => { const r = new FileReader(); r.onload = () => res(r.result); r.readAsDataURL(f); });
@@ -3278,10 +3310,12 @@ function gjDetect(sh, list) {
 // map region the outline duplicates (or null): same name (also «Nombre 2»), or the nearest center
 // is that of a region the outline covers almost entirely (or nearby and largely), e.g. Mauritius of the scenario over Mauritius
 const gjBase = t => String(t || '').toLowerCase().replace(/ \d+$/, '').trim();
+// a same-name region only counts when the outline overlaps it: «Formosa» (Argentina) is not a duplicate of Formosa (Taiwan)
+const gjOverlaps = (s, region) => ((s.an && s.an.sources) || []).some(x => x.region === region);
 function gjDupOf(s) {
   const a = s.an || {}, nm = gjBase(gjName(s));
-  if (a.exists) return gjName(s);
-  const same = nm && (S.meta || []).find(m => gjBase(m.name) === nm);
+  if (a.exists && gjOverlaps(s, gjName(s))) return gjName(s);
+  const same = nm && (S.meta || []).find(m => gjBase(m.name) === nm && gjOverlaps(s, m.name));
   if (same) return same.name;
   const n = a.nearest;
   if (n && (n.pct_source >= 0.7 || (n.km <= 30 && n.pct_source >= 0.3))) return n.region;
@@ -3494,7 +3528,7 @@ $('#gjDoImport').onclick = async () => {
     const cov = new Map();
     for (const s of shapes) for (const x of (s.an && s.an.sources) || []) cov.set(x.region, (cov.get(x.region) || 0) + (x.pct_source || 0));
     const dupNames = new Set(shapes.map(gjDupOf).filter(Boolean));
-    const dups = S.meta.filter(m => dupNames.has(m.name) || nm.has(m.name.toLowerCase()) || nm.has(m.name.toLowerCase().replace(/ \d+$/, '')) || (cov.get(m.name) || 0) >= 0.8);
+    const dups = S.meta.filter(m => dupNames.has(m.name) || ((nm.has(m.name.toLowerCase()) || nm.has(m.name.toLowerCase().replace(/ \d+$/, ''))) && cov.has(m.name)) || (cov.get(m.name) || 0) >= 0.8);
     if (dups.length) {
       const pairs = shapes.filter(gjDupOf).slice(0, 8).map(s => `${gjName(s)} ≈ ${gjDupOf(s)}` + (s.an && s.an.nearest && s.an.nearest.region === gjDupOf(s) ? ` (${s.an.nearest.km} km)` : '')).join(', ');
       if (confirm(`${dups.length} región(es) del mapa parecen duplicados de contornos del GeoJSON: ${pairs || dups.slice(0, 8).map(m => m.name).join(', ')}${dups.length > 8 ? '…' : ''}.
@@ -3518,7 +3552,9 @@ Cancelar: dejar las del mapa (esos contornos no se importan).`)) {
   gjDlg.close();
   if (shapes.length) {
     const keep = replacing ? shapes : shapes.filter(s => !(s.an && s.an.exists));
-    if (keep.length < shapes.length) report(`${shapes.length - keep.length} contorno(s) omitido(s) porque ya existe una región con ese nombre.`, 'ok');
+    const elsewhere = shapes.filter(s => s.an && s.an.exists && !gjOverlaps(s, gjName(s))).map(gjName);
+    if (keep.length < shapes.length) report(`${shapes.length - keep.length} contorno(s) omitido(s) porque ya existe una región con ese nombre.` +
+      (elsewhere.length && !replacing ? ` En otro lugar del mapa: ${elsewhere.join(', ')}. Cambia el nombre del contorno y vuelve a importarlo.` : ''), 'ok');
     shapes = keep;
     if (shapes.length && $('#gjGaps').checked) {      // small gaps between outlines: added to the neighbor before importing
       const g = await (await fetch('/api/geojson/close_gaps', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ geoms: shapes.map(s => s.geometry), max_area: +$('#gjGapMax').value || 0.05 }) })).json().catch(() => null);

@@ -48,7 +48,14 @@ def enum_options():
                 if p.get('type') == 'Enum' and p.get('subType'):
                     subtype.setdefault(p.get('name'), p.get('subType'))
     _ENUMS[GAME] = {n: enums[t] for n, t in subtype.items() if t in enums}
+    _ENUMS[GAME, 'defs'] = enums
     return _ENUMS[GAME]
+
+
+def enum_values(enum):
+    """Values of one of the game's defEnum (e.g. 'UnitType'); empty if the game folder lacks it."""
+    enum_options()
+    return set(_ENUMS.get((GAME, 'defs'), {}).get(enum, []))
 
 
 def _ev():
@@ -81,7 +88,7 @@ def prop(el, name, default=None):
 LABELS = {
     'strName': 'Nombre', 'strOwner': 'Propietario', 'strController': 'Controlador', 'strTerrain': 'Terreno',
     'strCulture': 'Cultura', 'nPopulation': 'Población', 'nTransInfrastructure': 'Infraestructura (transporte)',
-    'nFortification': 'Fortificación', 'nAgriculture': 'Agricultura', 'bColony': 'Colonia',
+    'nFortification': 'Fortificación', 'nAgriculture': 'Agricultura', 'bColony': 'Es colonia',
     'strGovType': 'Gobierno', 'strCapital': 'Capital', 'strOriginalCapital': 'Capital original',
     'eCountryType': 'Tipo de nación', 'bSurrendered': 'Rendida', 'bNonPlayable': 'No jugable',
     'nTransportCredits': 'Reserva de transporte', 'n64GovernmentWealth': 'Tesoro', 'strHomelands': 'Patria',
@@ -639,6 +646,11 @@ class Scenario:
                                     | {prop(c, 'strGovType') for c in self.countries().values() if prop(c, 'strGovType')})
         opts['__region'] = land + sea
         opts['__unit'] = units
+        # pickers of the unit template / production / research forms
+        opts['__output'] = outputs
+        opts['__project'] = sorted({prop(e, 'strName') for e in self.all_prefix('ResearchProj') if prop(e, 'strName')})
+        opts['__templates'] = {prop(t, 'otTemplateType'): [prop(x, 'strTemplateName') for x in objs(t)]
+                               for t in self.all('DataTemplateSet') if prop(t, 'otTemplateType')}
         opts['bool'] = ['true', 'false']
         # full lists (not only those already used): international position and diplomatic and treaty profiles
         pos = {'PLAYER_INTERNATIONAL_POSITION__' + x for x in ('EXPANSIONIST', 'NEUTRAL', 'STATUSQUO', 'TUTORIAL')}
@@ -683,8 +695,8 @@ class Scenario:
         import scenario_extra      # optional fields ed.exe edits even if the file doesn't have them
         props += scenario_extra.missing_props(el, {p['name'] for p in props}, LABELS)
         shared = scenario_extra.is_shared(s.doc_of.get(el, ''))
-        children = [{'id': s.eid(c), 'type': c.get('type'), 'name': c.get('name'), 'label': s.label(c),
-                     'summary': self.child_summary(c)} for c in objs(el)]
+        children = [{'id': s.eid(c), 'type': c.get('type'), 'name': c.get('name'), 'label': s.label(c), 'summary': self.child_summary(c),
+                     'values': {p.get('name'): p.get('value') for p in reversed(c) if p.tag == 'property'}} for c in objs(el)]
         extra = {}
         extra['child_options'] = [kind for kind, _ in scenario_extra.CHILDREN.get(el.get('type'), [])]
         t = el.get('type')
@@ -933,8 +945,7 @@ class Scenario:
             for k in ('strOwner', 'strController'):
                 if P(r, k) in surr:
                     issues.append(('error', 'Región %s: %s está rendido y no puede poseer ni controlar regiones' % (P(r, 'strName'), P(r, k)), self.s.eid(r)))
-        resources = {P(x, 'strName') for x in self.all('Resource')} | {P(x, 'strResource') for x in self.all('Producer')} \
-            | {P(x, 'strResource') for x in self.all('ResourceAmountPair')}
+        resources = set(_ev().STOCK_RESOURCES) | {P(x, 'strName') for x in self.all('Resource')} | {P(x, 'strResource') for x in self.all('Producer')}
         for t, items in (('Flujo comercial', self.all('Flow')), ('Tratado de acceso militar', self.all('Treaty'))):
             for f in items:
                 for k in ('strFromCountry', 'strToCountry'):
@@ -991,14 +1002,17 @@ class Scenario:
         for r in self.regions(sea=False):
             if (num(r, 'nPopulation') or 0) < 0:
                 issues.append(('error', 'Región %s: la población no puede ser negativa' % P(r, 'strName'), self.s.eid(r)))
+        # ed.exe errors 76-91 (its «Required MPUs» check reads nMen); nLandDefenseHitPercent is Gold's
         unit_rules = {'nHitPoints': (1, None), 'nSpeed': (1, None), 'nAttackPower': (0, None),
-                      'nRequiredMPUs': (0, None), 'nMaintenanceCost': (0, None), 'nSupplyArms': (0, None),
-                      'nActiveArms': (0, None), 'nCarrierAirHitPoints': (0, None),
-                      **{key: (0, 100) for key in ('nLandHitPercent', 'nSeaHitPercent', 'nAirHitPercent', 'nStructureHitPercent', 'nResistance', 'nAirSquadsResistance')}}
+                      'nMen': (0, None), 'nMaintenanceCost': (0, None), 'nSupplyArms': (0, None),
+                      'nActiveArms': (0, None), 'nCarrierAirHitPoints': (0, None), 'nRange': (0, None),
+                      **{key: (0, 100) for key in ('nLandHitPercent', 'nSeaHitPercent', 'nAirHitPercent', 'nStructureHitPercent',
+                                                   'nLandDefenseHitPercent', 'nResistance', 'nAirSquadsResistance')}}
         productions = [e for e in self.all_prefix('FactoryOutput') if e.get('type') in ('FactoryOutput', 'FactoryOutputUnit', 'FactoryOutputFactory', 'FactoryOutputResource')]
         projects = [e for e in self.all_prefix('ResearchProj') if P(e, 'strName')]
+        # no nIPUsPerOutputUnit rule: Gold's own Destroy* outputs use -1 (they remove IPUs)
         for elements, rules in ((self.all('UnitTemplate'), unit_rules),
-                                (productions, {key: (0, None) for key in ('nTechLevel', 'nIPUsRequired', 'nBuildCost', 'nIPUsPerOutputUnit', 'nAmountPerOutputUnit')}),
+                                (productions, {key: (0, None) for key in ('nTechLevel', 'nIPUsRequired', 'nMPUsRequired', 'nBuildCost', 'nAmountPerOutputUnit')}),
                                 (projects, {key: (0, None) for key in ('nCost', 'nNeededIPUs', 'nResearchPoints')})):
             for element in elements:
                 ident = self.s.eid(element)
@@ -1016,27 +1030,70 @@ class Scenario:
                       ('ResearchFactoryOutputUnavailableData', 'strFactoryOutputName', outputs),
                       ('ResearchFactoryOutputUnavailableData', 'strReplacementFactoryOutputName', outputs),
                       ('FactoryOutputUnit', 'strUnitType', unit_names)]
+        def owner(e):        # a production's or project's child: the issue opens the parent's form
+            par = self.s.parent.get(e)
+            kind = par.get('type') or '' if par is not None else ''
+            return par if kind.startswith(('ResearchProj', 'FactoryOutput')) and not kind.endswith('Set') else e
         for typ, key, known in references:
+            # unknown unit type of a production and unknown prerequisite: ed.exe errors 96 and 110
+            level = 'error' if key == 'strUnitType' or typ == 'ResearchProjectPreReq' else 'aviso'
             for element in self.all(typ):
                 value = P(element, key)
                 if (value and value not in known) or (not value and key != 'strReplacementFactoryOutputName'):
-                    issues.append(('aviso', '%s: referencia no encontrada (%s = %s)' % (typ, key, value), self.s.eid(element)))
+                    issues.append((level, '%s %s: referencia no encontrada (%s = %s)' % (typ, P(owner(element), 'strName') or '', key, value),
+                                   self.s.eid(owner(element))))
         for element in self.all('ResourceAmountPair'):
             if self.s.parent.get(element) not in productions:
                 continue
             amount = num(element, 'nAmount')
             if amount is not None and amount < 0:
-                issues.append(('error', 'Requisito de recurso: cantidad negativa (%s)' % amount, self.s.eid(element)))
+                issues.append(('error', 'Requisito de recurso: cantidad negativa (%s)' % amount, self.s.eid(owner(element))))
             resource = P(element, 'strResource')
             if not resource or resource not in resources:
-                issues.append(('aviso', 'Requisito de recurso: recurso no encontrado (%s)' % (resource or ''), self.s.eid(element)))
+                issues.append(('aviso', 'Requisito de recurso: recurso no encontrado (%s)' % (resource or ''), self.s.eid(owner(element))))
+        issues += self.shared_data_issues(productions, projects, resources)
         for typ, label in (('MECountry', 'País'), ('UnitTemplate', 'Plantilla de unidad')):
             names = Counter(P(e, 'strName') for e in self.all(typ))
             for n, k in names.items():
                 if k > 1:
-                    issues.append(('error', '%s repetido: %s (%d veces)' % (label, n, k), None))
+                    issues.append(('error', '%s repetido: %s (%d veces)' % (label, n, k), next(self.s.eid(e) for e in self.all(typ) if P(e, 'strName') == n)))
         import scenario_events      # regions named by events that the regionpack removed or split
         return [dict({'level': x[0], 'msg': x[1], 'id': x[2]}, **({'fix': x[3]} if len(x) > 3 else {})) for x in issues]             + scenario_events.event_region_issues(self) + scenario_events.event_surrender_issues(self) + __import__('tech_units').issues(self) + self.load_errors()
+
+    def shared_data_issues(self, productions, projects, resources):
+        """ed.exe errors 88, 90, 99, 100, 105-107, 111 and 113 on unit templates, productions and research projects
+        (sharedData*.xml). Tuples like validate()'s; each names the object so «Editar» opens its form."""
+        P, out = prop, []
+        types, categories, flags = enum_values('UnitType'), enum_values('UnitCategory'), enum_values('FactoryOutputDisplayFlag')
+        for u in self.all('UnitTemplate'):
+            for key, valid in (('eType', types), ('eUnitCategory', categories)):
+                if valid and P(u, key) not in valid:
+                    out.append(('error', 'Plantilla de unidad %s: %s no válido (%s)' % (P(u, 'strName'), key, P(u, key) or ''), self.s.eid(u)))
+        for f in productions:
+            for p in f:
+                if p.tag == 'property' and p.get('name') == 'eDisplayFlags' and flags and p.get('value') not in flags:
+                    out.append(('error', 'Producción %s: eDisplayFlags no válido (%s)' % (P(f, 'strName'), p.get('value')), self.s.eid(f)))
+            if f.get('type') == 'FactoryOutputResource' and P(f, 'strResource') not in resources:
+                out.append(('error', 'Producción %s: no existe el recurso %s' % (P(f, 'strName'), P(f, 'strResource') or ''), self.s.eid(f)))
+        templates = {P(t, 'otTemplateType'): {P(x, 'strTemplateName') for x in objs(t)} for t in self.all('DataTemplateSet') if P(t, 'otTemplateType')}
+        upgrades = {P(u, 'strUpgradeName') for u in self.all('UnitUpgrade')}
+        for r in projects:
+            name, ident = P(r, 'strName'), self.s.eid(r)
+            for key in ('sidDescription', 'sidEffect'):
+                if not (P(r, key) or '').strip():
+                    out.append(('error', 'Investigación %s: falta %s' % (name, key), ident))
+            if r.get('type') == 'ResearchProjUpgradeDataTemplateRef' and templates:
+                kind = P(r, 'otTemplateType')
+                if kind not in templates:
+                    out.append(('error', 'Investigación %s: no existe el tipo de plantilla %s' % (name, kind or ''), ident))
+                else:
+                    for key in ('strOldTemplateName', 'strNewTemplateName'):
+                        if P(r, key) not in templates[kind]:
+                            out.append(('error', 'Investigación %s: %s no es una plantilla de %s (%s)' % (name, key, kind, P(r, key) or ''), ident))
+            for u in objs(r):
+                if (u.get('type') or '').startswith('ResearchUnitUpgrade') and upgrades and P(u, 'strUpgradeName') not in upgrades:
+                    out.append(('aviso', 'Investigación %s: no existe la mejora de unidad %s' % (name, P(u, 'strUpgradeName') or ''), ident))
+        return out
 
     def load_errors(self):
         """Values the game rejects when reading the scenario and that prevent creating the match («Error creating game»):
@@ -1627,8 +1684,8 @@ def create_protection_event(scen, protector, protected, aggressor, action='war',
         extra = PROTECT_NOT_AT_WAR
         eff = '%s declares war on %s (protecting %s)' % (protector, aggressor, protected)
     else:
-        act = ('\t\t<object type="ActSetTradeRelations" name="objActions"><property name="strCountry" value="%s"/>'
-               '<property name="eTradeRelations" value="TRADE_RELATIONS_EMBARGOED"/></object>' % aggressor)
+        act = ('\t\t<object type="ActSetTradeRelations" name="objActions"><property name="strPlayer" value="%s"/><property name="strCountry" value="%s"/>'
+               '<property name="eTradeRelations" value="TRADE_RELATIONS_EMBARGOED"/></object>' % (protector, aggressor))   # strPlayer: who embargoes
         extra = ''
         eff = '%s embargoes %s (protecting %s)' % (protector, aggressor, protected)
     st = scen.s

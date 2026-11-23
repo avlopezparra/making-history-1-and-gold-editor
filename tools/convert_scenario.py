@@ -14,8 +14,8 @@ Follows janito's guide (https://steamcommunity.com/sharedfiles/filedetails/?id=2
    target lacks are removed.
 3. Units of templates that do not exist in the target (Gold to MH1): replaced by the equivalent.
 4. Partisans: Gold has them built in; the MH1 event (sharedDataPartisans.xml) is unregistered when moving to Gold.
-5. Colors (optional): Gold's are less saturated. Color-to-color table taken from the scenarios that exist
-   in both games; if a color is not in the table, a linear approximation fitted to those pairs.
+5. Colors (optional): Gold's are less saturated. The target game's colour of the same nation in its official scenarios;
+   otherwise a color-to-color table from the scenarios in both games, otherwise a linear fit to those pairs.
 6. Infrastructure (optional, «auto»): TransportationLevel nCost and nMaintenanceCost / 10 in sharedData.xml if the
    scenario has much more population than the game's and the costs are not already lowered.
 
@@ -251,18 +251,35 @@ def map_color(c, table, W):
     return '#%02X%02X%02X%s' % (out[0], out[1], out[2], h[6:8] or 'FF'), 'aprox'
 
 
-def convert_colors(scen_dir, src, dst, exclude=()):
+def palette_map(colors, src, dst, exclude=()):
+    """{nation: colour} -> {nation: (new colour, how)}: the target game's colour for the same nation in its official
+    scenarios ('nacion'), else the colour-to-colour table ('tabla'), else the linear fit ('aprox')."""
     table, W = color_model(src, dst, exclude)
-    f = os.path.join(scen_dir, 'gamestate.xml')
-    t = read(f)
-    how = Counter()
+    names = {}
+    rd = gamepaths.scen_root(dst)
+    for s in OFFICIAL[dst]:
+        if s not in exclude:
+            for k, v in gamestate_colors(os.path.join(rd, s)).items():
+                names.setdefault(k, v)
+    out = {}
+    for n, c in colors.items():
+        c = c.upper()
+        out[n] = (names[n][:7] + (c[7:9] or 'FF'), 'nacion') if n in names else map_color(c, table, W)
+    return out
 
-    def sub(m):
-        new, k = map_color(m.group(2), table, W)
-        how[k] += 1
-        return m.group(1) + new + m.group(3)
-    t = re.sub(r'(name="colCountryColor" value=")(#[0-9A-Fa-f]{6,8})(")', sub, t)
-    write_text(f, t)
+
+def convert_colors(scen_dir, src, dst, exclude=()):
+    f = os.path.join(scen_dir, 'gamestate.xml')
+    new = palette_map(gamestate_colors(scen_dir), src, dst, exclude)
+    how = Counter(k for _, k in new.values())
+    parts = re.split(r'(<object type="Player")', read(f))
+    for i in range(2, len(parts), 2):
+        h, sep, rest = parts[i].partition('</object>')
+        n = re.search(r'name="strName" value="([^"]*)"', h)
+        if n and n.group(1) in new:
+            h = re.sub(r'(name="colCountryColor" value=")#[0-9A-Fa-f]{6,8}(")', lambda m: m.group(1) + new[n.group(1)][0] + m.group(2), h, count=1)
+        parts[i] = h + sep + rest
+    write_text(f, ''.join(parts))
     return dict(how)
 
 
@@ -309,9 +326,10 @@ def registered_files(scen_dir):
 
 
 def convert(src_dir, dst_game, out_dir=None, src_game=None, colors=False, infra='auto', units_only=False,
-            complete_new=True, remove_partisan_event=True, skip_images=False, regionpack='auto', log=print):
+            complete_new=True, remove_partisan_event=True, skip_images=False, regionpack='auto', log=print, step=None):
     """regionpack: 'auto' converts it if missing in the target; 'nuevo' always converts it under another name
     («<pack> <juego>») and the scenario switches to it; 'no' leaves it alone."""
+    st = step or (lambda pct, label: None)     # progress for the editor's loading bar
     src_dir = os.path.abspath(src_dir)
     src_game = src_game or gamepaths.detect(src_dir)
     if src_game is None:
@@ -339,6 +357,7 @@ def convert(src_dir, dst_game, out_dir=None, src_game=None, colors=False, infra=
             skipped['n'] += 1
             skipped['bytes'] += os.path.getsize(os.path.join(d, n))
         return out
+    st(2, 'Copiando el escenario')
     shutil.copytree(src_dir, out_dir, ignore=ignore)
     if skip_images:
         rep['notas'].append('sin imágenes: se omitieron %d imágenes de las subcarpetas (%.0f MB); el juego usará las suyas por defecto'
@@ -346,7 +365,9 @@ def convert(src_dir, dst_game, out_dir=None, src_game=None, colors=False, infra=
     log('copiado a %s' % out_dir)
 
     # 1. datos compartidos y sprites
-    for rel in sorted(scenario_files(out_dir)):
+    rels = sorted(scenario_files(out_dir))
+    for i, rel in enumerate(rels):
+        st(15 + 45 * i / max(1, len(rels)), 'Fusionando los datos compartidos y los sprites')
         base, theirs = default_for(rel, src_game), default_for(rel, dst_game)
         if not theirs or not os.path.exists(theirs):
             continue
@@ -376,6 +397,7 @@ def convert(src_dir, dst_game, out_dir=None, src_game=None, colors=False, infra=
                 rep['notas'].append('mejoras de unidad (UnitUpgrade): %d nLandHitBonusPct adaptados a %s en %s' % (n, gamepaths.GAMES[dst_game]['short'], f))
 
     # 2. player research
+    st(62, 'Adaptando la investigación de cada país')
     def research_file(game_or_dir):
         p = os.path.join(game_or_dir, 'sharedDataResearch.xml')
         return p if os.path.exists(p) else None
@@ -396,6 +418,7 @@ def convert(src_dir, dst_game, out_dir=None, src_game=None, colors=False, infra=
     rep['investigacion'] = {'anadidos': dict(tot_add), 'quitados': dict(tot_rem)}
 
     # 3. unit templates that do not exist in the target
+    st(72, 'Sustituyendo unidades que no existen en el destino')
     tf = os.path.join(out_dir, 'sharedDataUnitTemplates.xml')
     if not os.path.exists(tf):
         tf = os.path.join(sys_dir(dst_game), 'ScenarioDefaults', 'sharedDataUnitTemplates.xml')
@@ -438,9 +461,11 @@ def convert(src_dir, dst_game, out_dir=None, src_game=None, colors=False, infra=
 
     # 5. colores
     if colors:
+        st(78, 'Convirtiendo los colores de las naciones')
         rep['colores'] = convert_colors(out_dir, src_game, dst_game, exclude={name, os.path.basename(out_dir)})
 
     # 6. infraestructura
+    st(82, 'Revisando la infraestructura')
     sd = os.path.join(out_dir, 'sharedData.xml')
     pop = total_population(out_dir)
     ref = max([total_population(os.path.join(gamepaths.scen_root(dst_game), s)) for s in OFFICIAL[dst_game]
@@ -463,6 +488,7 @@ def convert(src_dir, dst_game, out_dir=None, src_game=None, colors=False, infra=
     rep['infraestructura'] = info
 
     # regionpack
+    st(86, 'Revisando el regionpack')
     m = re.search(r'name="strMapName" value="([^"]*)"', read(sx)) if os.path.exists(sx) else None
     pack = m.group(1) if m else None
     missing = pack and not os.path.isdir(os.path.join(gamepaths.maps_dir(dst_game), pack))
@@ -481,6 +507,10 @@ def convert(src_dir, dst_game, out_dir=None, src_game=None, colors=False, infra=
         rep['notas'].append('el regionpack %s no existe en %s: hay que copiarlo (con las texturas de ese juego)'
                             % (pack, gamepaths.GAMES[dst_game]['short']))
 
+    # 7. what the game needs to load it
+    st(96, 'Comprobando que el juego pueda cargarlo')
+    rep['notas'] += fix_load_issues(out_dir, dst_game)
+
     # report (outside the scenario folder)
     d = os.path.join(gamepaths.ROOT, 'backup', 'conversiones')
     os.makedirs(d, exist_ok=True)
@@ -488,6 +518,86 @@ def convert(src_dir, dst_game, out_dir=None, src_game=None, colors=False, infra=
     json.dump(rep, open(rp, 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
     rep['informe'] = rp
     return rep
+
+
+def fix_load_issues(scen_dir, dst_game):
+    """Fixes what made a converted scenario fail in the game (found by hand in the 1121 port, PORT_1121_GOLD.md); returns notes.
+    a) two research branches retiring the same production (MotorizedInfantry by the scenario's and by Gold's project):
+       the second retirement aborts research setup unless bMayAlreadyBeUnavailable (a property in both games' game.dll).
+    b) fileMapProperties pointing to another Maps/ folder than strMapName.
+    c) empty strMapViewsName: no political fill or icons on the map (the official scenarios use UnifiedMapViews).
+    d) sprite names used by the scenario's MKD tables but missing from its own SpriteLib*Units.xml: the game rejects the table."""
+    notes = []
+    rf = os.path.join(scen_dir, 'sharedDataResearch.xml')
+    if os.path.exists(rf):
+        t = read(rf)
+        blk = r'<object type="ResearchFactoryOutputUnavailableData"[^>]*>(?:(?!</object>).)*</object>'
+        name_re = r'name="strFactoryOutputName" value="([^"]*)"'
+        names = Counter(m.group(1) for m in (re.search(name_re, b) for b in re.findall(blk, t, re.S)) if m)
+        twice = {n for n, k in names.items() if k > 1}
+
+        def sub(m):
+            b = m.group(0)
+            n = re.search(name_re, b)
+            if not n or n.group(1) not in twice or 'bMayAlreadyBeUnavailable' in b:
+                return b
+            ind = re.search(r'\n([ \t]*)<property name="strFactoryOutputName"', b).group(1)
+            nl = '\r\n' if '\r\n' in b else '\n'
+            return b[:b.rindex('</object>')].rstrip(' \t') + ind + '<property name="bMayAlreadyBeUnavailable" value="true"/>' + nl + ind[:-1] + '</object>'
+        t2 = re.sub(blk, sub, t, flags=re.S)
+        if t2 != t:
+            write_text(rf, t2)
+            notes.append('investigación: producciones retiradas por dos proyectos (%s) marcadas bMayAlreadyBeUnavailable; '
+                         'sin eso la partida no arranca' % ', '.join(sorted(twice)))
+    sx = os.path.join(scen_dir, 'scenario.xml')
+    if os.path.exists(sx):
+        t = read(sx)
+        pack = map_of(scen_dir)
+        t2 = re.sub(r'(name="fileMapProperties" value="[^"]*/Maps/)([^/"]+)(/)', lambda m: m.group(1) + pack + m.group(3), t) if pack else t
+        if t2 != t:
+            notes.append('scenario.xml: fileMapProperties apunta ahora a Maps/%s, como strMapName' % pack)
+        t3 = t2.replace('name="strMapViewsName" value=""', 'name="strMapViewsName" value="UnifiedMapViews"')
+        if t3 != t2:
+            notes.append('scenario.xml: strMapViewsName vacío → UnifiedMapViews (sin eso el mapa no muestra el relleno político ni los iconos)')
+        if t3 != t:
+            write_text(sx, t3)
+    dl = os.path.join(scen_dir, 'DisplayLibraries')
+    libs = [f for f in os.listdir(dl) if f.startswith('SpriteLib') and f.endswith('Units.xml')] if os.path.isdir(dl) else []
+    if libs:    # the scenario's own libraries replace the game's
+        spr = r'<object type="Sprite"[^>]*>\s*<property name="strName" value="([^"]+)"'
+        used = set()
+        for f in os.listdir(dl):
+            if f.startswith('MKD') and f.endswith('.xml'):
+                used |= set(re.findall(r'name="strSpriteName" value="([^"]+)"', read(os.path.join(dl, f))))
+        defined = set()
+        for f in libs:
+            defined |= set(re.findall(spr, read(os.path.join(dl, f))))
+        added = []
+        for f in libs:
+            gf = os.path.join(sys_dir(dst_game), 'DisplayLibraries', 'SpriteLibraries', f)
+            if not os.path.exists(gf):
+                continue
+            new = [m for m in re.finditer(r'[ \t]*' + spr + r'/>.*?\n\t</object>\r?\n', read(gf), re.S)
+                   if m.group(1) in used and m.group(1) not in defined]
+            if new:
+                p = os.path.join(dl, f)
+                t = read(p)
+                k = t.rindex('</objects>')
+                write_text(p, t[:k] + ''.join(m.group(0) for m in new) + t[k:])
+                added += ['%s (%s)' % (m.group(1), f) for m in new]
+                defined |= {m.group(1) for m in new}
+        if added:
+            notes.append('sprites que usan las tablas MKD y faltaban en el escenario, copiados de %s: %s'
+                         % (gamepaths.GAMES[dst_game]['short'], ', '.join(added)))
+        gd = os.path.join(sys_dir(dst_game), 'DisplayLibraries', 'SpriteLibraries')
+        for f in os.listdir(gd) if os.path.isdir(gd) else []:
+            if f not in libs and f.endswith('.xml'):
+                defined |= set(re.findall(spr, read(os.path.join(gd, f))))
+        left = sorted(used - defined)
+        if left:
+            notes.append('sprites usados por las tablas MKD sin definición en ningún sitio (el juego puede rechazar la tabla): %s'
+                         % ', '.join(left[:20]))
+    return notes
 
 
 def map_of(scen_dir):

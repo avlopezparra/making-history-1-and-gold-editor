@@ -159,6 +159,9 @@ def entity(qid, year, lang='es'):
                 break
     if fl:
         out['flag'] = commons(fl[0])
+    coa = [_val(c) for c in _by_year(cl.get('P94', []), year) if _val(c)]      # coat of arms: roundel fallback
+    if coa:
+        out['coat_of_arms'] = commons(coa[0])
     names = labels(sum(refs.values(), []), lang)
     out['country'] = [{'id': i, 'label': names.get(i, i)} for i in refs['P17']]
     out['capital'] = [{'id': i, 'label': names.get(i, i)} for i in refs['P36']]

@@ -1,11 +1,11 @@
 """Build MH2 regions GeoJSON from Regions.nst + GameSysRegion.xml."""
-import json, re, sys, collections
+import json, os, re, sys, collections
 import xml.etree.ElementTree as ET
 from shapely.geometry import Polygon, MultiPolygon, mapping
 from shapely.ops import unary_union
 import mh2_regions
 XML = r'C:/Program Files (x86)/Steam/steamapps/common/Making History II/content/mods/Test/modules/game/Test/GameSysRegion.xml'
-OUT = r'C:/Users/janit/Documents/Claude/making-history/mh2/mh2_regions.geojson'
+OUT = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'mh2', 'mh2_regions.geojson')
 
 def load_xml():
     ns = '{http://www.muzzylane.com/ml/schema/2009/04/locust}'

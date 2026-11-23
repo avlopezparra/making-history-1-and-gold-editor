@@ -204,3 +204,50 @@ def export_separate(project, bbox=None, level=2, fmt='png'):
                    'Para importar: «Importar imagen…» con fondo (o con fondo_con_limites); las fronteras se vuelven a pintar\n'
                    'con «Repintar fronteras en la textura al guardar».\n' % (', '.join('%g' % v for v in bb), size[0], size[1]))
     return buf.getvalue(), bb, size
+
+
+# ------------------------------------------------------------------ minimap from the land regions
+MINIMAP_LAND = (221, 221, 221, 142)       # measured on World's art/MiniMap.tga
+MINIMAP_SEA = (0, 0, 0, 84)
+MINIMAP_FRAME = (194, 179, 159, 80)
+
+
+def make_minimap(project):
+    """art/MiniMap.tga of the project drawn from the land regions' meshes over map.xml's fMinMiniMap* area,
+    in the style and size of the original (World: 256x128). Reaches the game with «Instalar»."""
+    import re
+    import numpy as np
+    from PIL import ImageDraw
+    import mhmap
+    from transfer import SEA
+    src = next(p for p in (os.path.join(project.xml, 'map.xml'), os.path.join(project.map_dir, 'xml', 'map.xml')) if os.path.exists(p))
+    txt = open(src, encoding='utf-8', errors='replace').read()
+    val = lambda k, d: float((re.search(r'name="%s" value="([-0-9.eE]+)"' % k, txt) or [None, d])[1])
+    x0, x1 = val('fMinMiniMapX', -180), val('fMaxMiniMapX', 180)
+    y0, y1 = val('fMinMiniMapY', -90), val('fMaxMiniMapY', 90)
+    out = os.path.join(project.dir, 'art', 'MiniMap.tga')
+    size = (256, 128)
+    for ref in (out, os.path.join(project.map_dir, 'art', 'MiniMap.tga')):
+        try:
+            size = Image.open(ref).size
+            break
+        except Exception:
+            pass
+    k = 4                                                # supersampling: antialiased coasts
+    W, H = size[0] * k, size[1] * k
+    im = Image.new('L', (W, H), 0)
+    d = ImageDraw.Draw(im)
+    for r in project.m['regions']:
+        if r.u_type == SEA:
+            continue
+        for s in mhmap.region_shapes(project.m, r.index):
+            for t in s.triangles():
+                d.polygon([((x - x0) / (x1 - x0) * W, (y1 - y) / (y1 - y0) * H) for x, y in t], fill=255)
+    f = np.asarray(im.resize(size, Image.BOX), dtype=np.float64)[..., None] / 255
+    land, sea = np.array(MINIMAP_LAND, float), np.array(MINIMAP_SEA, float)
+    a = sea + f * (land - sea)
+    a[0, :] = a[-1, :] = a[:, 0] = a[:, -1] = MINIMAP_FRAME
+    a[[0, 0, -1, -1], [0, -1, 0, -1]] = (255, 255, 255, 0)
+    os.makedirs(os.path.dirname(out), exist_ok=True)
+    Image.fromarray(np.rint(a).astype(np.uint8), 'RGBA').save(out, format='TGA')
+    return out, size, float(f.mean())

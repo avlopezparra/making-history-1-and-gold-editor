@@ -87,6 +87,8 @@
         <a href="${esc(e.flag.page)}" target="_blank" rel="noopener">${esc(e.flag.file)}</a> <button class="btn small" id="wdFlag">Importar bandera…</button></div>`;
       if (e.roundel) h += `<label>${esc(t('Escarapela (roundel)'))}</label><div><img src="${esc(e.roundel.png.replace('width=512', 'width=64'))}" alt="" style="height:32px;vertical-align:middle">
         <a href="${esc(e.roundel.page)}" target="_blank" rel="noopener">${esc(e.roundel.file)}</a> <span class="muted">(${esc(e.roundel.air_force.label)})</span> <button class="btn small" id="wdDecal">Importar escarapela…</button></div>`;
+      else if (e.coat_of_arms) h += `<label>${esc(t('Escudo (sin escarapela)'))}</label><div><img src="${esc(e.coat_of_arms.png.replace('width=512', 'width=64'))}" alt="" style="height:32px;vertical-align:middle">
+        <a href="${esc(e.coat_of_arms.page)}" target="_blank" rel="noopener">${esc(e.coat_of_arms.file)}</a> <button class="btn small" id="wdDecal">Importar escudo como escarapela…</button></div>`;
       h += `<label>${esc(t('Estado rendido'))}</label><div><label><input type="checkbox" id="wdSur"> ${esc(t('marcarlo como rendido (surrendered) en la asociación'))}</label></div>`;
     }
     h += `</div><div class="row" style="margin-top:8px"><button class="btn primary" id="wdApply">Aplicar</button><button class="btn" id="wdLinkOnly">Solo asociar</button><button class="btn" id="wdUnlink">Quitar asociación</button><span class="muted" id="wdMsg"></span></div></div>`;
@@ -106,7 +108,7 @@
       const u = document.querySelector('#mhUrl'); if (u) { u.value = img.png; document.querySelector('#mhUrlGo').click(); }
     };
     if (q('#wdFlag')) q('#wdFlag').onclick = imp('flag', e.flag);
-    if (q('#wdDecal')) q('#wdDecal').onclick = imp('decal', e.roundel);
+    if (q('#wdDecal')) q('#wdDecal').onclick = imp('decal', e.roundel || e.coat_of_arms);
     q('#wdApply').onclick = async () => {
       const values = {}, ch = [];
       if (kind === 'city' && q('#wdPos') && q('#wdPos').checked) { values.vecPosition = `[${e.coords.lon.toFixed(4)}, ${e.coords.lat.toFixed(4)}, 0]`; ch.push(t('Coordenadas') + ' ' + values.vecPosition); }

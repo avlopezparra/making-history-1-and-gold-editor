@@ -31,6 +31,15 @@ Carpeta: `C:\Program Files (x86)\Steam\steamapps\common\Making History Gold` (mi
 - **Economía**: Gold rebalancea `sharedData.xml` (TransportationLevel nCost 1M fijo, mantenimiento la mitad, nSteps 5–25…),
   `sharedDataFactories.xml` y puntos de investigación.
 - **Colores**: los 91 colores de MH1 de los escenarios oficiales tienen cada uno su color de Gold (tabla); para otros, ajuste lineal.
+  Comparación (21/11/2026, 7 escenarios oficiales en ambos juegos, 647 parejas jugador–jugador, 94 naciones):
+  - Ningún color es igual; alfa siempre FF en los dos juegos (los colores no cambian de transparencia).
+  - Cada nación tiene un único color en todos los escenarios oficiales de Gold → es **una tabla por nación**, no una fórmula.
+  - Tendencia: mismo tono (ΔH medio 0,000, σ 0,047), menos saturación (ΔS −0,25, σ 0,14; S Gold/MH1 mediana 0,67), brillo casi igual (ΔV −0,03, σ 0,10).
+  - Ajuste lineal RGB (≈ 0,70·c + 0,09·(otros dos) + 30–35): error medio 14/255 por canal, máximo 110 → sirve solo de aproximación.
+  - Ejemplos: Germany #70675C→#91918D, Argentina #93E8FF→#C5F0EF, Bolivia #D2FF00→#CCCD39, Albania #CB2100→#C65437.
+  - Global: `DisplayLibraries/MapViews/UnifiedMapViews.xml` solo cambia un `colColor` (#00FF00 → #1010E9, 3 veces); nada más de la paleta de naciones.
+  - Conversor y botones «Paleta de Gold/MH1» (pestaña Colores): color de la misma nación en los oficiales del destino; si no, tabla color→color; si no, el ajuste.
+    En The Modern World Reloaded (317 naciones): 86 por nación, 18 por tabla, 213 aproximados. Ida y vuelta MH1→Gold→MH1 recupera 89/317 (el ajuste no es reversible).
 - **Conversor** `tools/convert_scenario.py` (botón «Exportar a Gold…/MH1…» del editor de escenarios): fusión a tres bandas
   (`tools/xmlmerge.py`) de los sharedData*.xml y MKD*.xml, escalado de las unidades nuevas como el escenario (p. ej. ÷10),
   investigación inicial, partisanos, colores, infraestructura (auto), y «sin imágenes» (no copia `ui\`).
@@ -98,3 +107,6 @@ Limitacion: solo hay glifos para los caracteres de `locale\jp`; texto japones nu
 
 ### Japones — release (2026-11-10)
 `releases/mh1_and_gold_japanese_translation.zip` (formato del zip ruso): `system/locale/jp`, `system/fonts_jp` (fuentes de Windows originales + glifos de MS PGothic, generadas por `tools/fuente_jp.py`; el texto occidental no cambia), `.reg` jp/en para MH1 y Gold, `Instructions.txt`. En `options.xml` basta `strFontDirs="fonts_jp\"` (ruta relativa a `system`, probada en Gold). Salto de linea: `tools/jp_wrap.py` mete U+200A (iswspace, ancho 0 en fuentes_jp) entre caracteres japoneses al generar el zip; verificado en Gold.
+
+### Idioma MH1 — clave HKCU directa (2026-11-20)
+Procmon: MH1 lee primero `HKCU\Software\Muzzy Lane Software\Making History 2.0\Locale` (existe con `en`; creada por alguna herramienta). Gana sobre HKLM/VirtualStore. Todos los `.reg` de idioma (Traducciones, Idiomas, `tools/release_jp.py`) escriben ahora tambien esa clave.

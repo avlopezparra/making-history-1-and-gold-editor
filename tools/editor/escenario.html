@@ -119,7 +119,7 @@
     <select id="scen" title="Escenario"><option value="">Abrir escenario…</option></select>
     <img id="scenGameIcon" alt="" style="display:none;height:18px;vertical-align:middle">
     <button id="newScen" type="button" title="Crear un escenario vacío (sin naciones) sobre un regionpack">＋ Nuevo escenario</button>
-    <button id="mh2Scen" type="button" title="Crear un escenario de MH1 a partir de uno de Making History II (necesita el regionpack WorldMoreRegions o WorldMoreRegionsRivers)">⇪ Desde MH2</button>
+    <button id="impScen" type="button" title="Crear un escenario de MH1 a partir de otro juego: Making History II, The Great War, The Second World War, Hearts of Iron IV o Pax Historia">⇪ Importar desde otro juego…</button>
     <button id="selRegs" type="button" title="Elegir una o varias regiones en el mapa (clic para añadir o quitar)">▦ Seleccionar regiones</button>
     <label class="pill" title="Regionpack (mapa) del escenario: strMapName de scenario.xml">regionpack <select id="pack" disabled style="padding:0 4px"><option>—</option></select></label>
     <button id="openScenDir" type="button" title="Abrir la carpeta del escenario en el Explorador">📁 Escenario</button>
@@ -149,7 +149,7 @@
   <div id="tabs"></div>
   <div id="main">
     <div id="left">
-      <div class="tools"><input id="filter" type="search" placeholder="Filtrar…"><button class="btn primary" id="newObj" style="display:none" title="Crear un objeto nuevo de esta pestaña (como «Add» de ed.exe)">＋ Nuevo</button><button class="btn" id="newFutureWar" style="display:none" title="Guerra que empieza en una fecha o turno (evento)">＋ Nueva guerra futura</button><span class="muted" id="count"></span></div>
+      <div class="tools"><input id="filter" type="search" placeholder="Filtrar…"><button class="btn primary" id="newObj" style="display:none" title="Crear un objeto nuevo de esta pestaña (como «Add» de ed.exe)">＋ Nuevo</button><button class="btn" id="palGold" style="display:none" title="Cambia los colores de todas las naciones a los de Gold: el de la misma nación en los escenarios oficiales de Gold o, si no existe, su equivalente. Se guarda con «Guardar».">Paleta de Gold</button><button class="btn" id="palMh1" style="display:none" title="Cambia los colores de todas las naciones a los de MH1: el de la misma nación en los escenarios oficiales de MH1 o, si no existe, su equivalente. Se guarda con «Guardar».">Paleta de MH1</button><button class="btn" id="newFutureWar" style="display:none" title="Guerra que empieza en una fecha o turno (evento)">＋ Nueva guerra futura</button><span class="muted" id="count"></span></div>
       <div id="listwrap"><table id="list"><thead></thead><tbody></tbody></table></div>
     </div>
     <div id="split1" class="splitter" title="Arrastra para cambiar el ancho de la lista"></div>
@@ -232,10 +232,21 @@
   se fusionan: lo del juego de destino (unidades nuevas de Gold, su investigación, producción y sprites) más lo que cambiaste en tu escenario
   (unidades propias, costes, eventos…). Si el escenario multiplica siempre un valor por lo mismo (p. ej. mantenimiento ÷10), las unidades nuevas
   se ajustan igual.</p>
+  <details><summary>Qué hace el conversor, paso a paso</summary><ol class="muted" style="margin:4px 0;padding-left:20px">
+    <li>Copia el escenario a la carpeta nueva (sin las imágenes de ui/ si lo eliges).</li>
+    <li>Fusiona los datos compartidos (sharedData*.xml) y las tablas de sprites (MKD*.xml) del escenario con las del destino.</li>
+    <li>Investigación de cada país: marca los proyectos nuevos que exigen los ya completados y quita los que el destino no tiene.</li>
+    <li>Unidades cuya plantilla no existe en el destino: las cambia por la más parecida (de Gold a MH1).</li>
+    <li>Partisanos: quita el evento de MH1 al pasar a Gold, que los trae de serie.</li>
+    <li>Colores (si marcas la casilla): el color de cada nación en los escenarios oficiales del destino o su equivalente.</li>
+    <li>Infraestructura: rebaja sus costes ÷10 si el escenario tiene mucha más población que los del juego.</li>
+    <li>Regionpack: lo convierte también si no existe en el destino.</li>
+    <li>Arreglos para que el juego lo cargue: producciones retiradas por dos proyectos (bMayAlreadyBeUnavailable), ruta del mapa (fileMapProperties = strMapName), capas del mapa (strMapViewsName = UnifiedMapViews) y sprites que faltan en las bibliotecas del escenario.</li>
+  </ol></details>
   <div class="grid"><label>Destino</label><select id="convTo"></select>
   <label>Carpeta nueva (en scenarios del destino)</label><input id="convOut">
   <label>Qué fusionar</label><select id="convUnits"><option value="">todos los datos compartidos y sprites (recomendado)</option><option value="1">solo unidades y sprites (como la guía)</option></select>
-  <label>Colores</label><select id="convColors"><option value="">conservar los del escenario</option><option value="1">adoptar la paleta del destino (Gold: menos saturada)</option></select>
+  <label>Colores</label><label><input type="checkbox" id="convColors"> cambiar los colores a la paleta del destino (el de la nación en sus escenarios oficiales)</label>
   <label>Infraestructura (TransportationLevel)</label><select id="convInfra"><option value="auto">automático: ÷10 si hay mucha población y no están ya rebajados</option><option value="si">rebajar nCost y nMaintenanceCost ÷10</option><option value="no">no tocar</option></select>
   <label>Investigación nueva</label><select id="convNew"><option value="1">completar las nuevas cuyos requisitos ya tiene el país</option><option value="">solo las que exigen los proyectos ya completados</option></select>
   <label>Evento de partisanos de MH1</label><select id="convPart"><option value="1">quitarlo al pasar a Gold (Gold los trae de serie)</option><option value="">mantenerlo</option></select>
@@ -256,16 +267,53 @@
     <p class="muted" id="nsHelp">Se crea vacío, sin naciones: luego se añaden naciones y se les asignan regiones (aquí o en el editor de regiones).</p>
     <div style="display:flex;gap:8px;justify-content:flex-end"><button value="cancel" class="btn" formnovalidate>Cancelar</button><button value="ok" class="btn primary">Crear</button></div></form>
 </dialog>
+<dialog id="impDlg" style="border:1px solid var(--line);border-radius:10px;background:var(--panel);color:var(--ink);width:min(480px,94vw)">
+  <form method="dialog"><h3 style="margin-top:0">Importar desde otro juego</h3>
+    <p class="muted">Elige el juego del que viene el escenario. Cada uno necesita su regionpack, dibujado con el mapa de ese juego.</p>
+    <div style="display:flex;flex-direction:column;gap:8px">
+      <button value="mh2" class="btn">Making History II <span class="muted">(regionpack WorldMoreRegions o WorldMoreRegionsRivers)</span></button>
+      <button value="tgw" class="btn">Making History: The Great War <span class="muted">(WorldMoreRegions o WorldMoreRegionsRivers)</span></button>
+      <button value="sww" class="btn">Making History: The Second World War <span class="muted">(WorldMoreRegions o WorldMoreRegionsRivers)</span></button>
+      <button value="hoi4" class="btn">Hearts of Iron IV <span class="muted">(WorldHOI4)</span></button>
+      <button value="pax" class="btn">Pax Historia <span class="muted">(sobre un escenario de MH1)</span></button></div>
+    <div style="display:flex;justify-content:flex-end;margin-top:12px"><button value="cancel" class="btn" formnovalidate>Cancelar</button></div></form>
+</dialog>
 <dialog id="mh2Dlg" style="border:1px solid var(--line);border-radius:10px;background:var(--panel);color:var(--ink);width:min(560px,94vw)">
-  <form method="dialog"><h3 style="margin-top:0">Escenario desde Making History II</h3>
-    <div class="grid"><label>Escenario de MH2</label><select id="m2Src"></select>
+  <form method="dialog"><h3 style="margin-top:0" id="m2Title">Escenario desde Making History II</h3>
+    <div class="grid"><label>Escenario</label><select id="m2Src"></select>
       <label>Regionpack</label><select id="m2Pack"></select>
       <label>Unidades, investigación e IA de</label><select id="m2Tpl"></select>
       <label>Nombre (carpeta)</label><input id="m2Name" required placeholder="p. ej. Modern World MH2">
       <label>Nombre visible</label><input id="m2Disp"></div>
-    <p class="muted" id="m2Help">Se copian las naciones (con color, gobierno y bandera de MH2), los dueños y la población de las regiones, las ciudades, los recursos, las unidades, las guerras y alianzas que tenga, y la investigación que necesitan sus unidades. Los escenarios de MH2 del Workshop son obra de sus autores: para publicar la conversión hace falta su permiso.</p>
+    <p class="muted" id="m2Help">Se copian las naciones (con color, gobierno y bandera de MH2), los dueños y la población de las regiones, las ciudades, los recursos, las unidades, las guerras y alianzas que tenga, y la investigación que necesitan sus unidades. Los escenarios del Workshop son obra de sus autores: para publicar la conversión hace falta su permiso. Las regiones de The Great War y The Second World War van a la región de WorldMoreRegions del mismo nombre o a la que más las cubre.</p>
     <p class="err-t" id="m2Err"></p>
     <div style="display:flex;gap:8px;justify-content:flex-end"><button value="cancel" class="btn" formnovalidate>Cancelar</button><button value="ok" class="btn primary" id="m2Ok">Convertir</button></div></form>
+</dialog>
+<dialog id="hoi4Dlg" style="border:1px solid var(--line);border-radius:10px;background:var(--panel);color:var(--ink);width:min(560px,94vw)">
+  <form method="dialog"><h3 style="margin-top:0">Escenario desde Hearts of Iron IV</h3>
+    <div class="grid"><label>Juego o mod</label><select id="h4Src"></select>
+      <label>Fecha de inicio</label><select id="h4Date"></select>
+      <label>Unidades, investigación e IA de</label><select id="h4Tpl"></select>
+      <label>Nombre (carpeta)</label><input id="h4Name" required placeholder="p. ej. HOI4 1936">
+      <label>Nombre visible</label><input id="h4Disp"></div>
+    <p class="muted">Se crea sobre el regionpack WorldHOI4. Se copian los dueños de los estados en esa fecha, la población (mano de obra), las ciudades (puntos de victoria, sin repetir nombre ni sitio), las capitales, las fábricas como IPUs, los puertos, los recursos (petróleo; acero, aluminio, tungsteno y cromo como metales), los colores, los gobiernos y las banderas. No se importan unidades, investigación, focos ni diplomacia. Solo se listan los mods que no cambian el mapa de HOI4.</p>
+    <p class="err-t" id="h4Err"></p>
+    <div style="display:flex;gap:8px;justify-content:flex-end"><button value="cancel" class="btn" formnovalidate>Cancelar</button><button value="ok" class="btn primary">Importar</button></div></form>
+</dialog>
+<dialog id="paxDlg" style="border:1px solid var(--line);border-radius:10px;background:var(--panel);color:var(--ink);width:min(620px,94vw)">
+  <form method="dialog"><h3 style="margin-top:0">Escenario desde Pax Historia</h3>
+    <ol class="muted" style="padding-left:18px;margin-top:0">
+      <li>Abre el preset en paxhistoria.co y pulsa «Jugar Ahora» hasta ver el mapa (como invitado vale).</li>
+      <li>Abre la consola del navegador (F12 › Consola), pega este código y pulsa Intro: se descarga <code>pax_….json</code>.
+        <button type="button" class="btn small" id="pxCopy">Copiar el código</button></li>
+      <li>Elígelo aquí.</li></ol>
+    <div class="grid"><label>Preset (JSON)</label><input type="file" id="pxFile" accept=".json,application/json">
+      <label>Escenario base</label><select id="pxBase"></select>
+      <label>Nombre (carpeta)</label><input id="pxName" required placeholder="p. ej. Pax Historia 1936">
+      <label>Nombre visible</label><input id="pxDisp"></div>
+    <p class="muted">Pax Historia solo tiene el mapa político: se parte del escenario base (población, ciudades, recursos, unidades, investigación y diplomacia) y cada región pasa al país de Pax que la ocupa. Los países que ya están se mantienen; los demás se crean con su color y bandera de Pax, y los del escenario base que se quedan sin tierra se quitan. La fecha de inicio es la del preset.</p>
+    <p class="err-t" id="pxErr"></p>
+    <div style="display:flex;gap:8px;justify-content:flex-end"><button value="cancel" class="btn" formnovalidate>Cancelar</button><button value="ok" class="btn primary">Importar</button></div></form>
 </dialog>
 <dialog id="genDlg"style="border:1px solid var(--line);border-radius:10px;background:var(--panel);color:var(--ink);width:min(640px,94vw)">
   <h3 id="gnTitle" style="margin-top:0"></h3><div id="gnHelp" class="muted"></div><div id="gnBody" class="grid"></div><div id="gnErr" class="err-t" style="margin-top:6px"></div>
@@ -345,6 +393,7 @@ async function openScenario(name) {
   const tabs = r.tabs.slice(); tabs.splice(tabs.findIndex(x => x.key === 'nations') + 1, 0, { key: 'surrendered', label: 'Surrendered' });
   { const i = tabs.findIndex(x => x.key === 'models_air'); tabs.splice(i >= 0 ? i + 1 : tabs.length, 0, { key: 'scale3d', label: '3D Scale' }); }
   { const i = tabs.findIndex(x => x.key === 'research'); tabs.splice(i >= 0 ? i + 1 : tabs.length, 0, { key: 'startunits', label: 'Starting units' }); }
+  { const i = tabs.findIndex(x => x.key === 'players'); tabs.splice(i >= 0 ? i + 1 : tabs.length, 0, { key: 'triggers', label: 'War / embargo reactions' }); }
   for (const tab of tabs) { const b = document.createElement('button'); b.textContent = TAB_ES[tab.key] || tab.label; b.dataset.key = tab.key; b.onclick = () => showTab(tab.key); t.appendChild(b); }
   LY.data = null; LY.points = null; BOMB.ranges = null; CI = null; $('#mapframe').dataset.u = ''; if (rview === 'map') showRight('map');
   ['#validate', '#bulkUnits', '#regXfer', '#revert', '#partisans', '#newwar', '#gjExport', '#gjImport', '#packSync', '#refresh'].forEach(s => $(s).disabled = false);
@@ -357,7 +406,7 @@ async function openScenario(name) {
   const row = pos && pos.obj && S.rows.find(r => r.cols.includes(pos.obj));
   if (row) { if (rview !== 'map') showRight('obj'); await openObj(row.id); }
 }
-const TAB_ES = {"global": "Datos generales", "nations": "Naciones", "surrendered": "Rendidas", "regions": "Regiones de tierra", "seas": "Regiones de mar", "cities": "Ciudades", "producers": "Recursos", "armies": "Ejércitos", "airforces": "Fuerzas aéreas", "navies": "Flotas", "govtypes": "Ideologías", "cultures": "Culturas (etnias)", "alliances": "Alianzas", "wars": "Guerras", "trade": "Comercio", "aid": "Ayudas", "access": "Acceso militar", "players": "Jugador / IA", "colors": "Colores", "diplomacy": "Diplomacia", "historic": "Países históricos", "events": "Eventos", "terrains": "Tipos de terreno", "models_land": "Aspecto 3D de unidades por país (tierra)", "models_air": "Aspecto 3D de unidades por país (aire)", "scale3d": "Escala 3D (ciudades y unidades)", "startunits": "Unidades al empezar", "infra": "Infraestructura", "units": "Plantillas de unidad", "outputs": "Producción de fábricas", "research": "Investigación"};   // tab names (in English with i18n)
+const TAB_ES = {"global": "Datos generales", "nations": "Naciones", "surrendered": "Rendidas", "regions": "Regiones de tierra", "seas": "Regiones de mar", "cities": "Ciudades", "producers": "Recursos", "armies": "Ejércitos", "airforces": "Fuerzas aéreas", "navies": "Flotas", "govtypes": "Ideologías", "cultures": "Culturas (etnias)", "alliances": "Alianzas", "wars": "Guerras", "trade": "Comercio", "aid": "Ayudas", "access": "Acceso militar", "players": "Jugador / IA", "colors": "Colores", "diplomacy": "Diplomacia", "historic": "Países históricos", "events": "Eventos", "terrains": "Tipos de terreno", "models_land": "Aspecto 3D de unidades por país (tierra)", "models_air": "Aspecto 3D de unidades por país (aire)", "scale3d": "Escala 3D (ciudades y unidades)", "startunits": "Unidades al empezar", "triggers": "Reacciones (guerra / embargo)", "infra": "Infraestructura", "units": "Plantillas de unidad", "outputs": "Producción de fábricas", "research": "Investigación"};   // tab names (in English with i18n)
 const NEW_KINDS = { govtypes: ['govtype', 'Nueva ideología'], cities: ['city', 'Nueva ciudad'], producers: ['producer', 'Nuevo recurso'], armies: ['army', 'Nuevo ejército'],
   nations: ['country', 'Nueva nación'], navies: ['fleet', 'Nueva flota'], airforces: ['airforce', 'Nueva fuerza aérea'], alliances: ['alliance', 'Nueva alianza'], wars: ['war', 'Nueva guerra'],
   trade: ['trade', 'Nuevo comercio'], aid: ['aid', 'Nueva ayuda'], access: ['access', 'Nuevo acceso militar'], diplomacy: ['dip', 'Nueva relación'],
@@ -366,7 +415,8 @@ function syncNewBtn() {
   const k = NEW_KINDS[S.tab]; const b = $('#newObj');
   b.style.display = k && S.mode === 'tab' && S.scen ? '' : 'none';
   if (k) b.textContent = '＋ ' + k[1];
-  $('#newFutureWar').style.display = S.tab === 'events' && S.mode === 'tab' && S.scen ? '' : 'none';     // formerly «Nueva guerra…» in the bar
+  $('#newFutureWar').style.display = S.tab === 'events' && S.mode === 'tab' && S.scen ? '' : 'none';
+  $('#palGold').style.display = $('#palMh1').style.display = S.tab === 'colors' && S.mode === 'tab' && S.scen ? '' : 'none';     // formerly «Nueva guerra…» in the bar
 }
 // where one left off (per scenario): tab, open object and view; restored when reopening the scenario
 function remember(x) {
@@ -385,6 +435,7 @@ async function showTab(key) {
   if (key === 'surrendered') return showSurrendered();
   if (key === 'scale3d') return showScale3D();
   if (key === 'startunits') return showStartUnits();
+  if (key === 'triggers') return showTriggers();
   const r = await api(`/api/scen/tab?name=${encodeURIComponent(S.scen)}&tab=${key}`);
   if (request !== S.tabRequest) return;
   S.cols = r.columns; S.rows = r.rows; S.sort = [0, 1]; renderList();
@@ -417,6 +468,7 @@ $('#list').addEventListener('click', e => {
     return;
   }   // list of the layer's values (like MH2's Region Paint)
   if (tr && S.tab === 'startunits' && S.mode !== 'layer') { const id = tr.dataset.id; S.suChecked.has(id) ? S.suChecked.delete(id) : S.suChecked.add(id); const c = tr.querySelector('input'); if (c) c.checked = S.suChecked.has(id); return; }
+  if (tr && S.tab === 'triggers' && S.mode !== 'layer') { if (rview !== 'obj') showRight('obj'); trgPanel(+tr.dataset.id); return; }
   if (tr && S.tab === 'scale3d' && S.mode !== 'layer') { document.querySelectorAll('#list tr').forEach(x => x.classList.toggle('on', x === tr)); scaleOne(+tr.dataset.id); return; }
   if (tr && S.tab === 'historic') {   // like MH2's HistoricNations: the map with its regions highlighted; click to add / remove
     const row = S.rows.find(r => String(r.id) === tr.dataset.id); if (!row) return;
@@ -562,6 +614,7 @@ function renderObj(d, note) {
   if (S.scen && EV_TYPES.includes(d.type)) eventSection(d);
   if (S.scen && d.type === 'TerrainType') terrainSection(d);
   if (S.scen && d.type === 'CultureTemplate') cultureSection(d);
+  if (S.scen && SD_FORMS(d.type)) sharedDataSection(d);
   if (S.scen && ['City', 'Army', 'AirForce', 'Fleet'].includes(d.type)) placeSection(d);
   if (S.scen && $('#bombRange').checked) sendRings();
 }
@@ -1513,6 +1566,106 @@ async function showSurrendered() {
     (sharedDataHistoricCountries.xml) incluyen la región de esa capital.</p><div class="note">${n} se pueden liberar, ${list.length - n} no.</div>
     <p class="muted">Elige un país en la lista para editarlo; para sus regiones históricas usa Mapa › Capa «Regiones históricas».</p>`;
 }
+// «Reacciones (guerra / embargo)»: every TriggerCountry of the scenario in one list. Row = «if B is attacked (or invaded), A reacts
+// against the aggressor»; war / embargo = how likely (0–100). Edit one, see a country from both sides, or change many at once.
+const TRG = { rows: [], countries: [], sel: null, view: '' };
+const trgLevel = v => (v = +v) >= 80 ? 'casi seguro' : v >= 50 ? 'probable' : v >= 25 ? 'a veces' : v > 0 ? 'rara vez' : 'nunca';
+const trgWhen = t => t.type === 'invasion' ? 'si lo invaden' : 'si entra en guerra';
+async function showTriggers(keepId) {
+  const r = await api('/api/scen/triggers?name=' + encodeURIComponent(S.scen));
+  if (r.error) { $('#right').innerHTML = `<div class="muted">${esc(r.error)}</div>`; return; }
+  TRG.rows = r.rows; TRG.countries = r.countries;
+  S.cols = ['Reacciona', 'Si atacan a', 'Cuándo', 'Guerra', 'Embargo'];
+  if (!S.sort || S.sort[0] > 4) S.sort = [3, -1];
+  S.rows = r.rows.map(t => ({ id: t.id, cols: [t.owner, t.country, trgWhen(t), String(t.war), String(t.embargo)] }));
+  renderList();
+  if (rview !== 'obj') showRight('obj');
+  trgPanel(keepId != null && r.rows.some(t => t.id === keepId) ? keepId : null);
+}
+function trgVisible() {      // the rows the list shows now (same filter as renderList)
+  const f = $('#filter').value.trim().toLowerCase();
+  const ids = new Set(S.rows.filter(r => !f || r.cols.join(' ').toLowerCase().includes(f)).map(r => r.id));
+  return TRG.rows.filter(t => ids.has(t.id));
+}
+function trgPanel(id) {
+  TRG.sel = id; const t = TRG.rows.find(x => x.id === id) || null;
+  document.querySelectorAll('#list tr').forEach(tr => tr.classList.toggle('on', +tr.dataset.id === id));
+  const n = (lo, hi) => TRG.rows.filter(x => +x.war >= lo && +x.war <= hi).length;
+  const opts = sel => optList(TRG.countries, sel, '(país)');
+  const slider = (k, v) => `<div class="row"><input type="range" min="0" max="100" step="5" id="trg${k}R" value="${v}" style="flex:1">
+    <input type="number" min="0" max="100" id="trg${k}" value="${v}" style="width:60px"><span class="muted" id="trg${k}L" style="width:90px">${trgLevel(v)}</span></div>`;
+  const vis = trgVisible();
+  const who = TRG.view;
+  const mine = who ? TRG.rows.filter(x => x.owner === who) : [], forIt = who ? TRG.rows.filter(x => x.country === who) : [];
+  const li = x => `<li><a href="#" data-tsel="${x.id}">${esc(x.text)}</a></li>`;
+  $('#right').innerHTML = `<h2>Reacciones de guerra y embargo (${TRG.rows.length})</h2>
+    <p class="muted">Cada fila se lee así: <b>si atacan a B</b> (o lo invaden), <b>A reacciona contra el agresor</b>.
+      «Guerra» y «Embargo» (0–100) son la probabilidad de que A le declare la guerra o un embargo al agresor: 0 = nunca, 100 = casi seguro.
+      Es lo que hace que una guerra arrastre a otros países: muchos valores altos encadenan guerras mundiales. Se guardan en country&lt;A&gt;.xml (TriggerCountry).</p>
+    <div class="note">Guerra — nunca (0): <b>${n(0, 0)}</b> · rara vez (1–24): <b>${n(1, 24)}</b> · a veces (25–49): <b>${n(25, 49)}</b> ·
+      probable (50–79): <b>${n(50, 79)}</b> · casi seguro (80–100): <b>${n(80, 100)}</b></div>
+    <div class="sec"><h3>${t ? 'Cambiar esta reacción' : 'Añadir una reacción'}</h3>
+      <div class="grid"><label>Reacciona</label><select id="trgA">${opts(t ? t.owner : '')}</select>
+        <label>Si</label><div class="row"><select id="trgB">${opts(t ? t.country : '')}</select>
+          <select id="trgT"><option value="war"${t && t.type === 'war' ? ' selected' : ''}>entra en guerra (lo atacan)</option><option value="invasion"${t && t.type === 'invasion' ? ' selected' : ''}>es invadido</option></select></div>
+        <label>Guerra contra el agresor</label>${slider('W', t ? t.war : 30)}
+        <label>Embargo al agresor</label>${slider('E', t ? t.embargo : 60)}
+        <label></label><div class="row">${t ? '<button class="btn primary" id="trgSave">Guardar cambio</button><button class="btn" id="trgNew">Añadir como nueva</button><button class="btn danger" id="trgDel">Quitar</button><button class="btn" id="trgXml">XML</button>'
+          : '<button class="btn primary" id="trgNew">Añadir</button><label><input type="checkbox" id="trgBoth"> también al revés</label>'}</div></div>
+      <div class="muted" id="trgSay"></div></div>
+    <div class="sec"><h3>Ver un país por los dos lados</h3>
+      <div class="row"><select id="trgView">${optList(TRG.countries, who, '(elige un país)')}</select></div>
+      ${who ? `<h3 style="margin-top:6px">Qué hace ${esc(who)} si atacan a otros (${mine.length})</h3><ul class="kids">${mine.map(li).join('') || '<li class="muted">nada</li>'}</ul>
+        <h3>Quiénes reaccionan si atacan a ${esc(who)} (${forIt.length})</h3><ul class="kids">${forIt.map(li).join('') || '<li class="muted">nadie</li>'}</ul>` : ''}</div>
+    <div class="sec"><h3>Cambiar muchas a la vez</h3>
+      <div class="muted">Afecta a las <b>${vis.length}</b> reacciones que muestra la lista ahora; usa «Filtrar…» arriba para elegir (p. ej. un país).</div>
+      <div class="row" style="margin-top:4px"><select id="trgBk"><option value="war">Guerra</option><option value="embargo">Embargo</option></select>
+        <select id="trgBm"><option value="scale">multiplicar por (%)</option><option value="cap">poner un tope de</option><option value="set">fijar en</option><option value="add">sumar (o restar)</option></select>
+        <input type="number" id="trgBv" value="50" style="width:70px"><button class="btn primary" id="trgBgo">Aplicar a ${vis.length}</button>
+        <button class="btn danger" id="trgBdel">Quitar las ${vis.length}</button></div></div>`;
+  const say = () => {
+    const A = $('#trgA').value || 'A', B = $('#trgB').value || 'B', w = $('#trgW').value, e = $('#trgE').value;
+    $('#trgSay').textContent = `Si ${B} ${$('#trgT').value === 'invasion' ? 'es invadido' : 'entra en guerra'}, ${A} le declara la guerra al agresor: ${trgLevel(w)} (${w}/100); un embargo: ${trgLevel(e)} (${e}/100).`;
+  };
+  for (const k of ['W', 'E']) {
+    const R = $('#trg' + k + 'R'), N = $('#trg' + k), L = $('#trg' + k + 'L');
+    R.oninput = () => { N.value = R.value; L.textContent = trgLevel(R.value); say(); };
+    N.oninput = () => { R.value = N.value; L.textContent = trgLevel(N.value); say(); };
+  }
+  ['#trgA', '#trgB', '#trgT'].forEach(s => $(s).onchange = say); say();
+  const done = async (x, keep) => { if (x.error) return alert(x.error); setDirty(x.dirty); note((x.notes || []).join('; ') + '. Falta «Guardar».'); await showTriggers(keep); };
+  const post = body => api('/api/scen/ai_rule', { name: S.scen, ...body });
+  const form = () => ({ op: 'trigger', country: $('#trgA').value, target: $('#trgB').value, type: $('#trgT').value, war: $('#trgW').value, embargo: $('#trgE').value });
+  const check = () => { if (!$('#trgA').value || !$('#trgB').value) { alert('Elige quién reacciona y por quién'); return false; } return true; };
+  if ($('#trgSave')) $('#trgSave').onclick = async () => {
+    if (!check()) return;
+    if ($('#trgA').value !== t.owner) {      // another country reacts now: the reaction moves to its file
+      const x = await post(form()); if (x.error) return alert(x.error);
+      return done(await post({ op: 'delete', country: t.owner, id: t.id }), x.id);
+    }
+    done(await post({ ...form(), id: t.id }), t.id);
+  };
+  $('#trgNew').onclick = async () => {
+    if (!check()) return;
+    const x = await post(form()); if (x.error) return alert(x.error);
+    if ($('#trgBoth') && $('#trgBoth').checked)
+      return done(await post({ ...form(), country: $('#trgB').value, target: $('#trgA').value }), x.id);
+    done(x, x.id);
+  };
+  if ($('#trgDel')) $('#trgDel').onclick = async () => { if (confirm('¿Quitar esta reacción?')) done(await post({ op: 'delete', country: t.owner, id: t.id })); };
+  if ($('#trgXml')) $('#trgXml').onclick = () => openObj(t.id);
+  $('#trgView').onchange = () => { TRG.view = $('#trgView').value; trgPanel(TRG.sel); };
+  $('#right').querySelectorAll('[data-tsel]').forEach(a => a.onclick = ev => { ev.preventDefault(); trgPanel(+a.dataset.tsel); });
+  $('#trgBgo').onclick = async () => {
+    if (!vis.length) return;
+    const how = { mode: $('#trgBm').value, value: +$('#trgBv').value };
+    if (!confirm(`¿Cambiar ${$('#trgBk').value === 'war' ? 'la guerra' : 'el embargo'} de ${vis.length} reacciones?`)) return;
+    done(await post({ op: 'triggers_bulk', country: '', ids: vis.map(x => x.id), [$('#trgBk').value]: how }), TRG.sel);
+  };
+  $('#trgBdel').onclick = async () => {
+    if (vis.length && confirm(`¿Quitar ${vis.length} reacciones?`)) done(await post({ op: 'triggers_bulk', country: '', ids: vis.map(x => x.id), delete: true }));
+  };
+}
 // the nation's AI personality (MEPlayerData values of its player*.xml)
 const TRAIT_LABEL = { nInternationalInvolvement: 'Implicación internacional', nAggressiveNature: 'Agresividad', nMilitaryPosture: 'Postura militar',
   nMilitaryDoctrine: 'Doctrina militar', nDomesticPolicy: 'Política interior', nSciencePolicy: 'Política científica', nPoliticalStability: 'Estabilidad política' };
@@ -1617,6 +1770,52 @@ async function countrySection(d) {
     $('#natSw').onclick = () => openColorPicker($('#natCol'), $('#natSw'));
     $('#natCol').onchange = () => { const v = $('#natCol').value.trim().toUpperCase(); if (/^#[0-9A-F]{6}([0-9A-F]{2})?$/.test(v)) setCol(v.length === 7 ? v + 'FF' : v); else alert('Color no válido: usa #RRGGBB o #RRGGBBAA'); };
   }
+  // nation's cultures (CultureSet), as in the official editor's nation dialog: tick the ones it has
+  const cu = await api('/api/scen/cultures?name=' + encodeURIComponent(S.scen));
+  if ((cu.cultures || []).length && $('#right')) {
+    $('#right').insertAdjacentHTML('beforeend', `<div class="sec" id="natCul"><h3>Culturas de la nación</h3><div class="muted">Las de su población; al menos una.</div>
+      <div style="max-height:160px;overflow:auto;columns:2">${cu.cultures.map(x => `<label style="display:block"><input type="checkbox" value="${esc(x.name)}"${x.nations.includes(d.label) ? ' checked' : ''}> ${esc(x.display || x.name)}</label>`).join('')}</div>
+      <div class="row" style="margin-top:6px"><button class="btn small" id="natCulSave">Aplicar culturas</button></div></div>`);
+    $('#natCulSave').onclick = async () => {
+      const r = await api('/api/scen/country_cultures', { name: S.scen, country: d.label, cultures: [...$('#natCul').querySelectorAll('input:checked')].map(i => i.value) });
+      if (r.error) return alert(r.error);
+      setDirty(r.dirty); note(r.notes.join('; ') + '. Falta «Guardar».');
+    };
+  }
+  // starting stockpile (Resource objResources), as the official editor's «Stockpiles»; empty = the nation does not have it
+  const sp = await api(`/api/scen/stockpile?name=${encodeURIComponent(S.scen)}&country=${encodeURIComponent(d.label)}`);
+  if (!sp.error && $('#right')) {
+    $('#right').insertAdjacentHTML('beforeend', `<div class="sec" id="natStock"><h3>Reservas iniciales</h3><div class="muted">Cantidad de cada recurso al empezar; vacío = no la tiene.</div>
+      <div class="grid">${sp.stockpile.map(x => `<label>${esc(x.resource)}</label><input type="number" min="0" step="1" data-res="${esc(x.resource)}" value="${x.amount ?? ''}">`).join('')}</div>
+      <div class="row" style="margin-top:6px"><button class="btn small" id="natStockSave">Aplicar reservas</button></div></div>`);
+    $('#natStockSave').onclick = async () => {
+      const amounts = {}; $('#natStock').querySelectorAll('input[data-res]').forEach(i => { amounts[i.dataset.res] = i.value.trim(); });
+      const r = await api('/api/scen/country_stockpile', { name: S.scen, country: d.label, amounts });
+      if (r.error) return alert(r.error);
+      setDirty(r.dirty); note(r.notes.join('; ') + '. Falta «Guardar».');
+    };
+  }
+  // troop skin: 3D unit models (DisplayLibraries/MKDTableCountryAliasesLand/Air.xml); without its own node the nation uses the default ones
+  const sk = await api(`/api/scen/skins?name=${encodeURIComponent(S.scen)}&country=${encodeURIComponent(d.label)}`);
+  if (!sk.error && (sk.land || sk.air) && $('#right')) {
+    const KN = { land: 'Tierra', air: 'Aire' };
+    const kinds = ['land', 'air'].filter(k => sk[k]);
+    const srcs = [...new Set(kinds.flatMap(k => sk[k].countries))].filter(x => x !== d.label).sort();
+    $('#right').insertAdjacentHTML('beforeend', `<div class="sec" id="natSkin"><h3>Apariencia de las tropas</h3>
+      <div class="muted">${kinds.map(k => `${KN[k]}: ${sk[k].own ? 'modelos propios' : 'modelos por defecto'}`).join(' · ')}</div>
+      <div class="row" style="margin-top:6px;align-items:center">Misma apariencia de tropas que <select id="skSrc"><option value="">(país)</option>${optList(srcs)}</select>
+        ${kinds.map(k => `<label><input type="checkbox" data-skk="${k}" checked> ${KN[k]}</label>`).join(' ')}<button class="btn small" id="skGo">Copiar</button></div>
+      <details><summary>Cambiar unidad por unidad</summary>${kinds.map(k => `<h3 style="margin-top:6px">${KN[k]}</h3><div class="grid">` +
+        sk[k].aliases.map(a => `<label>${esc(a.alias)}</label><select data-ska="${esc(a.alias)}" data-skind="${k}">${optList(sk[k].sprites.includes(a.sprite) ? sk[k].sprites : [a.sprite, ...sk[k].sprites], a.sprite)}</select>`).join('') + '</div>').join('')}</details></div>`);
+    const skDone = async r => { if (r.error) return alert(r.error); setDirty(r.dirty); note(r.notes.join('; ') + '. Falta «Guardar».'); };
+    $('#skGo').onclick = async () => {
+      if (!$('#skSrc').value) return alert('Elige el país');
+      await skDone(await api('/api/scen/skin', { name: S.scen, country: d.label, source: $('#skSrc').value, kinds: [...$('#natSkin').querySelectorAll('[data-skk]:checked')].map(x => x.dataset.skk) }));
+      openObj(d.id);
+    };
+    $('#natSkin').querySelectorAll('[data-ska]').forEach(x => x.onchange = async () =>
+      skDone(await api('/api/scen/skin', { name: S.scen, country: d.label, kind: x.dataset.skind, alias: x.dataset.ska, sprite: x.value })));
+  }
   $('#histMap').onclick = () => { $('#layer').value = 'historic'; showRight('map'); fillLayerValues(); $('#layerVal').value = d.label; sendOverlay(); };
   $('#ownMap').onclick = () => { $('#layer').value = 'owner'; showRight('map'); fillLayerValues(); $('#layerVal').value = d.label; sendOverlay(); };
 }
@@ -1651,7 +1850,8 @@ async function aiRulesRender(box, owner, info) {
   let h = `<h3>Qué hace la IA de ${esc(owner)} (player${esc(owner)}.xml)</h3>
     <div class="muted">Reglas que sigue la IA cuando ${esc(owner)} no lo juega una persona. Los cambios quedan en memoria hasta «Guardar».</div>
     <h3 style="margin-top:8px">Reacciona si invaden o atacan a otro país (${r.triggers.length})</h3>
-    <div class="muted">TriggerCountry de country${esc(owner)}.xml: contra el agresor declara la guerra o un embargo; la sensibilidad (0–100) es lo dispuesto que está (más alta, más probable).</div><ul class="kids">` +
+    <div class="muted">TriggerCountry de country${esc(owner)}.xml: contra el agresor declara la guerra o un embargo; la sensibilidad (0–100) es lo dispuesto que está (más alta, más probable).
+      <a href="#" id="aiTAll">Ver todas las del escenario y quién reacciona por ${esc(owner)} →</a></div><ul class="kids">` +
     r.triggers.map(t => row(t.text, t.id, `<button class="btn small" data-tedit="${t.id}">Cambiar</button>`)).join('') +
     `</ul><div class="row" style="margin-top:4px">Si ${cs_('aiTc', '', '(país)')} <select id="aiTt"><option value="invasion">es invadido</option><option value="war">entra en guerra</option></select>,
       ${esc(owner)}: guerra <input id="aiTw" type="number" min="0" max="100" value="50" style="width:55px"> embargo <input id="aiTe" type="number" min="0" max="100" value="75" style="width:55px">
@@ -1687,6 +1887,7 @@ async function aiRulesRender(box, owner, info) {
   };
   const post = (body) => api('/api/scen/ai_rule', { name: S.scen, country: owner, ...body });
   let editTrig = null;
+  $('#aiTAll').onclick = ev => { ev.preventDefault(); TRG.view = owner; showTab('triggers'); };
   $('#aiTGo').onclick = async () => {
     if (!$('#aiTc').value) return alert('Elige el país');
     done(await post({ op: 'trigger', id: editTrig, target: $('#aiTc').value, type: $('#aiTt').value, war: $('#aiTw').value, embargo: $('#aiTe').value }));
@@ -1825,7 +2026,7 @@ const EFF_TYPES = [['war', 'Declarar la guerra'], ['embargo', 'Embargo comercial
   ['resource', 'Dar recursos (ayuda)'], ['independence', 'Crear o liberar un país'], ['annex', 'Anexionar un país'], ['units', 'Crear unidades'],
   ['dip', 'Cambiar las relaciones'], ['flag', 'Cambiar la bandera'], ['transfer', 'Transferir una región'], ['output', 'Cambiar la producción de un recurso (al azar)'], ['ipu', 'Bono o castigo de IPU a una ciudad'], ['control', 'Ocupar una región (control)'], ['research', 'Investigación (completar o puntos)'],
   ['capital', 'Cambiar la capital'], ['pact', 'Proponer un pacto de defensa'], ['unpact', 'Cancelar un pacto de defensa'], ['access', 'Dar acceso militar'],
-  ['posture', 'Postura internacional y agresividad'], ['culture', 'Cambiar la cultura de regiones (experimental)'], ['none', 'Nada']];
+  ['posture', 'Postura internacional y agresividad'], ['none', 'Nada']];
 function effFields(p, type) {
   const own = '(el país del evento)', I = CI;
   const F = {
@@ -2086,6 +2287,128 @@ async function cultureSection(d) {
   };
 }
 
+// ------------------------------------------------------------------ unit templates, productions and research (sharedData forms, as ed.exe's)
+// [property, label, min, max]; the ranges are ed.exe's (errors 76-104)
+const SD_NUMS = {
+  UnitTemplate: [['nHitPoints', 'Puntos de vida', 1], ['nSpeed', 'Velocidad', 1], ['nAttackPower', 'Ataque', 0], ['nMen', 'Hombres', 0],
+    ['nLandHitPercent', '% impacto tierra', 0, 100], ['nLandDefenseHitPercent', '% impacto tierra al defender', 0, 100], ['nSeaHitPercent', '% impacto mar', 0, 100],
+    ['nAirHitPercent', '% impacto aire', 0, 100], ['nStructureHitPercent', '% impacto estructuras', 0, 100], ['nResistance', 'Resistencia (%)', 0, 100],
+    ['nMaintenanceCost', 'Coste de mantenimiento', 0], ['nSupplyArms', 'Armamento de suministro', 0], ['nActiveArms', 'Armamento en activo', 0],
+    ['nRange', 'Alcance', 0], ['nCarrierAirHitPoints', 'Puntos de vida de sus aviones', 0]],
+  FactoryOutput: [['nTechLevel', 'Nivel tecnológico', 0], ['nIPUsRequired', 'IPUs necesarios', 0], ['nMPUsRequired', 'MPUs necesarios', 0], ['nBuildCost', 'Coste de construcción', 0]],
+  ResearchProj: [['nCost', 'Coste', 0], ['nNeededIPUs', 'IPUs necesarios', 0], ['nResearchPoints', 'Puntos de investigación', 0]],
+};
+const SD_FORMS = t => t === 'UnitTemplate' || ['FactoryOutputUnit', 'FactoryOutputFactory', 'FactoryOutputResource'].includes(t) || /^ResearchProj(?!ect)/.test(t || '');
+async function sharedDataSection(d) {
+  const t = d.type, kind = t === 'UnitTemplate' ? t : t.startsWith('FactoryOutput') ? 'FactoryOutput' : 'ResearchProj';
+  const val = n => { const p = d.props.find(p => p.name === n && !p.missing); return p ? p.value ?? '' : ''; };
+  const has = n => d.props.some(p => p.name === n && !p.missing);
+  const gold = G.info && G.info.current === 'gold';
+  const sel = (vals, cur, blank) => [...new Set([...(blank != null ? [''] : []), ...vals, cur].filter(v => v != null && (v !== '' || blank != null)))]
+    .map(v => `<option value="${esc(v)}"${v === cur ? ' selected' : ''}>${esc(v === '' ? blank : v)}</option>`).join('');
+  const opts = (n, prefix) => (S.opts[n] || []).filter(v => !prefix || String(v).startsWith(prefix));
+  const num = ([n, label, min, max]) => `<label title="${esc(n)}">${esc(label)}</label><input type="number" step="1" data-sd="${esc(n)}" data-orig="${esc(val(n))}" value="${esc(val(n))}"
+    ${min != null ? `min="${min}"` : ''} ${max != null ? `max="${max}"` : ''} ${has(n) ? 'required' : ''} placeholder="${min != null ? (max != null ? `${min}–${max}` : `≥ ${min}`) : ''}">`;
+  const text = (n, label, list) => `<label title="${esc(n)}">${esc(label)}</label><input data-sd="${esc(n)}" data-orig="${esc(val(n))}" value="${esc(val(n))}" ${has(n) ? 'required' : ''}${list ? ` list="sd-${esc(n)}"` : ''}>` +
+    (list ? `<datalist id="sd-${esc(n)}">${list.map(v => `<option value="${esc(v)}">`).join('')}</datalist>` : '');
+  const pick = (n, label, vals) => `<label title="${esc(n)}">${esc(label)}</label><select data-sd="${esc(n)}" data-orig="${esc(val(n))}">${sel(vals, val(n), has(n) ? null : '(sin valor)')}</select>`;
+  const flag = (n, label) => `<label title="${esc(n)}">${esc(label)}</label><input type="checkbox" style="justify-self:start;width:auto" data-sdb="${esc(n)}" data-orig="${esc(val(n))}"${val(n) === 'true' ? ' checked' : ''}>`;
+  let h = '', nums = SD_NUMS[kind].filter(f => f[0] !== 'nLandDefenseHitPercent' || gold || has(f[0]));      // Gold's field: MH1 doesn't know it
+  if (t === 'FactoryOutputResource') nums = nums.concat([['nAmountPerOutputUnit', 'Cantidad por unidad producida', 0]]);
+  if (t === 'FactoryOutputFactory' && has('nIPUsPerOutputUnit')) nums = nums.concat([['nIPUsPerOutputUnit', 'IPUs por unidad producida']]);
+  if (kind === 'UnitTemplate') {
+    h += text('strName', 'Nombre interno') + text('strIconName', 'Icono') + text('sidDisplayName', 'Nombre visible (SID)')
+      + pick('eType', 'Tipo', opts('eType', 'UNIT_TYPE_')) + pick('eUnitCategory', 'Categoría', opts('eUnitCategory', 'UNIT_CATEGORY_'))
+      + nums.map(num).join('') + flag('bTakesAirToAirDamage', 'Recibe daño aire-aire') + flag('bCarriesAirSquads', 'Lleva escuadrillas aéreas');
+    const caps = d.props.filter(p => p.name === 'strCapabilities').map(p => p.value);
+    h += `<label style="grid-column:1/-1">Capacidades</label><div id="sdCaps" style="grid-column:1/-1;columns:2">${[...new Set([...opts('strCapabilities'), ...caps])].sort().map(c =>
+      `<label style="display:block"><input type="checkbox" value="${esc(c)}"${caps.includes(c) ? ' checked' : ''}> ${esc(c)}</label>`).join('')}</div>`;
+  } else if (kind === 'FactoryOutput') {
+    h += text('strName', 'Nombre interno') + text('strIconName', 'Icono') + text('strDisplayCategory', 'Categoría visible', opts('strDisplayCategory'))
+      + pick('eDisplayFlags', 'Tipo en la lista de producción', opts('eDisplayFlags', 'FACTORY_OUTPUT_DISPLAY_'));
+    if (t === 'FactoryOutputUnit') h += pick('strUnitType', 'Plantilla de unidad', S.opts.__unit || []);
+    if (t === 'FactoryOutputResource') h += pick('strResource', 'Recurso producido', S.opts.strResource || []);
+    h += nums.map(num).join('') + flag('bPortOnly', 'Solo en ciudades con puerto') + flag('bAvailableByDefault', 'Disponible por defecto');
+  } else {
+    h += text('strName', 'Nombre interno') + text('sidDescription', 'Descripción (SID)') + text('sidEffect', 'Efecto (SID)')
+      + pick('strBranchName', 'Rama', opts('strBranchName')) + text('strProgramName', 'Programa', opts('strProgramName'))
+      + nums.map(num).join('') + flag('bCompletedByDefault', 'Completado por defecto');
+    if (t === 'ResearchProjUpgradeDataTemplateRef') {
+      const tpl = S.opts.__templates || {};
+      h += pick('otTemplateType', 'Tipo de plantilla', Object.keys(tpl)) + pick('strOldTemplateName', 'Plantilla anterior', tpl[val('otTemplateType')] || [])
+        + pick('strNewTemplateName', 'Plantilla nueva', tpl[val('otTemplateType')] || []);
+    }
+  }
+  // children: [type, [[property, options or null (number ≥ 0), blank text]]]
+  const projects = (S.opts.__project || []).filter(x => x !== val('strName')), outputs = S.opts.__output || [];
+  const KIDS = {
+    ResourceAmountPair: ['Recursos necesarios', [['strResource', S.opts.strResource || []], ['nAmount', null]]],
+    ResearchProjectPreReq: ['Investigaciones requeridas', [['strProjectName', projects]]],
+    ResearchFactoryOutputAvailableData: ['Producciones que desbloquea', [['strFactoryOutputName', outputs]]],
+    ResearchFactoryOutputUnavailableData: ['Producciones que retira (y su sustituta)', [['strFactoryOutputName', outputs], ['strReplacementFactoryOutputName', outputs, '(ninguna)']]],
+    ResearchUnitUpgradeByCategory: ['Mejoras de unidades', [['eUnitCategory', opts('eUnitCategory', 'UNIT_CATEGORY_')], ['strUpgradeName', S.opts.strUpgradeName || []]]],
+  };
+  const cell = (k, [n, vals, blank], v) => vals ? `<select data-${k}="${esc(n)}" data-orig="${esc(v ?? '')}">${sel(vals, v ?? '', blank ?? (v ? null : '(elige)'))}</select>`
+    : `<input type="number" min="0" step="1" required data-${k}="${esc(n)}" data-orig="${esc(v ?? '')}" value="${esc(v ?? '0')}" style="width:7em">`;
+  for (const [type, [title, fields]] of Object.entries(KIDS)) {
+    const rows = d.children.filter(c => c.type === type), canAdd = (d.extra.child_options || []).includes(type);
+    if (!rows.length && !canAdd) continue;
+    h += `<div style="grid-column:1/-1"><b>${esc(title)}</b>` + rows.map(c => `<div class="row" data-kid="${c.id}">${fields.map(f => cell('kp', f, c.values[f[0]])).join('')}
+      <button class="btn small danger" data-kdel="${c.id}" title="Quitar">✕</button></div>`).join('')
+      + (canAdd ? `<div class="row" data-kadd="${type}">${fields.map(f => cell('ka', f, f[1] ? '' : '0')).join('')}<button class="btn small" data-kgo="${type}">Añadir</button></div>` : '') + '</div>';
+  }
+  // the shared-data warning is escenario_extra.js's (d.extra.shared), shown above the title
+  $('#right').querySelector('h2').nextElementSibling.insertAdjacentHTML('afterend', `<div class="sec" id="sdSec"><h3>Ficha (como el editor oficial)</h3>
+    <div class="grid">${h}</div><div class="row" style="margin-top:6px"><button class="btn primary" id="sdApply">Aplicar</button>
+    <span class="muted">Los rangos son los del editor oficial; «Validar ficha» comprueba también las referencias.</span></div></div>`);
+  const box = $('#sdSec'), reopen = async msg => { const nd = await api('/api/scen/obj?id=' + d.id); S.obj = nd; setDirty(nd.dirty); renderObj(nd, msg && { text: msg }); };
+  const otSel = box.querySelector('[data-sd="otTemplateType"]');
+  if (otSel) otSel.onchange = () => ['strOldTemplateName', 'strNewTemplateName'].forEach(n => {       // template names follow the chosen type
+    const s = box.querySelector(`[data-sd="${n}"]`); s.innerHTML = sel((S.opts.__templates || {})[otSel.value] || [], s.value, '(elige)');
+  });
+  box.querySelectorAll('[data-kdel]').forEach(b => b.onclick = async () => {
+    const r = await api('/api/scen/remove', { id: +b.dataset.kdel }); if (r.error) return alert(r.error);
+    reopen('Quitado. Falta «Guardar».');
+  });
+  box.querySelectorAll('[data-kgo]').forEach(b => b.onclick = async () => {
+    const row = box.querySelector(`[data-kadd="${b.dataset.kgo}"]`), values = {};
+    for (const i of row.querySelectorAll('[data-ka]')) {
+      if (!i.checkValidity() || (i.tagName === 'SELECT' && !i.value && i.dataset.ka !== 'strReplacementFactoryOutputName')) return alert('Elige un valor válido en cada campo.');
+      values[i.dataset.ka] = i.value;
+    }
+    const r = await api('/api/scen/add_child', { name: S.scen, id: d.id, kind: b.dataset.kgo }); if (r.error) return alert(r.error);
+    const u = await api('/api/scen/update', { id: r.id, values }); if (u.error) return alert(u.error);
+    reopen('Añadido. Falta «Guardar».');
+  });
+  $('#sdApply').onclick = async () => {
+    const bad = [...box.querySelectorAll('[data-sd], [data-kp]')].filter(i => !i.checkValidity());
+    const which = bad.map(i => (i.previousElementSibling && i.previousElementSibling.tagName === 'LABEL' ? i.previousElementSibling.textContent : i.dataset.sd || i.dataset.kp)
+      + ` (${i.validationMessage})`).join('; ');
+    if (bad.length) return alert(`Valores no válidos: ${which}`);
+    const values = {};
+    box.querySelectorAll('[data-sd]').forEach(i => { if (i.value !== i.dataset.orig && !(i.value === '' && i.dataset.orig === '')) values[i.dataset.sd] = i.value.trim(); });
+    box.querySelectorAll('[data-sdb]').forEach(i => { const v = i.checked ? 'true' : 'false'; if (v !== i.dataset.orig && (i.dataset.orig || i.checked)) values[i.dataset.sdb] = v; });
+    let n = 0;
+    for (const row of box.querySelectorAll('[data-kid]')) {
+      const kv = {}; row.querySelectorAll('[data-kp]').forEach(i => { if (i.value !== i.dataset.orig) kv[i.dataset.kp] = i.value; });
+      if (!Object.keys(kv).length) continue;
+      const r = await api('/api/scen/update', { id: +row.dataset.kid, values: kv }); if (r.error) return alert(r.error); n++;
+    }
+    const capBox = $('#sdCaps');
+    if (capBox) {
+      const caps = [...capBox.querySelectorAll('input:checked')].map(i => i.value), was = d.props.filter(p => p.name === 'strCapabilities').map(p => p.value);
+      const list = was.filter(c => caps.includes(c)).concat(caps.filter(c => !was.includes(c)));      // keeps the file's order
+      if (list.join('|') !== was.join('|')) {
+        const r = await api('/api/scen/set_list', { id: d.id, prop: 'strCapabilities', values: list });
+        if (r.error) return alert(r.error); n++;
+      }
+    }
+    if (Object.keys(values).length) { const r = await api('/api/scen/update', { id: d.id, values }); if (r.error) return alert(r.error); n++; }
+    if (!n) return reopen('No hay cambios en este objeto');
+    refreshList(); reopen('Aplicado. Falta «Guardar» para escribir los archivos.');
+  };
+}
+
 // ------------------------------------------------------------------ bomber range on the map
 const BOMB = { ranges: null };
 async function sendRings() {
@@ -2208,6 +2531,7 @@ async function newGeneric(kind) {
       <label class="gnCapNew">Nombre visible</label><input class="gnCapNew" id="gnCapDisp" placeholder="(el nombre interno)">
       <label class="gnCapNew">Región de la capital</label><input class="gnCapNew" id="gnCapReg" list="gnRegDl" placeholder="(la primera de las que recibe)">
       <label class="gnCapNew">Población / IPUs</label><div class="gnCapNew row" style="flex-wrap:nowrap"><input id="gnCapPop" type="number" min="3" value="100000" style="width:60%"><input id="gnCapIpus" type="number" min="0" value="5" style="width:40%"></div>
+      <label>Tropas como</label><select id="gnSkin"><option value="">(automático: la plantilla o el país de sus regiones)</option>${o(S.opts.strOwner || [])}</select>
       <label>Descripción</label><textarea id="gnDesc" rows="3" placeholder="Texto de la nación en el menú (opcional)"></textarea>`;
     const capMode = () => document.querySelector('input[name=gnCapMode]:checked').value;
     const capShow = () => { B.querySelectorAll('.gnCapOld').forEach(e => { e.style.display = capMode() === 'old' ? '' : 'none'; });
@@ -2218,7 +2542,7 @@ async function newGeneric(kind) {
     build = () => ['/api/scen/create', { kind: 'country', obj_name: v('gnName'), template: v('gnTpl'), ctype: v('gnType'), gov: v('gnGov'), color: v('gnColor'),
       flag: v('gnFlag') || v('gnName'), regions: csv($('#gnRegs').value), capital: capMode() === 'old' ? v('gnCap') : '', description: $('#gnDesc').value,
       new_capital: capMode() === 'new' && v('gnCapName') ? { name: v('gnCapName'), display: v('gnCapDisp') || v('gnCapName'), region: v('gnCapReg'),
-        population: +$('#gnCapPop').value || 100000, ipus: +$('#gnCapIpus').value || 0 } : null }];
+        population: +$('#gnCapPop').value || 100000, ipus: +$('#gnCapIpus').value || 0 } : null, skin: v('gnSkin') }];
     after = async () => { S.opts = await api('/api/scen/options?name=' + encodeURIComponent(S.scen)); $('#dl-nations').innerHTML = (S.opts.strOwner || []).map(x => `<option value="${esc(x)}">`).join(''); };
   } else if (kind === 'fleet') {
     help = 'Flota en una región de mar o en puerto (región de tierra del mismo dueño con una ciudad con puerto). Solo unidades navales.';
@@ -2271,7 +2595,7 @@ async function newGeneric(kind) {
         <option value="gov">Cambiar la ideología de un país</option><option value="resource">Ayuda de recursos</option>
         <option value="embargo">Embargo comercial</option><option value="war1">Guerra programada (una vez; el jugador elige en una ventana)</option>
         <option value="independence">Crear o liberar un país</option><option value="units">Crear unidades</option>
-        <option value="liberate">Estado aliado de la misma ideología (al conquistar)</option><option value="culture">Cambiar la cultura étnica de regiones (experimental)</option>
+        <option value="liberate">Estado aliado de la misma ideología (al conquistar)</option>
         <option value="war">Guerra por fecha (se repite hasta que haya guerra)</option><option value="protect">Protección de un aliado (si lo atacan, guerra o embargo)</option></select>
       <div id="gnEvF" style="grid-column:1/-1" class="grid"></div>`;
     const nCh = () => $('#gnChoices').children.length;
@@ -2447,13 +2771,37 @@ $('#newScen').onclick = async () => {
   $('#scen').value = r.name; await openScenario(r.name);
   note(base ? `Escenario «${r.name}» creado como copia de «${base}» (regionpack ${r.pack || '?'}).` : `Escenario «${r.name}» creado sobre ${$('#nsPack').value}. Añade naciones con «＋ Nuevo» en la pestaña Naciones.`);
 };
-// new scenario from a Making History II one: only on the regionpacks made from MH2's map (server /api/scen/mh2_import)
-$('#mh2Scen').onclick = async () => {
-  const info = await api('/api/scen/mh2_list'), dlg = $('#mh2Dlg');
+// «⇪ Importar desde otro juego…»: picks the source game, then that game's importer
+$('#impScen').onclick = async () => {
+  const dlg = $('#impDlg');
+  const v = await new Promise(res => { dlg.onclose = () => res(dlg.returnValue); dlg.returnValue = ''; dlg.showModal(); });
+  if (v === 'mh2' || v === 'tgw' || v === 'sww') return importMH2(v);
+  if (v === 'hoi4') return importHOI4();
+  if (v === 'pax') return importPax();
+};
+// the importer's regionpack is missing: install it from its editor project if there is one (server /api/scen/pack_install)
+async function offerPackInstall(packs, msg, retry) {
+  if (!confirm(msg)) return;
+  note('Instalando el regionpack…');
+  const r = await api('/api/scen/pack_install', { packs });
+  if (r.error) return alert(r.error);
+  note(`Regionpack ${r.pack} instalado.`);
+  return retry();
+}
+// new scenario from a Making History II, The Great War or The Second World War one: only on the regionpacks made from
+// MH2's map (server /api/scen/mh2_import; TGW/SWW regions are matched to them by shape)
+const MH2_GAMES = {
+  mh2: { title: 'Escenario desde Making History II', none: 'No se encuentra ningún escenario de Making History II (ni del juego ni del Workshop).', busy: 'Convirtiendo el escenario de MH2… (varios minutos)' },
+  tgw: { title: 'Escenario desde Making History: The Great War', none: 'No se encuentra ningún escenario de Making History: The Great War (ni del juego ni del Workshop).', busy: 'Convirtiendo el escenario de TGW… (varios minutos)' },
+  sww: { title: 'Escenario desde Making History: The Second World War', none: 'No se encuentra ningún escenario de Making History: The Second World War (ni del juego ni del Workshop).', busy: 'Convirtiendo el escenario de SWW… (varios minutos)' },
+};
+async function importMH2(game = 'mh2') {
+  const info = await api('/api/scen/mh2_list?game=' + game), dlg = $('#mh2Dlg'), G = MH2_GAMES[game];
   if (info.error) return alert(info.error);
   const have = info.packs.installed || [];
-  if (!have.length) return alert(`Para importar escenarios de Making History II hace falta tener instalado el regionpack ${info.packs.needed.join(' o ')} (hechos con el mapa de MH2). Instálalo desde el editor de regiones y vuelve a intentarlo.`);
-  if (!(info.scenarios || []).length) return alert('No se encuentra ningún escenario de Making History II (ni del juego ni del Workshop).');
+  if (!have.length) return offerPackInstall(info.packs.needed, `Para importar escenarios de Making History II, The Great War o The Second World War hace falta tener instalado el regionpack ${info.packs.needed.join(' o ')}. ¿Instalarlo ahora en el juego? (unos minutos; cierra antes el juego)`, () => importMH2(game));
+  if (!(info.scenarios || []).length) return alert(G.none);
+  $('#m2Title').textContent = G.title;
   $('#m2Src').innerHTML = info.scenarios.map((x, i) => `<option value="${i}">${esc(x.name)} (${esc(x.source)}${x.date ? ', ' + esc(x.date) : ''})</option>`).join('');
   $('#m2Pack').innerHTML = have.map(p => `<option>${esc(p)}</option>`).join('');
   const scens = [...$('#scen').options].map(o => o.value).filter(Boolean);
@@ -2463,15 +2811,81 @@ $('#mh2Scen').onclick = async () => {
   $('#m2Err').textContent = '';
   const ok = await new Promise(res => { dlg.onclose = () => res(dlg.returnValue === 'ok'); dlg.returnValue = ''; dlg.showModal(); });
   if (!ok || !$('#m2Name').value.trim()) return;
-  note('Convirtiendo el escenario de MH2… (varios minutos)');
-  const r = await api('/api/scen/mh2_import', { src: info.scenarios[+$('#m2Src').value].path, pack: $('#m2Pack').value, template: $('#m2Tpl').value || null,
+  note(G.busy);
+  const r = await api('/api/scen/mh2_import', { game, src: info.scenarios[+$('#m2Src').value].path, pack: $('#m2Pack').value, template: $('#m2Tpl').value || null,
                                                 name: $('#m2Name').value.trim(), display: $('#m2Disp').value.trim() || null });
   if (r.error) return alert(r.error);
   const o = document.createElement('option'); o.value = o.textContent = r.name; $('#scen').appendChild(o);
   $('#scen').value = r.name; await openScenario(r.name);
   const warn = r.warnings.length ? `. Avisos (${r.warnings.length}): ${r.warnings.slice(0, 8).join('; ')}${r.warnings.length > 8 ? '…' : ''}` : '';
-  note(`Escenario «${r.name}» creado desde MH2: ${r.notes.join('; ')}${warn}`);
-};
+  note(`Escenario «${r.name}» creado desde ${game.toUpperCase()}: ${r.notes.join('; ')}${warn}`);
+}
+// new scenario from Hearts of Iron IV or one of its mods (default map) on WorldHOI4 (server /api/scen/hoi4_import)
+async function importHOI4() {
+  const info = await api('/api/scen/hoi4_list'), dlg = $('#hoi4Dlg');
+  if (info.error) return alert(info.error);
+  if (!info.pack) return offerPackInstall(['WorldHOI4'], 'Para importar de Hearts of Iron IV hace falta tener instalado el regionpack WorldHOI4 (dibujado con el mapa de HOI4). ¿Instalarlo ahora en el juego? (unos minutos; cierra antes el juego)', importHOI4);
+  if (!(info.sources || []).length) return alert('No se encuentra Hearts of Iron IV en las bibliotecas de Steam.');
+  $('#h4Src').innerHTML = info.sources.map((x, i) => `<option value="${i}">${esc(x.name)}</option>`).join('');
+  const scens = [...$('#scen').options].map(o => o.value).filter(Boolean);
+  $('#h4Tpl').innerHTML = `<option value="">${'las del editor (1936)'}</option>` + scens.map(n => `<option value="${esc(n)}">${esc(n)}</option>`).join('');
+  $('#h4Src').onchange = () => {
+    const x = info.sources[+$('#h4Src').value];
+    $('#h4Date').innerHTML = x.dates.map(d => `<option>${esc(d)}</option>`).join('');
+    $('#h4Date').onchange();
+  };
+  $('#h4Date').onchange = () => {
+    const x = info.sources[+$('#h4Src').value], y = ($('#h4Date').value || '').split('.')[0];
+    $('#h4Name').value = $('#h4Disp').value = (x.name === 'Hearts of Iron IV' ? 'HOI4' : x.name.replace(/[\\/:*?"<>|]/g, '')) + ' ' + y;
+  };
+  $('#h4Src').onchange();
+  $('#h4Err').textContent = '';
+  const ok = await new Promise(res => { dlg.onclose = () => res(dlg.returnValue === 'ok'); dlg.returnValue = ''; dlg.showModal(); });
+  if (!ok || !$('#h4Name').value.trim()) return;
+  note('Importando de Hearts of Iron IV… (unos minutos)');
+  const r = await api('/api/scen/hoi4_import', { src: info.sources[+$('#h4Src').value].id, date: $('#h4Date').value, template: $('#h4Tpl').value || null,
+                                                 name: $('#h4Name').value.trim(), display: $('#h4Disp').value.trim() || null });
+  if (r.error) return alert(r.error);
+  const o = document.createElement('option'); o.value = o.textContent = r.name; $('#scen').appendChild(o);
+  $('#scen').value = r.name; await openScenario(r.name);
+  const warn = r.warnings.length ? `. Avisos (${r.warnings.length}): ${r.warnings.slice(0, 8).join('; ')}${r.warnings.length > 8 ? '…' : ''}` : '';
+  note(`Escenario «${r.name}» creado desde HOI4: ${r.notes.join('; ')}${warn}`);
+}
+// new scenario from a Pax Historia preset: the preset's political map on top of an MH1 scenario (server /api/scen/pax_import)
+async function importPax() {
+  const dlg = $('#paxDlg'), scens = [...$('#scen').options].map(o => o.value).filter(Boolean);
+  if (!scens.length) return alert('No hay escenarios de MH1 que usar como base.');
+  $('#pxBase').innerHTML = scens.map(n => `<option value="${esc(n)}">${esc(n)}</option>`).join('');
+  if (scens.includes('The Politics of Appeasement')) $('#pxBase').value = 'The Politics of Appeasement';
+  $('#pxCopy').onclick = async () => {
+    const r = await api('/api/scen/pax_snippet');
+    try { await navigator.clipboard.writeText(r.snippet); $('#pxCopy').textContent = 'Copiado ✓'; }
+    catch (e) { prompt('Copia este código:', r.snippet); }
+  };
+  let preset = null;
+  $('#pxFile').value = ''; $('#pxErr').textContent = '';
+  $('#pxFile').onchange = async () => {
+    preset = null; $('#pxErr').textContent = '';
+    const f = $('#pxFile').files[0];
+    if (!f) return;
+    try {
+      preset = JSON.parse(await f.text());
+      const t = String((preset.presetData || preset).title || 'Pax Historia').trim(), y = ((preset.presetData || preset).startDate || {}).year;
+      $('#pxName').value = $('#pxDisp').value = (t + (y ? ' ' + y : '')).replace(/[\\/:*?"<>|]/g, '').trim();
+    } catch (e) { $('#pxErr').textContent = 'Ese archivo no es un JSON válido.'; }
+  };
+  const ok = await new Promise(res => { dlg.onclose = () => res(dlg.returnValue === 'ok'); dlg.returnValue = ''; dlg.showModal(); });
+  if (!ok) return;
+  if (!preset) return alert('Elige el archivo JSON del preset.');
+  if (!$('#pxName').value.trim()) return;
+  note('Importando de Pax Historia… (unos minutos)');
+  const r = await api('/api/scen/pax_import', { preset, base: $('#pxBase').value, name: $('#pxName').value.trim(), display: $('#pxDisp').value.trim() || null });
+  if (r.error) return alert(r.error);
+  const o = document.createElement('option'); o.value = o.textContent = r.name; $('#scen').appendChild(o);
+  $('#scen').value = r.name; await openScenario(r.name);
+  const warn = r.warnings.length ? `. Avisos (${r.warnings.length}): ${r.warnings.slice(0, 8).join('; ')}${r.warnings.length > 8 ? '…' : ''}` : '';
+  note(`Escenario «${r.name}» creado desde Pax Historia: ${r.notes.join('; ')}${warn}`);
+}
 // if the scenario's regions don't match its regionpack, the game won't load it: offer to adapt it before saving
 async function saveScen(body) {
   let r;
@@ -2682,6 +3096,13 @@ $('#tilt').onchange = async e => {
   setDirty(r.dirty); $('#right').insertAdjacentHTML('afterbegin', `<div class="note">${esc(r.notes.join('; '))}. Falta «Guardar».</div>`);
 };
 $('#newwar').onclick = $('#newFutureWar').onclick = () => warDlg.showModal();
+for (const [id, to] of [['#palGold', 'gold'], ['#palMh1', 'mh1']]) $(id).onclick = async () => {
+  const r = await api('/api/scen/palette', { name: S.scen, to });
+  if (r.error) { alert(r.error); return; }
+  setDirty(r.dirty); showTab('colors');
+  const c = r.changed;
+  alert(`Colores cambiados: ${(c.nacion || 0) + (c.tabla || 0) + (c.aprox || 0)} de ${r.total} (${c.nacion || 0} por nación, ${(c.tabla || 0) + (c.aprox || 0)} por equivalencia). Pulsa «Guardar» para escribirlos.`);
+};
 const BU = { info: null, plan: null };
 $('#bulkUnits').onclick = async () => {
   const i = await api('/api/scen/bulk_units', { name: S.scen, op: 'info' });
@@ -2907,7 +3328,8 @@ async function identify(rel) {
 const G = { info: null };
 async function gameInit() {
   G.info = await api('/api/game');
-  $('#gameSel').innerHTML = G.info.games.map(g => `<option value="${g.key}"${g.installed ? '' : ' disabled'}>${esc(g.short)}${g.installed ? '' : ' (no instalado)'}</option>`).join('');
+  $('#gameSel').innerHTML = G.info.games.map(g => `<option value="${g.key}"${g.installed ? '' : ' disabled'}>${esc(g.short)}${g.installed ? '' : ' (no instalado)'}</option>`).join('')
+    + G.info.games.map(g => `<option value="path:${g.key}">Carpeta de ${esc(g.short)}…</option>`).join('');
   $('#gameSel').value = G.info.current;
   $('#gameSel').title = G.info.games.find(g => g.key === G.info.current).path;
   $('#convert').textContent = G.info.current === 'mh1' ? 'Exportar a Gold…' : 'Exportar a MH1…';
@@ -2929,6 +3351,17 @@ window.addEventListener('focus', async () => {
   }
 });
 $('#gameSel').onchange = async e => {
+  if (e.target.value.startsWith('path:')) {      // game installed elsewhere (external disk, without Steam): point to its folder
+    const key = e.target.value.slice(5), g = G.info.games.find(x => x.key === key);
+    $('#gameSel').value = G.info.current;
+    const p = prompt(`Carpeta donde está instalado ${g.short} (la que contiene «Modern Europe»):`, g.path);
+    if (!p) return;
+    const r = await api('/api/game/path', { game: key, path: p });
+    if (r.error) return alert(r.error);
+    G.info = r; await gameInit();
+    if (key === G.info.current) return location.reload();
+    $('#gameSel').value = key; return $('#gameSel').onchange({ target: $('#gameSel') });
+  }
   let r = await api('/api/game/select', { game: e.target.value });
   // unsaved scenario changes block the switch: offer to save (this page's «Guardar escenario») or discard them, then retry
   if (r.error && /cambios sin guardar/.test(r.error)) {
@@ -2948,13 +3381,13 @@ $('#convert').onclick = () => {
   $('#convTo').innerHTML = other.map(g => `<option value="${g.key}"${g.installed ? '' : ' disabled'}>${esc(g.label)}</option>`).join('');
   $('#convTitle').textContent = `${S.scen} (${G.info.games.find(g => g.key === G.info.current).short})`;
   $('#convOut').value = S.scen; $('#convRes').textContent = ''; $('#convAfter').innerHTML = ''; $('#convWait').textContent = '';
-  $('#convColors').value = $('#convTo').value === 'gold' ? '1' : '';
+  $('#convColors').checked = false;
   convDlg.showModal();
 };
 $('#convGo').onclick = async () => {
   const to = $('#convTo').value;
   $('#convGo').disabled = true; $('#convWait').textContent = 'Convirtiendo… (puede tardar un minuto)';
-  const r = await api('/api/scen/convert', { name: S.scen, to, out: $('#convOut').value.trim(), colors: !!$('#convColors').value,
+  const r = await api('/api/scen/convert', { name: S.scen, to, out: $('#convOut').value.trim(), colors: $('#convColors').checked,
     infra: $('#convInfra').value, units_only: !!$('#convUnits').value, complete_new: !!$('#convNew').value, remove_partisan_event: !!$('#convPart').value, skip_images: !!$('#convImg').value, regionpack: $('#convMap').value });
   $('#convGo').disabled = false; $('#convWait').textContent = '';
   if (r.error) { $('#convRes').textContent = 'ERROR: ' + r.error; return; }

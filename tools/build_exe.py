@@ -35,6 +35,8 @@ def make_icon(path):
 
 def main():
     import PyInstaller.__main__
+    # --dist <folder>: build the exe elsewhere (e.g. a faster disk); it then finds its data through mh_root.txt
+    dist = os.path.abspath(sys.argv[sys.argv.index('--dist') + 1]) if '--dist' in sys.argv else ROOT
     os.makedirs(WORK, exist_ok=True)
     ico = os.path.join(WORK, 'mheditor.ico')
     # with MHEditor open, PyInstaller would half-delete its folder (files in use) and leave it broken
@@ -47,7 +49,7 @@ def main():
     hidden = [os.path.splitext(os.path.basename(p))[0] for p in glob.glob(os.path.join(HERE, '*.py'))
               if os.path.basename(p) not in ('build_exe.py', 'mheditor_app.py', 'editor_ventana.py', 'exportar_github.py')]
     args = [os.path.join(HERE, 'mheditor_app.py'), '--name', 'MHEditor', '--onedir', '--windowed', '--noconfirm',
-            '--icon', ico, '--distpath', ROOT, '--workpath', os.path.join(WORK, 'work'), '--specpath', WORK,
+            '--icon', ico, '--distpath', dist, '--workpath', os.path.join(WORK, 'work'), '--specpath', WORK,
             '--paths', HERE, '--add-data', os.path.join(HERE, 'editor') + os.pathsep + 'editor',
             '--add-data', os.path.join(HERE, 'data') + os.pathsep + 'data',   # nif.xml (lector de modelos 3D)
             # the AI chat reads the routes from the server code (ai_chat.routes)
@@ -61,7 +63,10 @@ def main():
     # the intermediate exe in _build\work does not work alone (lacks _internal): deleted so it is not opened by mistake
     import shutil
     shutil.rmtree(os.path.join(WORK, 'work'), ignore_errors=True)
-    print('\nListo:', os.path.join(ROOT, 'MHEditor', 'MHEditor.exe'))
+    if dist != ROOT:
+        with open(os.path.join(dist, 'MHEditor', 'mh_root.txt'), 'w', encoding='utf-8') as f:
+            f.write(ROOT)
+    print('\nListo:', os.path.join(dist, 'MHEditor', 'MHEditor.exe'))
 
 
 if __name__ == '__main__':

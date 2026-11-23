@@ -1,4 +1,5 @@
-"""Imports a Making History II scenario into a new MH1 scenario on WorldMoreRegions or WorldMoreRegionsRivers.
+"""Imports a Making History II, The Great War or The Second World War scenario into a new MH1 scenario on WorldMoreRegions
+or WorldMoreRegionsRivers.
 
 Both regionpacks were built from MH2's own map, so every MH2 land region has a region of the same name (the few extra
 regions of the regionpack take the owner of their neighbours). From the MH2 scenario it takes, as far as MH1 has an
@@ -10,6 +11,9 @@ trade agreements, diplomatic relation levels and MH2's own research topics have 
 (the report says so).
 
 The new scenario is written to the game's scenario folder (like «＋ Nuevo escenario»); nothing else is touched.
+TGW and SWW (same engine as MH2, one shared map of their own) go through data/tgw_sww_regions.json (made by
+tgw_region_map.py): their regions go into the WorldMoreRegions region of the same name or the one covering most of them,
+cities into the region that contains them. Their governments and WWI-era units are mapped to the closest MH1 ones.
 MH2 Workshop scenarios are their authors' work: converting them for one's own use is fine, publishing the result needs
 their permission.
 """
@@ -22,12 +26,22 @@ import scenario_core as sc
 from scenario_core import prop, objs
 
 PACKS = ('WorldMoreRegions', 'WorldMoreRegionsRivers')
-MH2_APP = '46770'
+# game -> (Steam install folder, content folder, Steam app id)
+GAMES = {'mh2': ('Making History II', 'Making History II', '46770'),
+         'tgw': ('The Great War', 'Making History TGW', '279140'),
+         'sww': ('Making History SWW', 'Making History SWW', '462940')}
+GAME_SHORT = {'mh2': 'MH2', 'tgw': 'TGW', 'sww': 'SWW'}
+GAME_NAMES = {'mh2': 'Making History II', 'tgw': 'Making History: The Great War', 'sww': 'Making History: The Second World War'}
 GOVS = ('Democratic', 'Authoritarian', 'Communist', 'Fascist')
+# TGW / SWW government type -> MH1 government (monarchies, dictatorships, colonies...: Authoritarian)
+GOV_TYPES = {'RepresentativeDemocracy': 'Democratic', 'ConstitutionalRepublic': 'Democratic', 'CrownedRepublic': 'Democratic',
+             'SocialistState': 'Communist', 'FascistState': 'Fascist'}
 TERRAIN = {'Forests': 'Forest', 'Lake': 'Plains', 'Ocean': 'Plains', 'PolarSea': 'Tundra'}     # the rest have the same name
 RESOURCES = {'Coal': 'Coal', 'Metals': 'Metals', 'Oil': 'Oil'}
 # MH2 city buildings -> MH1 IPUs (an MH1 city has one factory with a number of IPUs)
-BUILDING_IPUS = {'CottageFactory': 2, 'MechanizedFactory': 6, 'MunitionsPlant': 4, 'AircraftPlant': 4, 'VehiclePlant': 4, 'Shipyard': 3}
+BUILDING_IPUS = {'CottageFactory': 2, 'MechanizedFactory': 6, 'MunitionsPlant': 4, 'AircraftPlant': 4, 'VehiclePlant': 4, 'Shipyard': 3,
+                 'MechanizedMill': 4, 'SteelMill': 4, 'MotorWorks': 4, 'AircraftFactory': 4, 'IronWorks': 3, 'MetalWorks': 3,
+                 'ToolFactory': 3, 'Dockyard': 3, 'Mill': 2, 'Refinery': 2}
 # MH2 culture -> MH1 culture (the same name ignoring case and punctuation is matched without this table)
 CULTURE = {'Slavic': 'Russian', 'Arabic': 'Arabian', 'Sinitic': 'Chinese', 'Lusitanic': 'Portuguese', 'Turkic': 'Turkish',
            'IndoIranian': 'Persian', 'Germanic': 'German', 'Francophonie': 'French', 'Latin': 'Italian', 'Hellenic': 'Greek',
@@ -36,11 +50,20 @@ CULTURE = {'Slavic': 'Russian', 'Arabic': 'Arabian', 'Sinitic': 'Chinese', 'Lusi
            'MalayoPolynesian': 'Filipino', 'PacificIslander': 'Polynesian', 'Tai': 'Thai', 'MonKhmer': 'Cambodian',
            'TibetoBurman': 'Burmese', 'Mongolic': 'Mongolian', 'AfroCaribbean': 'Caribbean', 'Eskimo': 'Greenlandic',
            'Cushitic': 'Somali', 'Nilotic': 'Afro-Arab', 'Saharan': 'Afro-Arab', 'NigerCongo': 'Yoruba', 'Khoisan': 'Bantu',
-           'Aramaic': 'Iraqi', 'Algonquin': 'American'}
+           'Aramaic': 'Iraqi', 'Algonquin': 'American',
+           'Mandarin': 'Chinese', 'Cantonese': 'Chinese', 'Wu': 'Chinese', 'Min': 'Chinese', 'Hakka': 'Chinese', 'Gan': 'Chinese',
+           'Hunanese': 'Chinese', 'Southern': 'American', 'Athabaskan': 'American', 'Mesoamerican': 'Mexican', 'Andean': 'Hispanic',
+           'Catalonian': 'Spanish', 'Occitan': 'French', 'Syriac': 'Iraqi', 'Papuan': 'Melanesian', 'WesternMalayo': 'Indonesian',
+           'CentralMalayo': 'Filipino'}
 # keyword of the MH2 unit template -> kind and keywords of the MH1 template to use (most specific first; () = no equivalent)
-UNIT_KINDS = [('Carrier', 'navy', ('Carrier',)), ('Submarine', 'navy', ('Submarine',)),
+UNIT_KINDS = [('Collier', 'navy', ()), ('SeaplaneTender', 'navy', ()), ('MerchantRaider', 'navy', ('Cruiser',)),
+              ('CoastalDefenseShip', 'navy', ('Cruiser',)), ('Monitor', 'navy', ('Cruiser',)), ('Balloon', 'air', ()),
+              ('AntiAir', 'land', ('40mmGun', '88mmGun', 'Artillery')), ('Howitzer', 'land', ('Artillery',)),
+              ('SiegeGun', 'land', ('Artillery',)), ('Mortar', 'land', ('Artillery',)), ('Engineer', 'land', ('Infantry',)),
+              ('AssaultTroops', 'land', ('Infantry',)),
+              ('Carrier', 'navy', ('Carrier',)), ('Submarine', 'navy', ('Submarine',)),
               ('Battlecruiser', 'navy', ('BattleCruiser', 'Battleship')), ('Battleship', 'navy', ('Battleship',)),
-              ('Dreadnought', 'navy', ('Battleship',)), ('Cruiser', 'navy', ('Cruiser',)), ('Destroyer', 'navy', ('Destroyer',)),
+              ('Dreadnought', 'navy', ('Battleship',)), ('Cruiser', 'navy', ('HeavyCruiser', 'Cruiser')), ('Destroyer', 'navy', ('Destroyer',)),
               ('Frigate', 'navy', ('Destroyer', 'Corvette')), ('Corvette', 'navy', ('Corvette', 'Destroyer')),
               ('Troopship', 'navy', ()), ('Transport', 'navy', ()),
               ('Bomber', 'air', ('Bomber',)), ('Fighter', 'air', ('Fighter',)), ('Plane', 'air', ('Fighter',)), ('AirShip', 'air', ()),
@@ -48,6 +71,13 @@ UNIT_KINDS = [('Carrier', 'navy', ('Carrier',)), ('Submarine', 'navy', ('Submari
               ('Mounted', 'land', ('Motorized', 'Mechanized', 'Cavalry')), ('Cavalry', 'land', ('Cavalry', 'Motorized')),
               ('Motorized', 'land', ('Motorized',)), ('Mechanized', 'land', ('Mechanized',)), ('Infantry', 'land', ('Infantry',)),
               ('Marine', 'land', ('Infantry',))]
+# TGW / SWW nation -> the MH1 name the game's shared events use for that state (Italy, USSR...): without it those events miss it
+MH1_NAMES = {'KingdomOfItaly': 'Italy', 'KingdomOfBulgaria': 'Bulgaria', 'KingdomOfRomania': 'Romania', 'KingdomOfSpain': 'Spain',
+             'SpanishRepublic': 'Spain', 'NationalistSpain': 'Spain', 'PortugueseRepublic': 'Portugal', 'Ottoman': 'Turkey',
+             'SovietUnion': 'USSR', 'SovietSocialistRepublic': 'USSR', 'KingdomOfYugoslavia': 'Yugoslavia', 'KingdomOfHungary': 'Hungary',
+             'KingdomOfIraq': 'Iraq', 'KingdomOfPoland': 'Poland', 'KingdomOfFinland': 'Finland', 'EmpireOfJapan': 'Japan',
+             'KingdomOfEgypt': 'Egypt', 'SultanateOfEgypt': 'Egypt', 'KingdomOfAfghanistan': 'Afghanistan', 'EmirateOfAfghanistan': 'Afghanistan',
+             'KingdomOfSiam': 'Siam', 'KingdomOfSerbia': 'Serbia', 'KingdomOfGreece': 'Greece', 'AlbanianKingdom': 'Albania'}
 UNIT_TYPE = {'land': 'UNIT_TYPE_ARMY', 'air': 'UNIT_TYPE_AIR_FORCE', 'navy': 'UNIT_TYPE_NAVY'}
 
 
@@ -56,15 +86,16 @@ def _key(n):
 
 
 # ------------------------------------------------------------------------------------------------ finding MH2 scenarios
-def mh2_roots():
-    """[(source, folder)] holding MH2 scenarios: the game's modules/game and each Workshop item's modules/game."""
+def mh2_roots(game='mh2'):
+    """[(source, folder)] holding the game's scenarios: its modules/game and each Workshop item's modules/game."""
     import gamepaths
+    inst, sub, app = GAMES[game]
     out = []
     for common in gamepaths._steam_libraries():
-        g = os.path.join(common, 'Making History II', 'content', 'Making History II', 'modules', 'game')
+        g = os.path.join(common, inst, 'content', sub, 'modules', 'game')
         if os.path.isdir(g):
-            out.append(('MH2', g))
-        ws = os.path.join(os.path.dirname(common), 'workshop', 'content', MH2_APP)
+            out.append((game.upper(), g))
+        ws = os.path.join(os.path.dirname(common), 'workshop', 'content', app)
         if os.path.isdir(ws):
             for item in sorted(os.listdir(ws)):
                 g = os.path.join(ws, item, 'modules', 'game')
@@ -81,10 +112,10 @@ def _file(d, base):
     return None
 
 
-def scenarios():
-    """[{'name', 'source', 'path', 'date'}] of the installed MH2 scenarios (folders with regions and nations)."""
+def scenarios(game='mh2'):
+    """[{'name', 'source', 'path', 'date'}] of the game's installed scenarios (folders with regions and nations)."""
     out = []
-    for src, root in mh2_roots():
+    for src, root in mh2_roots(game):
         for n in sorted(os.listdir(root)):
             d = os.path.join(root, n)
             if _file(d, 'GameSysRegion.xml') and _file(d, 'GameSysNation.xml'):
@@ -94,19 +125,25 @@ def scenarios():
     return out
 
 
-def check_source(path):
-    """The MH2 scenario the page asks for must be one of the listed ones (no arbitrary paths)."""
+def check_source(path, game='mh2'):
+    """The scenario the page asks for must be one of the listed ones of that game (no arbitrary paths)."""
+    if game not in GAMES:
+        raise ValueError('juego desconocido: %s' % game)
     p = os.path.normcase(os.path.abspath(path or ''))
-    for x in scenarios():
+    for x in scenarios(game):
         if os.path.normcase(os.path.abspath(x['path'])) == p:
             return x['path']
-    raise ValueError('no se encuentra el escenario de MH2 %s' % path)
+    raise ValueError('no se encuentra el escenario de %s %s' % (GAME_NAMES[game], path))
 
 
-def packs():
-    """{'installed': [the usable regionpacks that are installed], 'needed': PACKS}."""
+TGW_PACK = 'WorldTGW'      # TGW / SWW's own map (tgw_make_pack.py): its regions have their names, nothing to translate
+
+
+def packs(game='mh2'):
+    """{'installed': [the usable regionpacks that are installed], 'needed': the ones the game can use}."""
     import editor_core
-    return {'installed': [p for p in PACKS if os.path.exists(os.path.join(editor_core.MAPS, p, 'xml', 'regions.bin'))], 'needed': list(PACKS)}
+    usable = ((TGW_PACK,) if game != 'mh2' else ()) + PACKS
+    return {'installed': [p for p in usable if os.path.exists(os.path.join(editor_core.MAPS, p, 'xml', 'regions.bin'))], 'needed': list(usable)}
 
 
 # ------------------------------------------------------------------------------------------------ reading MH2 XML
@@ -148,28 +185,46 @@ def _display(v, fallback):
     return re.sub(r'(?<=[a-z])(?=[A-Z])', ' ', n).strip()
 
 
+def _levels(v):
+    """Production levels from a TGW / SWW expression such as «@100 * 2» (100 per level)."""
+    n = 1.0
+    for x in re.findall(r'\d+(?:\.\d+)?', v or ''):
+        n *= float(x)
+    return int(round(n / 100)) if v else 0
+
+
 def read(d):
     """Everything the converter uses from an MH2 scenario folder."""
     f = lambda b: _file(d, b)
-    nations = {}
+    nations, capitals = {}, {}
     for o in _objects(f('GameSysNation.xml'), 'gs_tbg.Nation'):
         n = _p(o, 'strName')
         ideo = _sd(_p(o, 'tmplIdeology'))
+        if ideo not in GOVS:        # TGW / SWW: the government type
+            ideo = GOV_TYPES.get(_sd(_p(o, 'tmplGovernmentType')), ideo)
+        if _p(o, 'refCapitalCity'):
+            capitals[n] = _p(o, 'refCapitalCity')
         nations[n] = {'display': _display(_p(o, 'strDisplayName'), _sd(_p(o, 'tmplNation')) or n), 'tmpl': _sd(_p(o, 'tmplNation')),
                       'nationality': _sd(_p(o, 'tmplNationality')), 'gov': ideo if ideo in GOVS else 'Authoritarian',
                       'color': (_p(o, 'colColor') or '')[:7]}
+        st = next((k for k in o['k'] if k['type'].startswith('gs_tbg.NationStatus')), None)     # TGW / SWW: colony, protectorate, puppet
+        if st and st['type'] != 'gs_tbg.NationStatusIndependent':
+            nations[n]['status'], nations[n]['overlord'] = st['type'].split('NationStatus')[1], _p(st, 'refController')
     regions = {}
     for o in _objects(f('GameSysRegion.xml'), 'gs_tbg.Region'):
         res = []
         for k in o['k']:
             if k['type'] == 'gs_tbg.ResourceCapacity' and _sd(_p(k, 'tmplResource')) in RESOURCES:
+                if _p(k, 'nMaxProduction'):     # TGW / SWW: production as «100 * 2» (base 100 per level): levels as slots
+                    res.append((_sd(_p(k, 'tmplResource')), _levels(_p(k, 'nMaxProduction')), _levels(_p(k, 'nBaseProduction'))))
+                    continue
                 res.append((_sd(_p(k, 'tmplResource')), int(_p(k, 'nImprovementSlots') or 0),
                             sum(1 for i in k['k'] if i['type'] == 'gs_tbg.ResourceImprovement')))
         regions[_p(o, 'strName')] = {'owner': _p(o, 'refOwner'), 'ctl': _p(o, 'refController'), 'pop': _p(o, 'nPopulation'),
                                     'terrain': _sd(_p(o, 'tmplTerrain')), 'culture': _sd(_p(o, 'tmplCulture')),
                                     'historic': [_sd(x) for x in o['p'].get('tmplHistoricNations', [])], 'resources': res,
                                     'display': _display(_p(o, 'strDisplayName'), _p(o, 'strName'))}
-    cities, capitals = [], {}
+    cities = []
     for o in _objects(f('GameSysCity.xml'), 'gs_tbg.City'):
         pos = re.findall(r'-?\d+(?:\.\d+)?(?:e-?\d+)?', _p(o, 'vecPosition') or '')
         ipus = sum(BUILDING_IPUS.get(_sd(_p(b, 'tmplCityBuilding')), 1) for b in o['k'] if b['type'] == 'gs_tbg.CityBuilding')
@@ -181,7 +236,8 @@ def read(d):
     groups = {}
     for o in _objects(f('GameSysUnit.xml'), 'gs_tbg.UnitGroup'):
         groups[_p(o, 'strName')] = {'name': _p(o, 'strName'), 'display': _display(_p(o, 'strDisplayName'), _p(o, 'strName')),
-                                    'owner': _p(o, 'refController'), 'loc': (_p(o, 'refLocation') or '').split('::'), 'units': []}
+                                    'owner': _p(o, 'refController'), 'loc': (_p(o, 'refLocation') or '').split('::'),
+                                    'units': [_sd(_p(u, 'objUnitTemplate')) for u in o['k'] if u['type'] == 'gs_tbg.Unit']}     # TGW / SWW nest them
     unit_group = {}
     for o in _objects(f('GameSysUnit.xml'), 'gs_tbg.Unit'):
         unit_group[_p(o, 'strName')] = _p(o, 'refUnitGroup')
@@ -197,8 +253,11 @@ def read(d):
         g['city'] = ref if kind == 'gs_tbg.City' else None
         g['region'] = city_region.get(ref) if kind == 'gs_tbg.City' else (ref if kind == 'gs_tbg.Region' else None)
     rel = f('GameSysNationRelations.xml')
+    go = lambda v: (v or '').replace('{GO}', '')        # TGW / SWW name nations as «{GO}France»
     wars = [(_p(o, 'refAttacker') or _p(o, 'refNationA'), _p(o, 'refDefender') or _p(o, 'refNationB')) for o in _objects(rel, 'gs_tbg.War')]
-    alliances = [(_p(o, 'strName') or 'Alliance', o['p'].get('refMembers') or o['p'].get('refNations') or []) for o in _objects(rel, 'gs_tbg.Alliance')]
+    wars += [(go(a), go(b)) for o in _objects(rel, 'gs_tbg.War') for a in o['p'].get('objAttackers', []) for b in o['p'].get('objDefenders', [])]
+    alliances = [(_p(o, 'strName') or 'Alliance %d' % (i + 1), [go(m) for m in o['p'].get('refMembers') or o['p'].get('refNations') or o['p'].get('objNations') or []])
+                 for i, o in enumerate(_objects(rel, 'gs_tbg.Alliance'))]
     t = f('GameSysTurnBasedGame.xml')
     m = re.search(r'dateCurrentDate" value="(\d+)/(\d+)/(\d+)"', open(t, encoding='utf-8', errors='replace').read()) if t else None
     return {'nations': nations, 'regions': regions, 'cities': cities, 'capitals': capitals, 'groups': list(groups.values()),
@@ -224,16 +283,37 @@ def _drop_template_events(d):
 
     def drop(m):
         n = re.search(r'name="fileSharedData" value="([^"]+)"', m.group(0))
-        if n and n.group(1) not in keep:
+        if n and os.path.basename(n.group(1).replace('\\', '/')) not in keep:     # official ones point to ../../ScenarioDefaults/
             gone.append(n.group(1))
             return ''
         return m.group(0)
     raw = re.sub(r'[ \t]*<object type="SharedDataFileRef".*?</object>\r?\n', drop, raw, flags=re.S)
     open(f, 'w', encoding='utf-8', newline='').write(raw)
-    for g in set(gone):
-        if os.path.isfile(os.path.join(d, g)):
+    for g in set(gone):     # only the copy in the new scenario's folder: never the game's ScenarioDefaults
+        if os.path.basename(g) == g and os.path.isfile(os.path.join(d, g)):
             os.remove(os.path.join(d, g))
     return sorted(set(gone))
+
+
+def _drop_absent_events(s):
+    """Removes the shared events (with their decisions and triggers) that name a country or region the scenario lacks:
+    MH1's standard 1936 events (USSR, Yugoslavia, Finland...) in a 1914 scenario. Returns the removed labels."""
+    import event_lint as EL
+    import scenario_events as EV
+    bad = {lab for _, lab, msg, _ in EL.lint(s) if msg.startswith((EL.M_COUNTRY, EL.M_REGION, EL.M_TO))}
+    bases = {re.sub(r'(Decision|_PlayEvent|_ScriptEvent|_Trigger\w*)+$', '', b) for b in bad if b}
+    evs = s.all_types(EV.EVENT_TYPES)
+    gone = {e for e in evs if (prop(e, 'strTypeLabel') or '').startswith(tuple(bases))}
+    while True:     # and whatever names a removed one (strDecisionType, strTypeToTrigger, «strTypeLabel == '…'»)
+        labels = {prop(e, 'strTypeLabel') for e in gone}
+        more = {e for e in evs if e not in gone and any(p.get('value') in labels or any("'%s'" % l in (p.get('value') or '') for l in labels)
+                                                        for p in e.iter('property'))}
+        if not more:
+            break
+        gone |= more
+    for e in gone:
+        s.s.remove(e)
+    return sorted({prop(e, 'strTypeLabel') for e in gone})
 
 
 def _culture(mh2, known):
@@ -265,52 +345,167 @@ def _templates(s, use):
     return out
 
 
-def _unit_for(mh2_tmpl, tmpls):
+def _unit_for(mh2_tmpl, tmpls, oldest=False):
     """(kind, MH1 template) for an MH2 unit template: same kind and keyword; among several, the most used in the scenario
-    and, if none is used, the last defined (the most modern). (kind, None) if MH1 has nothing like it."""
+    and, if none is used, the last defined (the most modern; with 'oldest', for WWI-era TGW / SWW, the first defined).
+    (kind, None) if MH1 has nothing like it."""
     for word, kind, words in UNIT_KINDS:
         if word.lower() in mh2_tmpl.lower():
             order = [n for n, _ in tmpls[kind]]
             for w in words:
                 c = [(n, u) for n, u in tmpls[kind] if w.lower() in n.lower()]
                 if c:
-                    return kind, max(c, key=lambda x: (x[1], order.index(x[0])))[0]
+                    return kind, max(c, key=lambda x: (x[1], -order.index(x[0]) if oldest else order.index(x[0])))[0]
             return kind, None
     return None, None
 
 
-def convert(src, pack, name, template=None, display=None, open_scenario=None, progress=None):
-    """Creates scenario 'name' on regionpack 'pack' from the MH2 scenario folder 'src' and saves it.
+def convert(src, pack, name, template=None, display=None, open_scenario=None, progress=None, game='mh2'):
+    """Creates scenario 'name' on regionpack 'pack' from the scenario folder 'src' of 'game' (mh2, tgw, sww) and saves it.
     'template': MH1 scenario whose shared data (unit types, research, AI...) the new one copies; None: the editor's own (1936).
     Returns {'name', 'notes', 'warnings'}. On an error halfway the half-made folder is removed."""
     import shutil
     import scenario_new
     import scenario_layers as L
-    if pack not in PACKS:
+    if pack not in PACKS and not (game != 'mh2' and pack == TGW_PACK):
         raise ValueError('el importador de MH2 necesita el regionpack WorldMoreRegions o WorldMoreRegionsRivers (hechos con el mapa de MH2)')
-    if pack not in packs()['installed']:
+    if pack not in packs(game)['installed']:
         raise ValueError('instala primero el regionpack %s: el importador de MH2 necesita WorldMoreRegions o WorldMoreRegionsRivers' % pack)
     pm = L.pack_map(pack)
     tick = progress or (lambda pct, msg: None)
-    tick(2, 'Leyendo el escenario de MH2')
+    tick(2, 'Leyendo el escenario de %s' % GAME_NAMES[game])
     data = read(src)
+    merged = _merge_dependents(data)
+    if game != 'mh2' and pack != TGW_PACK:
+        _onto_wmr(data, pm)
     y, mo, d = data['date']
     name = scenario_new.create_scenario(name, pack, template, display or name,
-                                        'Convertido de Making History II (%s)' % os.path.basename(src.rstrip('\\/')), y, mo, d)
+                                        'Convertido de %s (%s)' % (GAME_NAMES[game], os.path.basename(src.rstrip('\\/'))), y, mo, d)
     try:
         notes, warns = ['escenario %s creado (%02d/%02d/%d, regionpack %s)' % (name, d, mo, y, pack)], []
+        for f in ('Title.tga', 'Button.tga', 'ButtonOver.tga'):     # the template's list images would show another scenario: none
+            p = os.path.join(sc.SCEN_ROOT, name, f)
+            if os.path.isfile(p):
+                os.remove(p)
         if template:
             gone = _drop_template_events(os.path.join(sc.SCEN_ROOT, name))
             if gone:
                 notes.append('de la plantilla %s se copian las unidades, la investigación y la IA, no sus eventos (%s)' % (template, ', '.join(gone)))
         s = (open_scenario or sc.Scenario)(name)
-        _build(s, data, pm, notes, warns, tick, _template_usage(template))
+        _build(s, data, pm, notes, warns, tick, _template_usage(template), GAME_SHORT[game])
         tick(97, 'Guardando')
         s.s.save(scenario=s)
     except Exception:
         shutil.rmtree(os.path.join(sc.SCEN_ROOT, name), ignore_errors=True)
         raise
     return {'name': name, 'notes': notes, 'warnings': warns}
+
+
+def _merge_dependents(data):
+    """Colonies and protectorates (TGW / SWW): their wars and alliances pass to their overlord (MH1 has no such status;
+    their land passes to it at the end, in _surrender_dependents). Returns {dependent: overlord}."""
+    N = data['nations']
+    top = {}
+    for k in N:
+        o, seen = k, set()
+        while N.get(o, {}).get('status') in ('Colony', 'Protectorate') and N[o].get('overlord') in N and o not in seen:
+            seen.add(o)
+            o = N[o]['overlord']
+        if o != k:
+            top[k] = o
+    up = lambda k: top.get(k, k)
+    data['dependents'] = top
+    data['wars'] = list(dict.fromkeys((up(a), up(b)) for a, b in data['wars'] if up(a) != up(b)))
+    data['alliances'] = [(n, list(dict.fromkeys(up(m) for m in ms))) for n, ms in data['alliances']]
+    return top
+
+
+def _surrender_dependents(s, data, nat, present, city_name, notes, warns):
+    """Colonies and protectorates become MH1 surrendered nations (as Algeria in the game's own 1936 scenarios): their
+    land and units go to their overlord, they keep their former regions as historic ones and can be liberated."""
+    import scenario_layers as L
+    import scenario_new
+    cities = {prop(c, 'strName') for c in s.all('City')}
+    done, merged = 0, 0
+    for dep, ov in sorted(data['dependents'].items()):
+        if dep not in present or ov not in present:
+            continue
+        name, regs = nat[dep], [prop(r, 'strName') for r in s.regions(sea=False) if prop(r, 'strOwner') == nat[dep]]
+        cap = city_name.get(data['capitals'].get(dep)) or prop(s.countries()[name], 'strCapital')
+        try:
+            if regs:
+                scenario_new.add_historic(s, name, regs)
+            if cap in cities:
+                L.make_surrendered(s, name, cap, nat[ov])
+                done += 1
+            else:
+                L.delete_country(s, name, nat[ov])
+                merged += 1
+        except ValueError as e:
+            warns.append('AVISO %s: %s' % (name, e))
+    notes.append('%d colonias y protectorados pasan a su metrópoli como naciones rendidas (liberables)' % done
+                 + (', %d sin capital se funden con ella' % merged if merged else ''))
+
+
+def _country_types(s, data, nat, notes, majors=8, minor_regions=3):
+    """MH1's three tiers, from each country's industry: the 'majors' with most IPUs are PLAYABLE (MH1's great powers),
+    other countries with at least 'minor_regions' regions FEATURED (selectable minors), the rest (puppets included) neither."""
+    st = s.s
+    puppets = {nat[k] for k, v in data['nations'].items() if v.get('status') == 'Puppet' and k in nat}
+    ipus, nreg = Counter(), Counter()
+    for r in s.regions(sea=False):
+        o = prop(r, 'strOwner')
+        nreg[o] += 1
+        for c in objs(r):
+            if c.get('type') == 'City':
+                ipus[o] += sum(int(p.get('value') or 0) for p in c.iter('property') if p.get('name') == 'nIPUs')
+    alive = [n for n, c in s.countries().items() if prop(c, 'bSurrendered') != 'true']
+    big = set(sorted((n for n in alive if n not in puppets), key=lambda n: -ipus[n])[:majors])
+    for n in alive:
+        t = 'COUNTRYTYPE_PLAYABLE' if n in big else 'COUNTRYTYPE_FEATURED' if n not in puppets and nreg[n] >= minor_regions else 'COUNTRYTYPE_NON_FEATURED'
+        st.set_prop(s.countries()[n], 'eCountryType', t)
+        st.set_prop(s.countries()[n], 'bNonPlayable', 'false' if n in big else 'true')
+    notes.append('jugables (grandes potencias por industria): %s' % ', '.join(sorted(big)))
+
+
+def _onto_wmr(data, pm):
+    """TGW / SWW data renamed in place to WorldMoreRegions regions (data/tgw_sww_regions.json). Regions merged into one
+    add their population and resources to it; a WorldMoreRegions region no TGW region goes into takes the owner, terrain
+    and culture of the TGW region covering most of it, and that region's population is shared by area. Cities go into
+    the region containing them, units and ports follow their region's new name."""
+    import json
+    from shapely.geometry import Point
+    t = json.load(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data', 'tgw_sww_regions.json'), encoding='utf-8'))
+    into = lambda n: t['into'].get(n, n)
+    R, out = data['regions'], {}
+    for n in sorted(R, key=lambda n: into(n) != n):       # the region of the same name first: it gives the owner
+        w = into(n)
+        if w in out:
+            out[w]['pop'] = str(int(out[w]['pop'] or 0) + int(R[n]['pop'] or 0))
+            out[w]['resources'] = out[w]['resources'] + R[n]['resources']
+        else:
+            out[w] = dict(R[n])
+    area = lambda n: pm.geom(n).area if pm.geom(n) is not None else 0
+    for src in set(t['from'].values()) & set(R):
+        ws = [w for w, x in t['from'].items() if x == src and w in pm.sea]
+        if into(src) in out:
+            ws.append(into(src))
+        tot, pop = sum(area(w) for w in ws) or 1, int(R[src]['pop'] or 0)
+        for w in ws:
+            share = round(pop * area(w) / tot)
+            if w == into(src):
+                out[w]['pop'] = str(int(out[w]['pop'] or 0) - pop + share)
+            else:
+                out[w] = dict(R[src], pop=str(share), resources=[])
+    data['regions'] = out
+    for c in data['cities']:
+        w = into(c['region'])
+        if c['xy'] and not (pm.geom(w) is not None and pm.geom(w).covers(Point(*c['xy']))):
+            w = pm.region_at(*c['xy']) or w
+        c['region'], c['sea'] = w, into(c['sea']) if c['sea'] else None
+    at = {c['name']: c['region'] for c in data['cities']}
+    for g in data['groups']:       # docked fleets stay with their city
+        g['region'] = at.get(g.get('city')) or (into(g['region']) if g['region'] else None)
 
 
 def _owners(land, src, nations, pm):
@@ -331,7 +526,7 @@ def _owners(land, src, nations, pm):
     return owner
 
 
-def _build(s, data, pm, notes, warns, tick, use):
+def _build(s, data, pm, notes, warns, tick, use, short='MH2'):
     import scenario_new
     import scenario_layers as L
     import scenario_create as C
@@ -345,14 +540,15 @@ def _build(s, data, pm, notes, warns, tick, use):
     src = {n: R.get(mh2_of.get(_key(n))) for n in land}
     nat, used = {}, set()          # MH2 id -> MH1 name: its visible name, unique and valid as a file name
     for k, v in sorted(N.items(), key=lambda kv: kv[1]['display']):
-        n = _safe(v['display']) or _safe(k)
+        n = MH1_NAMES.get(k) if MH1_NAMES.get(k, '').lower() not in used else None
+        n = n or _safe(v['display']) or _safe(k)
         while n.lower() in used:
             n += ' (%s)' % k
         used.add(n.lower())
         nat[k] = n
     owner = _owners(land, src, N, pm)
     present = {o for o, _ in owner.values()}
-    cult_known = [prop(c, 'strName') for c in s.all('CultureTemplate') if prop(c, 'strName')]
+    cult_known = [n for n in (prop(c, 'strCultureName') or prop(c, 'strName') for c in s.all('CultureTemplate')) if n]
     log = {x['nombre']: x for e in pm.changelog for x in e.get('regiones_nuevas', [])}
     texts = {t['region']: t['texto'] for e in pm.changelog for t in e.get('textos', []) if t.get('region') and t.get('texto')}    # visible names with spaces
 
@@ -460,7 +656,7 @@ def _build(s, data, pm, notes, warns, tick, use):
             continue
         kinds = defaultdict(Counter)
         for u in g['units']:
-            kind, t = _unit_for(u, tmpls)
+            kind, t = _unit_for(u, tmpls, oldest=short != 'MH2')
             if t:
                 kinds[kind][t] += 1
                 mapped[(u, t)] += 1
@@ -490,9 +686,9 @@ def _build(s, data, pm, notes, warns, tick, use):
                 made += 1
             except ValueError as e:
                 warns.append('AVISO grupo %s: %s' % (gname, e))
-    notes.append('%d ejércitos, flotas y fuerzas aéreas; unidades MH2 → MH1: %s' % (made, ', '.join('%s → %s ×%d' % (a, b, n_) for (a, b), n_ in sorted(mapped.items()))))
+    notes.append('%d ejércitos, flotas y fuerzas aéreas; unidades %s → MH1: %s' % (made, short, ', '.join('%s → %s ×%d' % (a, b, n_) for (a, b), n_ in sorted(mapped.items()))))
     if dropped:
-        warns.append('unidades de MH2 sin equivalente en MH1 (no se crean): %s' % ', '.join('%s ×%d' % kv for kv in dropped.most_common()))
+        warns.append('unidades de %s sin equivalente en MH1 (no se crean): %s' % (short, ', '.join('%s ×%d' % kv for kv in dropped.most_common())))
 
     tick(85, 'Investigación de las unidades')
     items = tech_units.plan(s, sorted(nat[k] for k in present))
@@ -501,12 +697,6 @@ def _build(s, data, pm, notes, warns, tick, use):
         notes.append('investigación marcada como completada para poder usar sus unidades: %d países' % len(items))
 
     tick(88, 'Diplomacia')
-    for a, b in data['wars']:
-        if a in present and b in present:
-            try:
-                notes += C.create_war(s, [nat[a]], [nat[b]])
-            except ValueError as e:
-                warns.append('AVISO guerra %s - %s: %s' % (nat.get(a, a), nat.get(b, b), e))
     for al, members in data['alliances']:
         ms = [nat[m] for m in members if m in present]
         if len(ms) > 1:
@@ -514,21 +704,34 @@ def _build(s, data, pm, notes, warns, tick, use):
                 notes += C.create_alliance(s, al, ms[0], ms[1:])[1]
             except ValueError as e:
                 warns.append('AVISO alianza %s: %s' % (al, e))
+    for a, b in data['wars']:
+        if a in present and b in present:
+            try:
+                notes += C.create_war(s, [nat[a]], [nat[b]])
+            except ValueError as e:
+                warns.append('AVISO guerra %s - %s: %s' % (nat.get(a, a), nat.get(b, b), e))
     if not data['wars'] and not data['alliances']:
-        notes.append('el escenario de MH2 no tiene guerras ni alianzas')
+        notes.append('el escenario de %s no tiene guerras ni alianzas' % short)
     if data['trade']:
-        warns.append('%d acuerdos comerciales de MH2 no se copian' % data['trade'])
-    notes.append('no se copian los niveles de relación diplomática ni la investigación propia de MH2 (MH1 no tiene equivalentes)')
+        warns.append('%d acuerdos comerciales de %s no se copian' % (data['trade'], short))
+    notes.append('no se copian los niveles de relación diplomática ni la investigación propia de %s (MH1 no tiene equivalentes)' % short)
 
     tick(90, 'Banderas')
     flags = 0
     for k in present:
         try:
-            flags += _flag(s, nat[k], N[k])
+            flags += _flag(s, nat[k], N[k], short)
         except Exception as e:      # an unreadable image must not stop the conversion
             warns.append('AVISO bandera de %s: %s' % (nat[k], e))
-    notes.append('banderas de MH2 para %d de %d naciones' % (flags, len(present)))
+    notes.append('banderas de %s para %d de %d naciones' % (short if short != 'MH2' and _game_flags(short) else 'MH2', flags, len(present)))
+    if data.get('dependents'):
+        _surrender_dependents(s, data, nat, present, city_name, notes, warns)
+        _country_types(s, data, nat, notes)
     warns += ['AVISO naciones: %s' % x for x in scenario_new.check_nations(s)]
+    if short != 'MH2':
+        gone = _drop_absent_events(s)
+        if gone:
+            notes.append('%d eventos y decisiones de MH1 quitados porque nombran países o regiones que este escenario no tiene' % len(gone))
 
 
 def _mh2_flags():
@@ -540,19 +743,37 @@ def _mh2_flags():
     return None
 
 
-def _flag(s, name, v):
-    """The nation's flag files from MH2's flag of its nationality and government. 1 if written, 0 if MH2 has none."""
+def _game_flags(short):
+    """TGW / SWW's own flag folder (period flags, «<Nationality>-<Government>.dds» 256x128), or None."""
+    import gamepaths
+    inst, sub, _ = GAMES[short.lower()]
+    for common in gamepaths._steam_libraries():
+        d = os.path.join(common, inst, 'content', sub, 'modules', 'ui lib', 'skin', 'textures', 'art')
+        if os.path.isdir(d):
+            return d
+    return None
+
+
+def _flag(s, name, v, short='MH2'):
+    """The nation's flag files from the source game's flag of its nationality and government (TGW / SWW: their own
+    set, else MH2's). 1 if written, 0 if there is none."""
     from PIL import Image
     import image_tools as T
-    root, nat = _mh2_flags(), v.get('nationality')
-    d = os.path.join(root, nat) if root and nat else None
-    if not d or not os.path.isdir(d):
-        return 0
-    pick = [os.path.join(d, '%s-%s256x128.png' % (nat, g)) for g in (v['gov'],) + GOVS]
-    f = next((p for p in pick if os.path.isfile(p)), None) or next((os.path.join(d, x) for x in sorted(os.listdir(d)) if x.endswith('256x128.png')), None)
+    nat, f = v.get('nationality'), None
+    own = _game_flags(short) if short != 'MH2' else None
+    if own and nat:
+        pick = [os.path.join(own, '%s-%s.dds' % (nat, g)) for g in (v['gov'],) + GOVS]
+        f = next((p for p in pick if os.path.isfile(p)), None)
+    if not f:
+        root = _mh2_flags()
+        d = os.path.join(root, nat) if root and nat else None
+        if d and os.path.isdir(d):
+            pick = [os.path.join(d, '%s-%s256x128.png' % (nat, g)) for g in (v['gov'],) + GOVS]
+            f = next((p for p in pick if os.path.isfile(p)), None) or next((os.path.join(d, x) for x in sorted(os.listdir(d)) if x.endswith('256x128.png')), None)
     if not f:
         return 0
     out = os.path.join(T.countries_dir(s.name), T.safe_name(name))
-    files = T.flag_set(Image.open(f), only='flag')
+    dec = f[:-4] + '-Decal.dds'          # TGW / SWW: the nation's roundel next to its flag
+    files = T.flag_set(Image.open(f), decal=Image.open(dec), removebg=False) if f.endswith('.dds') and os.path.isfile(dec)         else T.flag_set(Image.open(f), only='flag')
     T.write_files({os.path.join(out, k): T.encode(im, k, T.FLAG_FMT.get(k, T.DEFAULT_FMT)) for k, im in files.items()}, 'bandera-' + T.safe_name(name))
     return 1

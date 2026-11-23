@@ -871,6 +871,11 @@ class Handler(BaseHTTPRequestHandler):
                     return self.send(200, select_game(payload['game']))
                 except ValueError as e:
                     return self.send(200, {'error': str(e)})
+            if u.path == '/api/game/path':      # game folder chosen by hand (external disk, install without Steam)
+                try:
+                    return self.send(200, gamepaths.set_path(payload['game'], payload['path']))
+                except ValueError as e:
+                    return self.send(200, {'error': str(e)})
             if u.path == '/api/xconvert':
                 try:
                     return self.send(200, xconvert_api(payload))
@@ -923,6 +928,12 @@ class Handler(BaseHTTPRequestHandler):
                 out = os.path.join(PROJECT.dir, 'art', 'MiniMap.tga')
                 im.resize(size, Image.LANCZOS).save(out, format='TGA')
                 log('minimapa importado: %s (%dx%d)' % (out, size[0], size[1]))
+                return self.send(200, {'ok': True, 'size': list(size)})
+            if u.path == '/api/minimap/auto':
+                # minimap drawn from the land regions (project art/MiniMap.tga, reaches the game with «Instalar»)
+                import terrain_image
+                out, size, _cov = terrain_image.make_minimap(PROJECT)
+                log('minimapa generado: %s (%dx%d)' % (out, size[0], size[1]))
                 return self.send(200, {'ok': True, 'size': list(size)})
             if u.path == '/api/terrain/import':
                 # background image -> project DXT5 tiles (reaches the game with «Instalar»)
@@ -1709,6 +1720,9 @@ def scen_get(path, q):
             return scenario_i18n.L(scenario_events.describe(view_for(q['id']), scenario_core.STORE.get(q['id'])))
         if path == '/api/scen/ai_rules':
             return scenario_i18n.L(scenario_events.ai_rules(scenario(q['name']), q['country']))
+        if path == '/api/scen/triggers':          # «Reacciones (guerra / embargo)» tab: every TriggerCountry of the scenario
+            s = scenario(q['name'])
+            return scenario_i18n.L({'rows': scenario_events.triggers_all(s), 'countries': sorted(s.countries())})
         if path == '/api/scen/terrains':
             return {'terrains': scenario_events.terrains(scenario(q['name']))}
         if path == '/api/scen/region_export':
@@ -1726,9 +1740,23 @@ def scen_get(path, q):
             return scenario_i18n.L(scenario_events.terrain_colors(scenario(q['name'])))
         if path == '/api/scen/mh2_list':
             import mh2_import
-            return {'scenarios': mh2_import.scenarios(), 'packs': mh2_import.packs()}
+            g = q.get('game') or 'mh2'
+            if g not in mh2_import.GAMES:
+                raise ValueError('juego desconocido: %s' % g)
+            return {'scenarios': mh2_import.scenarios(g), 'packs': mh2_import.packs(g)}
+        if path == '/api/scen/hoi4_list':
+            import hoi4_import
+            return {'sources': [{k: x[k] for k in ('id', 'name', 'dates')} for x in hoi4_import.sources()],
+                    'pack': os.path.exists(os.path.join(editor_core.MAPS, hoi4_import.PACK, 'xml', 'regions.bin'))}
+        if path == '/api/scen/pax_snippet':
+            import pax_import
+            return {'snippet': pax_import.SNIPPET}
         if path == '/api/scen/cultures':
             return {'cultures': scenario_events.cultures(scenario(q['name']))}
+        if path == '/api/scen/skins':
+            return scenario_layers.country_skins(scenario(q['name']), q['country'])
+        if path == '/api/scen/stockpile':
+            return {'stockpile': scenario_events.country_stockpile(scenario(q['name']), q['country'])}
         if path == '/api/scen/ai':
             return scenario_layers.ai_summary(scenario(q['name']), q['country'])
         if path == '/api/scen/validate':
@@ -1829,12 +1857,42 @@ def scen_post(path, p):
                 open(f, 'wb').write(raw.encode('utf-8'))
             return {'name': r['scenario'], 'pack': scenario_core.pack_of(scenario(r['scenario']))}
         if path == '/api/scen/mh2_import':
-            # new scenario from a Making History II one, on WorldMoreRegions / WorldMoreRegionsRivers (made from MH2's map)
+            # new scenario from a Making History II / TGW / SWW one, on WorldMoreRegions / WorldMoreRegionsRivers (made from MH2's map)
             import mh2_import
-            r = mh2_import.convert(mh2_import.check_source(p.get('src')), p.get('pack'), p.get('name'), p.get('template') or None,
-                                   p.get('display') or None, open_scenario=scenario, progress=progress.step)
+            g = p.get('game') or 'mh2'
+            r = mh2_import.convert(mh2_import.check_source(p.get('src'), g), p.get('pack'), p.get('name'), p.get('template') or None,
+                                   p.get('display') or None, open_scenario=scenario, progress=progress.step, game=g)
             scenario_extra.ensure_dirs(os.path.join(scenario_core.SCEN_ROOT, r['name']))
             return r
+        if path == '/api/scen/hoi4_import':
+            # new scenario from Hearts of Iron IV (the game or a mod with its default map) on WorldHOI4 (drawn with HOI4's map)
+            import hoi4_import
+            r = hoi4_import.convert(hoi4_import.check_source(p.get('src')), p.get('date') or '1936.1.1', p.get('name'),
+                                    p.get('template') or None, p.get('display') or None, open_scenario=scenario, progress=progress.step)
+            scenario_extra.ensure_dirs(os.path.join(scenario_core.SCEN_ROOT, r['name']))
+            return r
+        if path == '/api/scen/pax_import':
+            # new scenario from a Pax Historia preset (JSON saved with pax_import.SNIPPET): an MH1 scenario with the preset's political map
+            import pax_import
+            r = pax_import.convert(pax_import.check_preset(p.get('preset')), p.get('base'), p.get('name'), p.get('display') or None,
+                                   open_scenario=scenario, progress=progress.step)
+            scenario_extra.ensure_dirs(os.path.join(scenario_core.SCEN_ROOT, r['name']))
+            return r
+        if path == '/api/scen/pack_install':
+            # an importer's regionpack (MH2 or HOI4 map) is missing: install it from its editor project, as «Instalar» does
+            import mh2_import, hoi4_import
+            allowed = list(mh2_import.PACKS) + [mh2_import.TGW_PACK, hoi4_import.PACK]
+            for pk in [x for x in (p.get('packs') or []) if x in allowed]:
+                if os.path.exists(os.path.join(editor_core.MAPS, pk, 'xml', 'regions.bin')):
+                    return {'pack': pk}
+                if os.path.exists(os.path.join(project_dir(pk), 'xml', 'regions.bin')):
+                    select_pack(pk)
+                    rep = PROJECT.install('same')
+                    if not rep.get('ok'):
+                        raise ValueError(rep.get('msg') or 'no se pudo instalar %s' % pk)
+                    PROJECT_VERSION[0] += 1
+                    return {'pack': pk}
+            raise ValueError('no está el proyecto del regionpack %s en el editor: instálalo desde el editor de regiones' % ' o '.join(p.get('packs') or []))
         if path == '/api/scen/new_scratch':
             # empty scenario on a regionpack (no nations): nations are added later when creating regions
             name = scenario_new.create_scenario(p['name'], p['pack'], p.get('template') or None, p.get('display') or None, p.get('description') or None)
@@ -1847,6 +1905,10 @@ def scen_post(path, p):
             # resource of a trade or aid flow (ResourceTrade): add, change or remove (amount 0)
             el = st.get(p['id'])
             notes = scenario_extra.flow_resource(st, el, p.get('resource'), p.get('amount'))
+            return {'notes': notes, 'detail': view_for(p['id']).detail(p['id'])}
+        if path == '/api/scen/set_list':
+            # repeated property edited as a list (a unit template's strCapabilities)
+            notes = scenario_extra.set_list(st, st.get(p['id']), p.get('prop'), p.get('values'))
             return {'notes': notes, 'detail': view_for(p['id']).detail(p['id'])}
         if path == '/api/scen/duplicate':
             new = st.duplicate(st.get(p['id']))
@@ -1874,12 +1936,28 @@ def scen_post(path, p):
         if path == '/api/scen/dirty':
             s = scenario(p['name'])
             return {'dirty': _dirty_of(s)}
+        if path == '/api/scen/palette':
+            # all nation colours to the Gold (or MH1) palette, in memory until «Guardar»
+            import convert_scenario
+            s = scenario(p['name'])
+            dst = p['to']
+            src = 'mh1' if dst == 'gold' else 'gold'
+            P = scenario_core.prop
+            players = {P(pl, 'strName'): pl for pl in s.all('Player') if P(pl, 'colCountryColor')}
+            new = convert_scenario.palette_map({n: P(pl, 'colCountryColor') for n, pl in players.items()}, src, dst, exclude={p['name']})
+            how = {}
+            for n, (c, k) in new.items():
+                if c.upper() != P(players[n], 'colCountryColor').upper():
+                    s.update(st.eid(players[n]), {'colCountryColor': c})
+                    how[k] = how.get(k, 0) + 1
+            return {'changed': how, 'total': len(new), 'dirty': _dirty_of(s)}
         if path == '/api/scen/partisans':
             s = scenario(p['name'])
             return {'notes': scenario_core.set_partisans(s, bool(p['enable'])), 'partisans': scenario_core.partisans_state(s),
                     'dirty': sorted(os.path.basename(x) for x in st.dirty)}
         if path in ('/api/scen/event_template', '/api/scen/event_when', '/api/scen/event_remove', '/api/scen/ai_rule', '/api/scen/event_add',
-                    '/api/scen/terrain', '/api/scen/terrain_delete', '/api/scen/culture', '/api/scen/culture_delete', '/api/scen/terrain_color'):
+                    '/api/scen/terrain', '/api/scen/terrain_delete', '/api/scen/culture', '/api/scen/culture_delete', '/api/scen/terrain_color',
+                    '/api/scen/country_cultures', '/api/scen/country_stockpile'):
             # events (templates, date/turn, remove with its chain), AI rules, terrain types and cultures
             s = scenario(p['name'])
             E, i = scenario_events, None
@@ -1901,6 +1979,8 @@ def scen_post(path, p):
                     i, notes = E.trigger_set(s, p['country'], dict(p, country=p.get('target')), p.get('id'))
                 elif op == 'delete':
                     notes = E.ai_rule_delete(s, p['id'])
+                elif op == 'triggers_bulk':           # several reactions at once (Reacciones tab)
+                    notes = E.triggers_bulk(s, p.get('ids') or [], p.get('war'), p.get('embargo'), bool(p.get('delete')))
                 else:
                     raise ValueError('operación desconocida: %s' % op)
             elif path == '/api/scen/terrain':
@@ -1909,6 +1989,10 @@ def scen_post(path, p):
                 i, notes = E.culture_create(s, p.get('culture'), p.get('display'))
             elif path == '/api/scen/culture_delete':
                 notes = E.culture_delete(s, p['id'], p.get('to'))
+            elif path == '/api/scen/country_cultures':     # the nation's culture set (nation panel)
+                notes = E.country_cultures_set(s, p['country'], p.get('cultures') or [])
+            elif path == '/api/scen/country_stockpile':    # the nation's starting stockpile (nation panel)
+                notes = E.country_stockpile_set(s, p['country'], p.get('amounts') or {})
             elif path == '/api/scen/terrain_color':       # explicit button: writes the game UnifiedMapViews.xml
                 notes = E.terrain_color_set(s, p['terrain'], p['color'])
             else:
@@ -2052,7 +2136,7 @@ def scen_post(path, p):
             elif k == 'country':
                 eid, notes = SC_.create_country(s, p['obj_name'], p.get('template') or None, p.get('color') or None, p.get('ctype') or 'Minor',
                                                 p.get('gov') or None, p.get('flag') or None, p.get('capital') or None, p.get('regions') or [],
-                                                p.get('description'), p.get('new_capital') or None)
+                                                p.get('description'), p.get('new_capital') or None, p.get('skin') or None)
             elif k == 'airforce':
                 eid, notes = SC_.create_airforce(s, p['owner'], p['obj_name'], p['region'], p.get('units') or [])
             elif k == 'govtype':
@@ -2224,6 +2308,14 @@ def scen_post(path, p):
             s = scenario(p['name'])
             notes = research_defaults.set_country(s, p['country'], p.get('on') or []) if p.get('country') else research_defaults.set_default(s, p.get('on') or [])
             return {'notes': notes, 'dirty': sorted(os.path.basename(z) for z in st.dirty if z in s.paths)}
+        if path == '/api/scen/skin':
+            # troop skin (unit models) of a nation: copy another country's, or one alias's sprite
+            s = scenario(p['name'])
+            if p.get('alias'):
+                notes = scenario_layers.set_skin_sprite(s, p['country'], p['kind'], p['alias'], p['sprite'])
+            else:
+                notes = scenario_layers.copy_skin(s, p['country'], p['source'], [k for k in ('land', 'air') if k in (p.get('kinds') or [])])
+            return {'notes': scenario_i18n.L(notes), 'dirty': _dirty_of(s)}
         if path == '/api/scen/rename_country':
             # rename a country: only how it looks (SID) or also the internal name, files and references
             s = scenario(p['name'])
@@ -2642,7 +2734,8 @@ def xconvert_api(p):
     if scen:
         rep = convert_scenario.convert(os.path.join(scenario_core.SCEN_ROOT, scen), dst,
                                        os.path.join(gamepaths.scen_root(dst), scen_out), src,
-                                       infra=p.get('infra', 'auto'), skip_images=bool(p.get('skip_images')), regionpack='no', log=log)
+                                       infra=p.get('infra', 'auto'), skip_images=bool(p.get('skip_images')), regionpack='no', log=log,
+                                       step=lambda pct, label: progress.step(50 + pct / 2, label))
         old = convert_scenario.map_of(rep['salida'])
         if pack and old == pack and pack_out != pack:
             convert_scenario.retarget_map(rep['salida'], pack, pack_out)
@@ -2666,7 +2759,8 @@ def convert_scenario_api(p):
     rep = convert_scenario.convert(src, dst_game, out, src_game, colors=bool(p.get('colors')), infra=p.get('infra', 'auto'),
                                    units_only=bool(p.get('units_only')), complete_new=p.get('complete_new', True),
                                    remove_partisan_event=p.get('remove_partisan_event', True),
-                                   skip_images=bool(p.get('skip_images')), regionpack=p.get('regionpack', 'auto'), log=log)
+                                   skip_images=bool(p.get('skip_images')), regionpack=p.get('regionpack', 'auto'), log=log,
+                                   step=progress.step)
     rep['resumen'] = convert_scenario.summary(rep)
     return rep
 
